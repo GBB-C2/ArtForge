@@ -253,7 +253,7 @@ impl App {
     }
     pub(super) fn start_destruction_previews(&mut self, sources: &[u64]) -> Result<(), String> {
         self.editor.playing = false;
-        let scene = self.editor.evaluated().map_err(|e|e.to_string())?;
+        let scene = self.evaluated_interactive().map_err(|e|e.to_string())?;
         let input = collect_inputs(&self.editor.project, &scene, sources)?;
         if self.destruction.preview.input.as_ref() != Some(&input) { self.destruction.preview.reset(); }
         self.destruction.preview.input = Some(input); self.destruction.preview.running = true;
@@ -265,7 +265,7 @@ impl App {
         }
         let Some(sources) = self.destruction.preview.input.as_ref().map(|inputs| inputs.iter().map(|i|i.source).collect::<Vec<_>>()) else { return; };
         if self.editor.playing { self.destruction.preview.reset(); return; }
-        let current = self.editor.evaluated().map_err(|e| e.to_string())
+        let current = self.evaluated_interactive().map_err(|e| e.to_string())
             .and_then(|scene| collect_inputs(&self.editor.project, &scene, &sources));
         if current.as_ref().ok() != self.destruction.preview.input.as_ref() {
             self.destruction.preview.reset();
@@ -277,7 +277,7 @@ impl App {
         }
     }
     pub(super) fn evaluated_viewport(&self) -> Result<EvaluatedScene, poseforge_core::CoreError> {
-        let mut scene = self.editor.evaluated()?;
+        let mut scene = self.evaluated_interactive()?;
         self.destruction.preview.apply(&self.editor.project, &mut scene);
         Ok(scene)
     }

@@ -133,7 +133,7 @@ impl App {
             self.focus_pick = None;
             return true;
         }
-        let Ok(eval) = self.editor.evaluated() else {
+        let Ok(eval) = self.evaluated_interactive() else {
             return true;
         };
         let Some(hit) = crate::picking::pick_surface(

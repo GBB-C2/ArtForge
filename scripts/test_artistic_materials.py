@@ -187,10 +187,11 @@ class ArtisticMaterialsTests(unittest.TestCase):
 
     def test_schema_defaults_migration_and_validation_remain_opt_in(self):
         core=source('crates/core/src/document.rs')
-        self.assertIn('SCHEMA_VERSION: u32 = 43',core)
+        version = int(re.search(r'SCHEMA_VERSION: u32 = (\d+)', core).group(1))
+        self.assertGreaterEqual(version, 43)
         self.assertRegex(core,r'#\[serde\(default\)\]\s*pub artistic:')
         self.assertIn('!m.artistic.valid()',core)
-        self.assertIn('1..=42 =>',source('crates/io/src/project.rs'))
+        self.assertIn(f'1..={version - 1} =>',source('crates/io/src/project.rs'))
         self.assertIn('enabled: false',source('crates/core/src/artistic.rs'))
 
     def test_versions_and_fx_hotfix_are_preserved(self):

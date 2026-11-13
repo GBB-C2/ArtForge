@@ -342,7 +342,7 @@ impl App {
         if chain.iter().any(|id| !self.node_selectable(*id)) {
             return None;
         }
-        let eval = self.editor.evaluated().ok()?;
+        let eval = self.evaluated_interactive().ok()?;
         let p = chain.map(|id| eval.global[&id].w_axis.truncate());
         let axis = (p[2] - p[0]).try_normalize()?;
         let bend = (p[1] - p[0] - axis * (p[1] - p[0]).dot(axis))
@@ -465,7 +465,7 @@ impl App {
                         self.preferences.animation_visible = true;
                     }
                 } else if action == R::CopyPart {
-                    if let Ok(eval) = self.editor.evaluated() {
+                    if let Ok(eval) = self.evaluated_interactive() {
                         self.rig_pose.clipboard =
                             ids.into_iter().map(|id| (id, eval.local[&id])).collect();
                     }
@@ -518,7 +518,7 @@ impl App {
         {
             return;
         }
-        let Ok(eval) = self.editor.evaluated() else {
+        let Ok(eval) = self.evaluated_interactive() else {
             return;
         };
         let p = u.palette();

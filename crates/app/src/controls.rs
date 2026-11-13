@@ -197,6 +197,7 @@ impl App {
     }
 
     pub(super) fn apply_field_value(&mut self, action: Action, value: &str) -> Result<(), String> {
+        if self.modifier_confirm(&action,value)? {return Ok(());}
         if action == Action::Collision(crate::ui::CollisionAction::Search) {
             self.collision_search_confirm(value); return Ok(());
         }

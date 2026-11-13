@@ -486,7 +486,7 @@ impl App {
         if selected.len() < 2 || selected.iter().any(|id| !self.node_selectable(*id)) {
             return None;
         }
-        let eval = self.editor.evaluated().ok()?;
+        let eval = self.evaluated_interactive().ok()?;
         let roots = self.editor.project.selection_roots(&selected);
         if roots.is_empty() {
             return None;
@@ -528,7 +528,7 @@ impl App {
         let Some(gizmo) = self.group_gizmo() else {
             return true;
         };
-        let Ok(eval) = self.editor.evaluated() else {
+        let Ok(eval) = self.evaluated_interactive() else {
             return true;
         };
         let origin = Transform {
@@ -729,7 +729,8 @@ impl App {
             return true;
         }
         if *action == Action::FrameSelected {
-            if let Ok(eval) = self.editor.evaluated() {
+            if self.frame_modifier_selection(&selected) {return true;}
+            if let Ok(eval) = self.evaluated_interactive() {
                 let points: Vec<_> = selected
                     .iter()
                     .filter_map(|id| eval.global.get(id))

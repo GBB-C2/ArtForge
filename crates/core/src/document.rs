@@ -7,7 +7,7 @@ use thiserror::Error;
 
 pub type NodeId = u64;
 pub type AssetId = u64;
-pub const SCHEMA_VERSION: u32 = 43;
+pub const SCHEMA_VERSION: u32 = 44;
 /// Every enabled light is evaluated by the realtime renderer. Disabled lights
 /// remain in the document without consuming a GPU light slot.
 pub const MAX_ENABLED_LIGHTS: usize = 8;
@@ -93,6 +93,9 @@ pub struct Node {
     /// Bottom-to-top surface overlays, owned by this instance. The mesh's face materials remain the foundation.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub material_layers: Vec<crate::MaterialLayer>,
+    /// Instance-owned, evaluated from top to bottom without changing the source mesh.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modifiers: Vec<crate::MeshModifier>,
     /// A liquid domain uses this node's local mesh bounds as its container.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fluid: Option<FluidDomainSettings>,
@@ -147,6 +150,7 @@ impl Node {
             transform: Transform::default(),
             rest_transform: None,
             material_layers: Vec::new(),
+            modifiers: Vec::new(),
             mesh: None,
             camera: None,
             physics: None,
@@ -958,6 +962,7 @@ impl Project {
         crate::animation::evaluate(self, clip, time, &BTreeMap::new())
     }
     pub fn validate(&self) -> Result<(), CoreError> {
+        self.validate_modifiers()?;
         self.validate_helpers()?;
         self.validate_fx()?;
         let invalid = |s: &str| CoreError::Invalid(s.into());

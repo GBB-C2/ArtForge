@@ -1,0 +1,137 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+   Compiling poseforge-core v0.48.3 (/workspace/scratch/40c18c9831a2/work/ArtForge-Studio-0.48.3-HOTFIX7/crates/core)
+   Compiling poseforge-render v0.48.3 (/workspace/scratch/40c18c9831a2/work/ArtForge-Studio-0.48.3-HOTFIX7/crates/render)
+   Compiling poseforge-io v0.48.3 (/workspace/scratch/40c18c9831a2/work/ArtForge-Studio-0.48.3-HOTFIX7/crates/io)
+   Compiling artforge v0.48.3 (/workspace/scratch/40c18c9831a2/work/ArtForge-Studio-0.48.3-HOTFIX7/crates/app)
+warning: variants `ShrinkSelection`, `Connected`, `InvertSelection`, and `View` are never constructed
+  --> crates/app/src/icons.rs:7:59
+   |
+ 6 | pub enum Icon {
+   |          ---- variants in this enum
+ 7 |     SelectPointer, SelectBox, SelectLasso, GrowSelection, ShrinkSelection,
+   |                                                           ^^^^^^^^^^^^^^^
+ 8 |     Connected, InvertSelection, EdgeLoop, EdgeRing,
+   |     ^^^^^^^^^  ^^^^^^^^^^^^^^^
+...
+47 |     View,
+   |     ^^^^
+   |
+   = note: `Icon` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: variant `FluidSource` is never constructed
+   --> crates/app/src/ui.rs:277:5
+    |
+259 | pub enum DropdownKind {
+    |          ------------ variant in this enum
+...
+277 |     FluidSource,
+    |     ^^^^^^^^^^^
+    |
+    = note: `DropdownKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variant `FluidFromMesh` is never constructed
+   --> crates/app/src/ui.rs:370:5
+    |
+347 | pub enum StudioAction {
+    |          ------------ variant in this enum
+...
+370 |     FluidFromMesh,
+    |     ^^^^^^^^^^^^^
+    |
+    = note: `StudioAction` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variant `EdgeBevel` is never constructed
+   --> crates/app/src/ui.rs:447:5
+    |
+429 | pub enum AuthorAction {
+    |          ------------ variant in this enum
+...
+447 |     EdgeBevel,
+    |     ^^^^^^^^^
+    |
+    = note: `AuthorAction` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: multiple variants are never constructed
+   --> crates/app/src/ui.rs:558:5
+    |
+554 | pub enum Action {
+    |          ------ variants in this enum
+...
+558 |     CreateEmpty,
+    |     ^^^^^^^^^^^
+...
+589 |     MaterialGrid,
+    |     ^^^^^^^^^^^^
+590 |     MaterialBrowse(bool),
+    |     ^^^^^^^^^^^^^^
+...
+602 |     MaterialSize,
+    |     ^^^^^^^^^^^^
+...
+605 |     ToggleTools,
+    |     ^^^^^^^^^^^
+...
+613 |     MaterialAssign(u64, u64, Option<u64>),
+    |     ^^^^^^^^^^^^^^
+...
+627 |     ToggleBodyMenu,
+    |     ^^^^^^^^^^^^^^
+...
+663 |     Reset,
+    |     ^^^^^
+...
+688 |     CopyPose,
+    |     ^^^^^^^^
+689 |     PastePose,
+    |     ^^^^^^^^^
+...
+706 |     Fluid,
+    |     ^^^^^
+707 |     FluidBake,
+    |     ^^^^^^^^^
+708 |     FluidBakeCancel,
+    |     ^^^^^^^^^^^^^^^
+709 |     FluidCacheClear,
+    |     ^^^^^^^^^^^^^^^
+710 |     FluidCacheSave,
+    |     ^^^^^^^^^^^^^^
+711 |     FluidCacheLoad,
+    |     ^^^^^^^^^^^^^^
+712 |     ResetFluid,
+    |     ^^^^^^^^^^
+713 |     FluidSurface,
+    |     ^^^^^^^^^^^^
+...
+735 |     SurfaceNextMesh,
+    |     ^^^^^^^^^^^^^^^
+...
+741 |     SurfaceUnassignMaterial,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^
+...
+745 |     SurfaceAssignMaterial(u64),
+    |     ^^^^^^^^^^^^^^^^^^^^^
+...
+749 |     SurfaceArtisticToggle,
+    |     ^^^^^^^^^^^^^^^^^^^^^
+750 |     SurfaceArtisticNextStyle,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^
+751 |     SurfaceArtisticReset,
+    |     ^^^^^^^^^^^^^^^^^^^^
+...
+784 |     FluidNumber(usize),
+    |     ^^^^^^^^^^^
+785 |     FluidPreset(u8),
+    |     ^^^^^^^^^^^
+786 |     FluidResetSettings,
+    |     ^^^^^^^^^^^^^^^^^^
+787 |     FluidFrame,
+    |     ^^^^^^^^^^
+    |
+    = note: `Action` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: `artforge` (bin "artforge") generated 5 warnings
+    Finished `dev` profile [optimized] target(s) in 8m 41s

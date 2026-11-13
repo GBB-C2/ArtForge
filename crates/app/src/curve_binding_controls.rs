@@ -137,7 +137,7 @@ impl App {
         }
         let result = if action == P::Clear {
             if self.path_binding().is_none() { return; }
-            let scene = match self.editor.evaluated() { Ok(scene) => scene, Err(e) => { self.status = e.to_string(); return; } };
+            let scene = match self.evaluated_interactive() { Ok(scene) => scene, Err(e) => { self.status = e.to_string(); return; } };
             match target {
                 BindingTarget::Node(id) => {
                     let mut prepared = self.editor.project.clone();

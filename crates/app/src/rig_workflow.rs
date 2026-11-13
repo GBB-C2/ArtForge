@@ -332,7 +332,8 @@ mod tests {
                         reachable |= a.build_ui().hits.iter().any(|h| h.action == required);
                     }
                     assert!(reachable);
-                    assert!(!a.build_ui().hits.iter().any(|h| h.action == Action::SurfaceTab(8)));
+                    // Tab 8 now belongs to procedural modifiers; rig controls remain in the object tab.
+                    assert!(a.build_ui().hits.iter().any(|h| h.action == Action::SurfaceTab(8)));
                     assert_eq!(a.editor.project, before);
                     assert_eq!(a.editor.undo_len(), 0);
                 }

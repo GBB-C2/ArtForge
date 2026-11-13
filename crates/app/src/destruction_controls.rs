@@ -302,7 +302,7 @@ impl App {
             D::Attach | D::Create | D::Bake | D::Play => {
                 self.cancel_drag(); self.cancel_modeling_live();
                 self.destruction.preview.reset();
-                let evaluated = match self.editor.evaluated() { Ok(scene) => scene, Err(error) => { self.status = error.to_string(); return; } };
+                let evaluated = match self.evaluated_interactive() { Ok(scene) => scene, Err(error) => { self.status = error.to_string(); return; } };
                 self.editor.playing = false;
                 let previous = self.editor.project.node(source).and_then(|n| n.destruction).and_then(|d| d.result);
                 let before = self.editor.project.clone(); let settings = self.destruction_settings();

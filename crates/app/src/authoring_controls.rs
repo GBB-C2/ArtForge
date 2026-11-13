@@ -222,7 +222,7 @@ impl App {
         let Ok(mesh) = self.editor.editable_mesh(id) else {
             return false;
         };
-        let Ok(evaluated) = self.editor.evaluated() else {
+        let Ok(evaluated) = self.evaluated_interactive() else {
             return false;
         };
         let Some(model) = evaluated.global.get(&id) else {

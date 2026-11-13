@@ -5,7 +5,7 @@ use super::*;
 // creation row through the existing scroll transform.
 pub(super) const CONTENT_SHIFT: f32 = -66.;
 pub(super) const RAIL_WIDTH: f32 = 40.;
-const TABS: [u8; 8] = [3, 6, 7, 0, 1, 12, 10, 9];
+const TABS: [u8; 9] = [3, 6, 7, 8, 0, 1, 12, 10, 9];
 
 impl App {
     pub(super) fn creation_toolbar_rect(&self) -> [f32; 4] {
@@ -125,7 +125,7 @@ impl App {
     pub(super) fn set_properties_tab(&mut self, tab: u8) {
         if tab == 14 { self.open_dropdown(ui::DropdownKind::AssetLibrary); return; }
         if tab != 12 { self.close_uv_workspace(false); }
-        let target = if matches!(tab, 2 | 5 | 8) || (tab == 12 && !self.uv.open)
+        let target = if matches!(tab, 2 | 5) || (tab == 12 && !self.uv.open)
             || (tab == 1 && !self.material_tab_available()
                 || tab == 10 && !self.normals_available())
         {
@@ -230,7 +230,7 @@ impl App {
             (Some(3), Icon::Render),
             (Some(6), Icon::Physics),
             (Some(7), Icon::Grid),
-            (Some(14), Icon::Library),
+            (Some(8), Icon::Modifiers),
             (Some(0), object_icon),
             (Some(1), Icon::Material),
             (None, Icon::Uv),
@@ -282,6 +282,7 @@ impl App {
             1 => "Материал",
             6 => "Физика",
             7 => "Геометрия",
+            8 => "Модификаторы",
             10 => "Нормали",
             9 => "Настройки программы",
             3 => "Рендер",
@@ -293,6 +294,14 @@ impl App {
             _ if self.editor.selected.is_some_and(|id| self.is_skeleton_object(id)) => "Скелет",
             _ => "Объект",
         };
+        // Keep the navigation rail within the compact animation workspace.
+        u.quiet_icon_button(
+            [x + w - 66., y + 6., 28., 28.],
+            "",
+            Action::DropdownOpen(ui::DropdownKind::AssetLibrary),
+            self.dropdown_is_open(ui::DropdownKind::AssetLibrary),
+            Icon::Library,
+        );
         u.quiet_button(
             [x + w - 34., y + 6., 28., 28.],
             "−",
@@ -314,7 +323,7 @@ impl App {
                 })
         };
         u.fitted_label(
-            [x + RAIL_WIDTH + 16., y + 12., w - RAIL_WIDTH - 64., 18.],
+            [x + RAIL_WIDTH + 16., y + 12., w - RAIL_WIDTH - 96., 18.],
             title,
             14.,
             p.text,

@@ -203,7 +203,7 @@ impl App {
         let Some(id) = self.weights.target.filter(|id| self.node_selectable(*id)) else {
             return false;
         };
-        let Ok(eval) = self.editor.evaluated() else {
+        let Ok(eval) = self.evaluated_interactive() else {
             return false;
         };
         let matrix = self.view().view_projection();

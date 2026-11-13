@@ -9,6 +9,7 @@ use winit::event::MouseButton;
 pub(super) enum Source {
     Items(Vec<SceneItem>),
     Material { node: u64, mesh: u64, material: u64 },
+    Modifier { node: u64, mesh: u64, modifier: poseforge_core::MeshModifier },
 }
 #[derive(Clone)]
 pub(super) struct SceneDrag {
@@ -31,7 +32,7 @@ impl SceneEntry {
             Self::Node(n) => SceneItem::Node(n.id),
             Self::Collection(id) => SceneItem::Folder(*id),
             Self::Light(i) => SceneItem::Light(*i),
-            Self::Material(node, _, _) | Self::Fluid(node, _) | Self::Cloth(node, _) | Self::Destruction(node, _) => SceneItem::Node(*node),
+            Self::Modifier(node,_,_) | Self::Material(node, _, _) | Self::Fluid(node, _) | Self::Cloth(node, _) | Self::Destruction(node, _) => SceneItem::Node(*node),
         }
     }
 }
@@ -302,6 +303,12 @@ impl App {
             return false;
         }
         let source = match action {
+            Action::Modifier(ui::ModifierAction::Select(node,id)) => {
+                if !self.modifier_editable(*node) {self.action(action.clone());return true;}
+                let Some(n)=self.editor.project.node(*node) else {return true;};
+                let Some(modifier)=n.modifiers.iter().find(|m|m.id==*id) else {return true;};
+                Source::Modifier {node:*node,mesh:n.mesh.unwrap(),modifier:modifier.clone()}
+            }
             Action::Select(id) => {
                 let ids = if self.object_selected(*id) {
                     self.object_selection()
@@ -554,7 +561,7 @@ impl App {
         let (node, target_material) = match row {
             SceneEntry::Node(row) => (row.id, None),
             SceneEntry::Material(node, material, _) => (node, material),
-            SceneEntry::Fluid(node, _) | SceneEntry::Cloth(node, _) | SceneEntry::Destruction(node, _) => (node, None),
+            SceneEntry::Modifier(node,_,_) | SceneEntry::Fluid(node, _) | SceneEntry::Cloth(node, _) | SceneEntry::Destruction(node, _) => (node, None),
             _ => {
                 self.status = "Перенесите материал на примитив или его материал.".into();
                 return true;
@@ -616,6 +623,25 @@ impl App {
             return;
         }
         match drag.source {
+            Source::Modifier {node,mesh,modifier} => {
+                if self.editor.project.node(node).is_none_or(|n|n.mesh!=Some(mesh)||!n.modifiers.contains(&modifier)) {return;}
+                let Some((row,y))=self.scene_row_at() else {return;};
+                let (target,anchor)=match row {
+                    SceneEntry::Node(row)=>(row.id,None),
+                    SceneEntry::Modifier(n,id,_)=>(n,Some(id)),
+                    SceneEntry::Material(n,_,_)=>(n,None),
+                    _=>{self.status="Перенесите модификатор на меш или строку его стека".into();return;},
+                };
+                if !self.modifier_editable(target) {self.status="Целевой меш недоступен для изменения".into();return;}
+                let stack=&self.editor.project.node(target).unwrap().modifiers;
+                let before=anchor.and_then(|id|stack.iter().position(|m|m.id==id))
+                    .and_then(|i|stack.get(i+usize::from(self.mouse[1]>=y+13.5))).map(|m|m.id);
+                let result=self.editor.transfer_modifier(node,modifier.id,target,before,self.modifiers.control_key());
+                if let Some(id)=self.result(result) {
+                    self.modifier_action(ui::ModifierAction::Select(target,id));
+                    self.status="Стек изменён · Ctrl+Z — отменить".into();
+                }
+            }
             Source::Items(items) => {
                 if let Some(destination) = self.scene_destination() {
                     self.move_scene_items(&items, destination);
@@ -698,6 +724,17 @@ impl App {
         }
         let r = self.scene_list_rect();
         let p = u.palette();
+        if matches!(drag.source,Source::Modifier {..}) {
+            if let Some((row,y))=self.scene_row_at() {
+                let target=match row {SceneEntry::Node(ref n)=>Some(n.id),SceneEntry::Modifier(n,_,_)|SceneEntry::Material(n,_,_)=>Some(n),_=>None};
+                if target.is_some_and(|n|self.modifier_editable(n)) {
+                    if matches!(row,SceneEntry::Modifier(..)) {
+                        u.rect([r[0]+4.,y+if self.mouse[1]>=y+13.5 {26.}else{0.},r[2]-8.,2.],p.accent);
+                    }else{u.surface_outline([r[0]+2.,y,r[2]-4.,25.],p.accent);}
+                }
+            }
+            return;
+        }
         if let Some((row, y)) = self.scene_row_at() {
             let inside = matches!(row, SceneEntry::Collection(_))
                 && self.mouse[1] > y + 6.

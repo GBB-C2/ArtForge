@@ -59,7 +59,7 @@ impl App {
             if self.editor.project.light_locked(index) {
                 return;
             }
-            let Ok(eval) = self.editor.evaluated() else {
+            let Ok(eval) = self.evaluated_interactive() else {
                 return;
             };
             let Some(inverse) = self.light_curve_frame(index).map(|m| m.inverse()) else { return; };
@@ -96,7 +96,7 @@ impl App {
             self.status = "Источник в заблокированной папке.".into();
             return;
         }
-        let Ok(eval) = self.editor.evaluated() else {
+        let Ok(eval) = self.evaluated_interactive() else {
             return;
         };
         let Some(node) = self.editor.project.node(target) else {
@@ -154,7 +154,7 @@ impl App {
             self.light_aim = None;
             return true;
         }
-        let Ok(eval) = self.editor.evaluated() else {
+        let Ok(eval) = self.evaluated_interactive() else {
             return true;
         };
         if let Some(hit) = crate::picking::pick_mesh(

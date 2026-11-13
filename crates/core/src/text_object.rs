@@ -141,7 +141,7 @@ impl Editor {
     pub fn convert_text_to_mesh(&mut self,id:u64)->Result<(),CoreError> {
         self.authoring_unlocked(id)?;
         if self.project.node(id).is_none_or(|n|n.text.is_none()) {return Err(invalid("Выберите текст"));}
-        let evaluated=self.evaluated()?;
+        let evaluated=self.evaluated_base()?;
         let meshes=evaluated.text_meshes.into_iter().filter(|(node,_)|*node==id).collect();
         self.transact("Преобразовать текст в меш",|p| {p.apply_text_meshes(&meshes);p.node_mut(id).unwrap().text=None;})
     }

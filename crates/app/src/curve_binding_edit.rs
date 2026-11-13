@@ -62,7 +62,7 @@ impl App {
         let Some(curve) = self.editing_path_curve() else { return; };
         if !self.editor.project.node_visible(curve, false) { return; }
         let Some(binding) = self.path_binding() else { return; };
-        let Ok(scene) = self.editor.evaluated() else { return; };
+        let Ok(scene) = self.evaluated_interactive() else { return; };
         let (position, negative_z) = match self.path_target() {
             Some(BindingTarget::Node(id)) => {
                 let Some(node) = self.editor.project.node(id) else { return; };

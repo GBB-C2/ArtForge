@@ -213,6 +213,11 @@ mod primitive_controls;
 mod program_settings;
 #[path = "bone_display_controls.rs"]
 mod bone_display_controls;
+#[path = "modifier_controls.rs"]
+mod modifier_controls;
+#[cfg(test)]
+#[path = "modifier_controls_tests.rs"]
+mod modifier_controls_tests;
 #[cfg(test)]
 #[path = "object_selection_tests.rs"]
 mod object_selection_tests;
@@ -542,6 +547,7 @@ impl Drop for Job {
 }
 
 struct App {
+    procedural: modifier_controls::State,
     nodes: node_editor::NodeEditor,
     uv: uv_editor::UvState,
     authoring: authoring_controls::AuthoringState,
@@ -749,6 +755,7 @@ impl App {
             orthographic: false,
             environments: Default::default(),
             scene_tools: Default::default(),
+            procedural: Default::default(),
             camera_view: None,
             last_light_target: None,
             light_aim: None,
@@ -953,6 +960,7 @@ impl App {
     fn inspector_content_bottom(&self) -> f32 {
         if let Some(bottom) = self.path_panel_bottom() { return bottom; }
         match self.surface.tab {
+            8 => self.modifier_panel_bottom(),
             12 => 784.,
             13 => if self.destruction_source().and_then(|id| self.editor.project.node(id)).is_some_and(|n| n.destruction.is_some()) { destruction_controls::PANEL_BOTTOM + self.collision_layout_shift(poseforge_core::CollisionKind::Destruction) } else { 370. },
             4 => if self.selected_fluid().is_some() { fluid_object_controls::PANEL_BOTTOM + 44. + self.collision_layout_shift(poseforge_core::CollisionKind::Fluid) } else { 350. },
@@ -1263,7 +1271,7 @@ impl App {
             }
             cursor = node.parent;
         }
-        let evaluated = self.editor.evaluated().ok()?;
+        let evaluated = self.evaluated_interactive().ok()?;
         let parent = self.editor.project.transform_frame(id, &evaluated.global, self.editor.time).ok()?;
         if self.tool == Tool::Rotate && crate::gizmo::uniform_parent_rotation(parent).is_none() {
             return None;
@@ -1293,7 +1301,7 @@ impl App {
             self.status = "Гизмо недоступно: проверьте блокировку и масштаб родителя. Числовые поля — в «Свойствах».".into();
             return;
         };
-        let Ok(evaluated) = self.editor.evaluated() else {
+        let Ok(evaluated) = self.evaluated_interactive() else {
             return;
         };
         let Some(transform) = evaluated.local.get(&id).copied() else {
@@ -1330,7 +1338,7 @@ impl App {
                         self.status = "Разблокируйте всю цепь IK перед позированием.".into();
                         return;
                     }
-                    if let Ok(evaluated) = self.editor.evaluated() {
+                    if let Ok(evaluated) = self.evaluated_interactive() {
                         let positions: Option<Vec<_>> = ids
                             .iter()
                             .map(|id| evaluated.global.get(id).map(|m| m.w_axis.truncate()))
@@ -1622,7 +1630,7 @@ impl App {
         }
     }
     fn editing_transform(&self, id: u64) -> Option<Transform> {
-        self.editor.evaluated().ok()?.local.get(&id).copied()
+        self.evaluated_interactive().ok()?.local.get(&id).copied()
     }
     fn input(&mut self, purpose: Action, value: String) {
         self.editor.playing = false;
@@ -2010,6 +2018,7 @@ impl App {
                     let eval = p.evaluated(clip, t).map_err(|e| e.to_string())?;
                     let mut sampled = p.clone();
                     sampled.apply_text_meshes(&eval.text_meshes);
+                    sampled.apply_text_meshes(&eval.modifier_meshes);
                     sampled.lights.clone_from(&eval.lights);
                     for n in &mut sampled.nodes {
                         if let Some(w) = eval.morph_weights.get(&n.id) {
@@ -2403,14 +2412,14 @@ impl App {
         }
     }
     fn frame_all(&mut self) {
-        let Ok(e) = self.editor.evaluated() else {
+        let Ok(e) = self.evaluated_interactive() else {
             return;
         };
         let mut min = Vec3::splat(f32::INFINITY);
         let mut max = Vec3::splat(f32::NEG_INFINITY);
         for n in &self.editor.project.nodes {
             if let Some(g) = e.global.get(&n.id) {
-                if let Some(mesh) = n.mesh.and_then(|m| self.editor.project.mesh(m)) {
+                if let Some(mesh) = e.modifier_meshes.get(&n.id).or_else(||e.text_meshes.get(&n.id)).or_else(||n.mesh.and_then(|m| self.editor.project.mesh(m))) {
                     for v in &mesh.vertices {
                         let p = g.transform_point3(Vec3::from_array(v.position));
                         min = min.min(p);
@@ -2617,6 +2626,7 @@ impl App {
         }
         self.remember_modeling_tool(&a);
         match a {
+            Action::Modifier(action) => self.modifier_action(action),
             Action::AssetCategory(_) | Action::AssetSearch | Action::AssetSearchClear
             | Action::AssetMaterial(_) | Action::AssetPreset(_) | Action::AssetScene(_) => self.asset_action(a),
             Action::Curve(action) => self.curve_action(action),
@@ -3259,12 +3269,14 @@ impl App {
                     "IK: выберите конечный сустав и потяните стрелку или центр гизмо.".into();
             }
             Action::FrameSelected => {
-                if self.frame_curve() {
+                if self.frame_modifier_selection(&self.object_selection()) {
+                    self.status = "Результат модификаторов целиком в кадре".into();
+                } else if self.frame_curve() {
                     self.status = "Кривая целиком в кадре".into();
                 } else if self.frame_edit_mesh() {
                     self.status = "Меш целиком в кадре · F2 — режим объекта".into();
                 } else if let Some(id) = self.editor.selected {
-                    if let Ok(e) = self.editor.evaluated() {
+                    if let Ok(e) = self.evaluated_interactive() {
                         if let Some(g) = e.global.get(&id) {
                             self.target = g.w_axis.truncate();
                             self.distance = self.distance.clamp(1., 4.);
@@ -3399,7 +3411,7 @@ impl App {
                     as usize;
             }
             Action::CopyPose => {
-                if let Ok(e) = self.editor.evaluated() {
+                if let Ok(e) = self.evaluated_interactive() {
                     self.copied_pose = Some(e.local);
                     self.status = "Поза скопирована.".into();
                 }
@@ -4248,7 +4260,7 @@ impl App {
         if self.preferences.skeleton && self.editor.mode != EditorMode::Render
             && self.editor.project.nodes.iter().any(|n| n.is_joint)
         {
-            if let Ok(evaluated) = self.editor.evaluated() {
+            if let Ok(evaluated) = self.evaluated_interactive() {
                 let bones = crate::bones::BoneOverlay::new(
                     &self.picking_project(),
                     &evaluated,
@@ -4367,7 +4379,9 @@ impl App {
                 self.mouse[0],
                 self.property_cursor_y(self.mouse[1] + scroll + properties::CONTENT_SHIFT),
             ]);
-            if self.surface.tab == 12 {
+            if self.surface.tab == 8 {
+                self.draw_modifier_panel(&mut u, rx, rw);
+            } else if self.surface.tab == 12 {
                 self.draw_uv_properties(&mut u, rx, rw);
             } else if self.surface.tab == 10 {
                 self.draw_normals_panel(&mut u, rx, rw);
@@ -5512,6 +5526,7 @@ impl App {
         // simulation ticks may change it while input is suspended for saving.
         if self.close_recovery.is_pending() { return; }
         self.poll_jobs();
+        self.tick_modifiers();
         self.poll_picker();
         self.tick_animation(dt);
         self.tick_fx(dt);

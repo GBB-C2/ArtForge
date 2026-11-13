@@ -304,9 +304,13 @@ impl App {
     }
     pub(super) fn material_drop_scope(&self, fallback: Option<u64>) -> Option<(u64, Option<BTreeSet<usize>>)> {
         if !self.canvas_input_at(self.mouse) { return None; }
-        let eval = self.editor.evaluated().ok()?;
+        let eval = self.evaluated_interactive().ok()?;
         if let Some(hit) = crate::picking::pick_material_surface(&self.picking_project(),&eval,self.view().view_projection(),self.viewport(),self.mouse) {
             if self.editor.project.node_locked(hit.node) { return None; }
+            // Generated face indices address the evaluated mesh, not the editable
+            // source. Object-mode drops paint this whole instance; face painting
+            // remains available on the original cage in mesh-edit mode.
+            if eval.modifier_meshes.contains_key(&hit.node) {return Some((hit.node,None));}
             let mesh = self.editor.project.node(hit.node)?.mesh.and_then(|id|self.editor.project.mesh(id))?;
             let faces = if self.authoring.editing==Some(hit.node) && self.authoring.selection_mode==ui::MeshSelection::Face
                 && self.authoring.faces.contains(&hit.face) { self.authoring.faces.clone() }

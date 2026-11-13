@@ -27,7 +27,7 @@ impl App {
         self.morph_panel_start()+260.+ if sources { self.morph_sources().len().min(PAGE) as f32*34.+38. } else { mesh.morph_targets.len().min(PAGE) as f32*82. }
     }
     fn morph_weight(&self, id:u64,index:usize) -> f32 {
-        self.editor.evaluated().ok().and_then(|e| e.morph_weights.get(&id).and_then(|w| w.get(index)).copied()).unwrap_or(0.)
+        self.evaluated_interactive().ok().and_then(|e| e.morph_weights.get(&id).and_then(|w| w.get(index)).copied()).unwrap_or(0.)
     }
     pub(super) fn morph_action(&mut self, a:M) {
         if self.job.is_some() || self.scene_write_pending() || self.editor.playing || self.authoring.editing.is_some() { return; }
@@ -110,7 +110,7 @@ impl App {
                 u.button([x,y+244.+i as f32*34.,w,28.],name,Action::Morph(M::Source(*id)),false);
             }
         } else {
-            let evaluated=self.editor.evaluated().ok();
+            let evaluated=self.evaluated_interactive().ok();
             if count==0 { u.fitted_label([x,y+210.,w,20.],"Создайте копию и измените её вершины.",10.,p.muted); }
             for (row,(i,target)) in mesh.morph_targets.iter().enumerate().skip(page*PAGE).take(PAGE).enumerate() {
                 let y=y+208.+row as f32*82.;

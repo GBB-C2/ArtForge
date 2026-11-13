@@ -38,7 +38,7 @@ impl App {
     }
     pub(super) fn frame_curve(&mut self) -> bool {
         let Some((id, curve)) = self.selected_curve() else { return false; };
-        let Ok(evaluated) = self.editor.evaluated() else { return false; };
+        let Ok(evaluated) = self.evaluated_interactive() else { return false; };
         let Some(model) = evaluated.global.get(&id) else { return false; };
         let mut min = Vec3::splat(f32::INFINITY); let mut max = Vec3::splat(f32::NEG_INFINITY);
         for &point in &curve.points { let p = model.transform_point3(Vec3::from_array(point)); min = min.min(p); max = max.max(p); }
@@ -287,7 +287,7 @@ impl App {
         if self.curves.edit_points {
             if let Some((id, curve)) = self.selected_curve().filter(|(id, _)| self.node_selectable(*id)) {
                 let original = curve.clone();
-                let model = self.editor.evaluated().ok().and_then(|e| e.global.get(&id).copied()).unwrap_or(Mat4::IDENTITY);
+                let model = self.evaluated_interactive().ok().and_then(|e| e.global.get(&id).copied()).unwrap_or(Mat4::IDENTITY);
                 let hit = original.points.iter().enumerate().filter_map(|(index, p)| {
                     let world = model.transform_point3(Vec3::from_array(*p)); let screen = self.project_point(world)?;
                     let distance = Vec2::from_array(screen).distance(Vec2::from_array(self.mouse));
@@ -308,7 +308,7 @@ impl App {
     }
     pub(super) fn pick_curve_at(&self,pixel:[f32;2])->Option<u64> {
         let matrix=self.view().view_projection();let viewport=self.viewport();let pointer=Vec2::from_array(pixel);
-        let evaluated=self.editor.evaluated().ok()?;let globals=&evaluated.global;let mut best:Option<(u64,f32,f32)>=None;let mut budget=24_000usize;
+        let evaluated=self.evaluated_interactive().ok()?;let globals=&evaluated.global;let mut best:Option<(u64,f32,f32)>=None;let mut budget=24_000usize;
         for node in &self.editor.project.nodes {
             if budget==0 {break;}
             let Some(curve)=node.curve.as_ref().filter(|_|self.node_selectable(node.id)&&self.in_isolation(node.id)) else{continue;};
@@ -363,7 +363,7 @@ impl App {
             && !matches!(self.drag, Some(Drag::Curve(CurveDrag::Stroke { .. })))
             && !self.editor.project.nodes.iter().any(|n| n.curve.is_some())
         { return; }
-        let Ok(evaluated) = self.editor.evaluated() else { return; };
+        let Ok(evaluated) = self.evaluated_interactive() else { return; };
         let globals = &evaluated.global;
         let viewport = self.viewport(); let matrix = self.view().view_projection(); let palette = u.palette();
         let line = |u: &mut Ui, a: Vec3, b: Vec3, color, width| {

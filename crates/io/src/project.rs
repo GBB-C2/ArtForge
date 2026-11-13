@@ -104,7 +104,8 @@ fn migrate_loaded_project(mut project: Project) -> Result<Project> {
         // Schema 41 adds opt-in gas simulation, quality and four-point time profiles.
         // Schema 42 adds explicit combustion settings; absent Pyro preserves the old solver.
         // Schema 43 adds opt-in artistic surfaces; absent settings are disabled.
-        1..=42 => {
+        // Schema 44 adds non-destructive per-object modifier stacks; absent stacks are empty.
+        1..=43 => {
             // Earlier projects scattered every source in their shared fog.
             if project.version <= 21 && project.render_settings.atmosphere.density > 0. {
                 for light in &mut project.lights { light.volume.enabled = true; }

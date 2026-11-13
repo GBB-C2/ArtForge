@@ -78,6 +78,7 @@ pub enum Icon {
     Uv,
     UvIslands,
     Settings,
+    Modifiers,
     Camera,
     Search,
     Filter,
@@ -159,6 +160,13 @@ impl Icon {
         let point = |p: [f32; 2]| [origin[0] + p[0] * unit, origin[1] + p[1] * unit];
         let mut geometry = Geometry::default();
         match self {
+            Self::Modifiers => {
+                for i in 0..3 {
+                    let x = 3. + i as f32 * 2.;
+                    let y = 3. + i as f32 * 6.;
+                    geometry.closed(&[[x,y],[x+13.,y],[x+13.,y+4.],[x,y+4.]]);
+                }
+            }
             Self::MaterialAssign | Self::MaterialUnassign => {
                 geometry.closed(&[[3.,4.],[15.,4.],[15.,16.],[3.,16.]]);
                 geometry.path(&[[9.,4.],[9.,16.]]);

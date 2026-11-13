@@ -297,13 +297,13 @@ impl App {
     pub(super) fn evaluated_light(&self, index: usize) -> Option<Light> {
         let light = self.editor.project.lights.get(index)?;
         if light.target.is_none() && light.curve_binding.is_none() { return Some(light.clone()); }
-        let scene = self.editor.evaluated().ok()?;
+        let scene = self.evaluated_interactive().ok()?;
         scene.lights.get(index).cloned()
     }
     pub(super) fn light_curve_frame(&self, index: usize) -> Option<Mat4> {
         let light = self.editor.project.lights.get(index)?;
         let Some(binding) = light.curve_binding else { return Some(Mat4::IDENTITY); };
-        let scene = self.editor.evaluated().ok()?;
+        let scene = self.evaluated_interactive().ok()?;
         self.editor.project.curve_binding_frame(binding, &scene.global, self.editor.time, true).ok()
     }
 
@@ -354,7 +354,7 @@ impl App {
         }
         let curve = if gesture.gizmo.mode == Mode::Move && !self.path_offset_editing_for(super::curve_binding_controls::BindingTarget::Light(index)) {
             if let Some(binding) = original.curve_binding {
-                let prepared = self.editor.evaluated().and_then(|scene| self.editor.project.curve_translation(
+                let prepared = self.evaluated_interactive().and_then(|scene| self.editor.project.curve_translation(
                     binding, &scene.global, self.editor.time, original.position, true));
                 match prepared {
                     Ok(path) => Some(std::sync::Arc::new(path)),
@@ -395,7 +395,7 @@ impl App {
             return false;
         }
         let Some(index) = pick_marker(
-            &self.editor.evaluated().map(|e| e.lights).unwrap_or_else(|_| self.editor.project.lights.clone()),
+            &self.evaluated_interactive().map(|e| e.lights).unwrap_or_else(|_| self.editor.project.lights.clone()),
             self.active_light_index(),
             &self.view(),
             self.viewport(),
@@ -438,7 +438,7 @@ impl App {
                 } else {
                     let direction = (transform.rotation * Vec3::NEG_Z).normalize_or_zero();
                     preview.direction = if let Some(binding) = preview.curve_binding {
-                        let Some(frame) = self.editor.evaluated().ok().and_then(|e|
+                        let Some(frame) = self.evaluated_interactive().ok().and_then(|e|
                             self.editor.project.curve_binding_frame(binding, &e.global, self.editor.time, true).ok()) else {
                                 self.cancel_light_gesture("Кривая света недоступна; поворот отменён.".into()); return;
                             };
@@ -528,7 +528,7 @@ impl App {
         let view = self.view();
         // Evaluate all constrained lights once, including when many markers are visible.
         let resolved = self.editor.project.lights.iter().any(|l| l.target.is_some() || l.curve_binding.is_some())
-            .then(|| self.editor.evaluated().ok().map(|e| e.lights)).flatten();
+            .then(|| self.evaluated_interactive().ok().map(|e| e.lights)).flatten();
         let lights = resolved.as_deref().unwrap_or(&self.editor.project.lights);
         let hovered =
             if self.drag.is_none() && self.canvas_input_at(self.mouse) && !self.has_modal() {

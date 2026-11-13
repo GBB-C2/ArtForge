@@ -1,5 +1,5 @@
 use crate::{
-    animation::evaluate, two_bone_transforms, Clip, CoreError, EvaluatedScene, Interpolation,
+    animation::{evaluate, evaluate_base}, two_bone_transforms, Clip, CoreError, EvaluatedScene, Interpolation,
     KeyClipboard, KeyInterpolationPreset, KeyRef, NodeId, Project, Property, SavedPose, Transform,
 };
 use glam::{Quat, Vec3};
@@ -178,7 +178,7 @@ impl Editor {
             before.project.node(source).is_some_and(|s|s.mesh.is_some() || s.curve.is_some())
             && self.project.node(source).is_none_or(|s|s.mesh.is_none() && s.curve.is_none()))).map(|n|n.id).collect();
         if !detached_fx.is_empty() {
-            let sampled=match evaluate(&before.project,self.evaluated_clip(),self.time,&before.staged) {
+            let sampled=match evaluate_base(&before.project,self.evaluated_clip(),self.time,&before.staged) {
                 Ok(scene)=>scene,Err(error)=>{self.restore(before);return Err(error);}
             };
             for id in detached_fx {
@@ -194,7 +194,7 @@ impl Editor {
         let detached_lights: Vec<_> = self.project.lights.iter().enumerate()
             .filter(|(_, l)| lost_curve(l.curve_binding)).map(|(i, _)| i).collect();
         if !detached.is_empty() || !detached_lights.is_empty() {
-            let sampled = match evaluate(&before.project, self.evaluated_clip(), self.time, &before.staged) {
+            let sampled = match evaluate_base(&before.project, self.evaluated_clip(), self.time, &before.staged) {
                 Ok(scene) => scene,
                 Err(error) => { self.restore(before); return Err(error); }
             };
@@ -218,7 +218,7 @@ impl Editor {
                 .is_some_and(|t| self.project.node(t.node).is_none())
         });
         if missing_targets {
-            let globals = evaluate(
+            let globals = evaluate_base(
                 &before.project,
                 self.evaluated_clip(),
                 self.time,
@@ -369,6 +369,11 @@ impl Editor {
         scene.morph_weights.extend(self.staged_weights.clone());
         Ok(scene)
     }
+    pub fn evaluated_base(&self) -> Result<EvaluatedScene, CoreError> {
+        let mut scene = crate::animation::evaluate_base(&self.project, self.evaluated_clip(), self.time, &self.staged)?;
+        scene.morph_weights.extend(self.staged_weights.clone());
+        Ok(scene)
+    }
     pub fn has_staged(&self) -> bool {
         !self.staged.is_empty() || !self.staged_weights.is_empty()
     }
@@ -502,7 +507,7 @@ impl Editor {
     pub fn key_nodes(&mut self, nodes: &[NodeId]) -> Result<(), CoreError> {
         self.require_animation_command(true)?;
         let ids = self.checked_key_nodes(nodes)?;
-        let evaluated = self.evaluated()?;
+        let evaluated = self.evaluated_base()?;
         let transforms: Vec<_> = ids
             .iter()
             .map(|id| {
@@ -864,7 +869,7 @@ impl Editor {
         if self.project.node_locked(id) { return Err(CoreError::Invalid("Объект заблокирован".into())); }
         let count = n.mesh.and_then(|m| self.project.mesh(m)).map_or(0, |m| m.morph_targets.len());
         if index >= count || !value.is_finite() || !(0. ..=1.).contains(&value) { return Err(CoreError::Invalid("Вес морфа: 0–1".into())); }
-        let mut weights = self.evaluated()?.morph_weights.get(&id).cloned().unwrap_or(n.morph_weights.clone());
+        let mut weights = self.evaluated_base()?.morph_weights.get(&id).cloned().unwrap_or(n.morph_weights.clone());
         weights.resize(count, 0.); weights[index] = value;
         let before = self.snapshot();
         if self.mode == EditorMode::Animation {
@@ -881,7 +886,7 @@ impl Editor {
         let n = self.project.node(id).ok_or(CoreError::MissingNode(id))?;
         let count = n.mesh.and_then(|m| self.project.mesh(m)).map_or(0, |m| m.morph_targets.len());
         if count == 0 { return Err(CoreError::Invalid("Нет морфов для ключа".into())); }
-        let mut weights = self.evaluated()?.morph_weights.get(&id).cloned().unwrap_or(n.morph_weights.clone());
+        let mut weights = self.evaluated_base()?.morph_weights.get(&id).cloned().unwrap_or(n.morph_weights.clone());
         weights.resize(count, 0.);
         let before = self.snapshot(); let index = self.ensure_clip();
         crate::morph::key_weights(&mut self.project.clips[index], id, self.time, weights);
@@ -890,7 +895,7 @@ impl Editor {
     }
     pub fn key_transform(&mut self, id: NodeId) -> Result<(), CoreError> {
         let transform = *self
-            .evaluated()?
+            .evaluated_base()?
             .local
             .get(&id)
             .ok_or(CoreError::MissingNode(id))?;
@@ -910,7 +915,7 @@ impl Editor {
             let before = self.snapshot();
             // The ordinary key command also records visible, staged morphs.
             let weights = self.staged_weights[&id].clone();
-            let transform = *self.evaluated()?.local.get(&id).ok_or(CoreError::MissingNode(id))?;
+            let transform = *self.evaluated_base()?.local.get(&id).ok_or(CoreError::MissingNode(id))?;
             let index = self.ensure_clip();
             self.project.clips[index].key_transform(id,self.time,transform);
             crate::morph::key_weights(&mut self.project.clips[index],id,self.time,weights);
@@ -983,7 +988,7 @@ impl Editor {
         target: Vec3,
         pole: Vec3,
     ) -> Result<(), CoreError> {
-        let pose = self.evaluated()?;
+        let pose = self.evaluated_base()?;
         let transforms =
             two_bone_transforms(&self.project, &pose.local, root, middle, end, target, pole)?;
         let own_gesture = self.gesture.is_none();
@@ -1007,7 +1012,7 @@ impl Editor {
         let id = self
             .selected
             .ok_or_else(|| CoreError::Invalid("нет выделения".into()))?;
-        self.clipboard = self.evaluated()?.local.get(&id).copied();
+        self.clipboard = self.evaluated_base()?.local.get(&id).copied();
         Ok(())
     }
     pub fn paste_selected_pose(&mut self) -> Result<(), CoreError> {
@@ -1021,7 +1026,7 @@ impl Editor {
     }
     pub fn save_pose(&mut self, name: &str) -> Result<(), CoreError> {
         let transforms = self
-            .evaluated()?
+            .evaluated_base()?
             .local
             .into_iter()
             .filter(|(id, _)| self.project.node(*id).is_some_and(|n| n.is_joint))
@@ -1053,7 +1058,7 @@ impl Editor {
     }
     /// Mirror local pose across the X plane using explicit symmetric pairs.
     pub fn mirror_pose(&mut self, pairs: &[(NodeId, NodeId)]) -> Result<(), CoreError> {
-        let local = self.evaluated()?.local;
+        let local = self.evaluated_base()?.local;
         let mirror = |t: Transform| {
             let q = t.rotation;
             Transform {

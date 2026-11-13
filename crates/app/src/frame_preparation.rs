@@ -14,11 +14,12 @@ pub(super) fn render_project<'a>(
             .is_some_and(|weights| *weights != n.morph_weights)
     });
     let changed_lights = project.lights != evaluated.lights;
-    if !physics && !changed_morphs && !changed_lights && evaluated.text_meshes.is_empty() {
+    if !physics && !changed_morphs && !changed_lights && evaluated.text_meshes.is_empty() && evaluated.modifier_meshes.is_empty() {
         return Cow::Borrowed(project);
     }
     let mut sampled = project.clone();
     sampled.apply_text_meshes(&evaluated.text_meshes);
+    sampled.apply_text_meshes(&evaluated.modifier_meshes);
     if changed_lights { sampled.lights.clone_from(&evaluated.lights); }
     if changed_morphs {
         for node in &mut sampled.nodes {

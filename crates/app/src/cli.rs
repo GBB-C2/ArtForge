@@ -612,6 +612,8 @@ fn render_frame(
         .evaluated((!project.clips.is_empty()).then_some(0), time)
         .map_err(err)?;
     let mut evaluated = project.clone();
+    evaluated.apply_text_meshes(&scene.text_meshes);
+    evaluated.apply_text_meshes(&scene.modifier_meshes);
     evaluated.lights.clone_from(&scene.lights);
     for node in &mut evaluated.nodes {
         if let Some(weights) = scene.morph_weights.get(&node.id) {

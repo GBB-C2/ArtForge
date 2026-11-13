@@ -86,7 +86,7 @@ fn pick_surface_impl(project: &Project, eval: &EvaluatedScene, view_projection: 
         if (!include_locked && !selectable(node, &nodes)) || !selectable_ids.contains(&node.id) {
             continue;
         }
-        let Some(mesh) = eval.text_meshes.get(&node.id).or_else(||node.mesh.and_then(|id| meshes.get(&id).copied())) else {
+        let Some(mesh) = eval.modifier_meshes.get(&node.id).or_else(||eval.text_meshes.get(&node.id)).or_else(||node.mesh.and_then(|id| meshes.get(&id).copied())) else {
             continue;
         };
         let Some(&model) = eval.global.get(&node.id) else {

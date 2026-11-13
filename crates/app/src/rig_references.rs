@@ -275,7 +275,7 @@ impl App {
             self.redraw(); return true;
         }
         if self.canvas_input_at(self.mouse) {
-            if let Ok(evaluated) = self.editor.evaluated() {
+            if let Ok(evaluated) = self.evaluated_interactive() {
                 let project = self.picking_project();
                 let bone = (reference == RigReference::Skeleton).then(|| crate::bones::BoneOverlay::new(
                     &project, &evaluated, &self.view(), self.viewport()).hit(self.mouse)).flatten();

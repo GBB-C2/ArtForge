@@ -519,7 +519,7 @@ impl App {
         let editing = self.input.as_ref().is_some_and(|i| matches!(i.purpose, Action::FluidObject(ui::FluidObjectAction::Field(_))|Action::Helper(ui::HelperAction::Number(_))))
             || matches!(&self.drag, Some(Drag::Slider(d)) if matches!(d.action, Action::FluidObject(ui::FluidObjectAction::Field(_))|Action::Helper(ui::HelperAction::Number(_))));
         if editing { return; }
-        if let Ok(eval) = self.editor.evaluated() {
+        if let Ok(eval) = self.evaluated_interactive() {
             self.fluid_domains.update(&self.editor.project, &eval.global, self.editor.time);
         }
     }
@@ -527,7 +527,7 @@ impl App {
         let Some(node) = self.editor.selected.and_then(|id| self.editor.project.node(id)).filter(|n| n.fluid.is_some()) else { return };
         if !self.editor.project.node_visible(node.id, false) { return; }
         let Some(mesh) = node.mesh.and_then(|id| self.editor.project.mesh(id)) else { return };
-        let Ok(eval) = self.editor.evaluated() else { return };
+        let Ok(eval) = self.evaluated_interactive() else { return };
         let Some(model) = eval.global.get(&node.id) else { return };
         if node.fluid.is_some_and(|fluid| !fluid.visible) { return; }
         let mut edges = BTreeSet::new();

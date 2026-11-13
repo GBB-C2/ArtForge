@@ -123,7 +123,7 @@ fn mesh_modes_are_fixed_below_creation_and_divider_follows_geometry() {
                 a.preferences.right_width = Some(width);
                 for shown in [true, false] {
                     a.preferences.right_panel = shown;
-                    for tab in [0, 1, 3, 6, 7, 9] {
+                    for tab in [0, 1, 3, 6, 7, 8, 9] {
                         a.set_properties_tab(tab);
                         a.inspector_scroll = a.inspector_max_scroll();
                         let u = a.build_ui();
@@ -139,7 +139,7 @@ fn mesh_modes_are_fixed_below_creation_and_divider_follows_geometry() {
                         }
                         if shown {
                             let geometry = u.hits.iter().find(|h| h.action == Action::SurfaceTab(7)).unwrap().rect;
-                            assert!(!u.hits.iter().any(|h| h.action == Action::SurfaceTab(8)));
+                            assert!(u.hits.iter().any(|h| h.action == Action::SurfaceTab(8)));
                             let object = u.hits.iter().find(|h| h.action == Action::SurfaceTab(0)).unwrap().rect;
                             assert!(object[1] - (geometry[1] + geometry[3]) >= 16.);
                             assert!(u.rects.iter().any(|r| r.segment.is_none() && r.rect[2] == 20. * scale && r.rect[3] == scale

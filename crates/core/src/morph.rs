@@ -83,7 +83,7 @@ impl Editor {
         let weights = if let Some(index) = index {
             if index >= mesh.morph_targets.len() { return Err(invalid("Форма удалена")); }
             (0..mesh.morph_targets.len()).map(|i| if i == index { 1. } else { 0. }).collect::<Vec<_>>()
-        } else { self.evaluated()?.morph_weights.get(&node).cloned().unwrap_or(source.morph_weights.clone()) };
+        } else { self.evaluated_base()?.morph_weights.get(&node).cloned().unwrap_or(source.morph_weights.clone()) };
         for (i, vertex) in mesh.vertices.iter_mut().enumerate() {
             for (target, weight) in mesh.morph_targets.iter().zip(&weights) {
                 vertex.position = (Vec3::from_array(vertex.position) + Vec3::from_array(target.positions[i]) * *weight).to_array();

@@ -417,7 +417,7 @@ impl App {
             else {self.close_collision_selection();}
         } else if self.canvas_input_at(self.mouse) {
             if owner.source {if let Some(id)=self.pick_curve_at(self.mouse) {self.edit_collision(owner,C::Add(id));self.redraw();return true;}}
-            if let Ok(eval)=self.editor.evaluated() {
+            if let Ok(eval)=self.evaluated_interactive() {
                 let project=self.picking_project();
                 let hit=crate::picking::pick_mesh(&project,&eval,self.view().view_projection(),self.viewport(),self.mouse);
                 drop(project);

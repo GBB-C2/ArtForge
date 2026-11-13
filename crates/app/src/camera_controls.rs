@@ -166,7 +166,7 @@ impl App {
     }
     pub(super) fn camera_object_view(&self) -> Option<View> {
         let id = self.camera_view?;
-        let globals = self.editor.evaluated().ok()?.global;
+        let globals = self.evaluated_interactive().ok()?.global;
         let camera = self.editor.project.camera_from_node(id, &globals)?;
         let viewport = self.viewport().map(|v| v * self.scale);
         let aspect = self.editor.project.render_settings.output_width as f32
@@ -354,7 +354,7 @@ impl App {
                     return;
                 }
                 let view = self.view();
-                let Ok(eval) = self.editor.evaluated() else {
+                let Ok(eval) = self.evaluated_interactive() else {
                     return;
                 };
                 let camera = self
@@ -456,7 +456,7 @@ impl App {
         {
             return false;
         }
-        let Ok(eval) = self.editor.evaluated() else {
+        let Ok(eval) = self.evaluated_interactive() else {
             return false;
         };
         let view = self.view();
@@ -491,7 +491,7 @@ impl App {
         // scene. Only frustums require a full scene evaluation.
         let eval = (self.editor.mode != EditorMode::Render
             && self.editor.project.nodes.iter().any(|n| n.camera.is_some()))
-            .then(|| self.editor.evaluated().ok()).flatten();
+            .then(|| self.evaluated_interactive().ok()).flatten();
         let view = self.view();
         let vp = self.viewport();
         let palette = u.palette();

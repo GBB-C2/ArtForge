@@ -23,7 +23,7 @@ pub(super) fn inputs(project: &Project, globals: &BTreeMap<u64, Mat4>, render: b
             || selected.as_ref().map_or_else(
                 || node.physics.is_none_or(|p| !p.visible || p.kind != PhysicsKind::Collider),
                 |ids| !ids.contains(&node.id)) { return None; }
-        let mesh = evaluated.and_then(|e|e.text_meshes.get(&node.id)).or_else(||project.mesh(node.mesh?))?;
+        let mesh = evaluated.and_then(|e|e.modifier_meshes.get(&node.id).or_else(||e.text_meshes.get(&node.id))).or_else(||project.mesh(node.mesh?))?;
         let global = *globals.get(&node.id)?;
         // Skin matrices act in world space; the final conversion puts both rigid
         // and skinned obstacles in the same fluid-local (or world) coordinate system.

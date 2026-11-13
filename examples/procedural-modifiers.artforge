@@ -1,0 +1,1272 @@
+{
+  "outliner": {
+    "order": [],
+    "materials": {}
+  },
+  "environment_map": null,
+  "environment_library": [],
+  "saved_views": [],
+  "collections": [],
+  "version": 44,
+  "title": "Процедурные модификаторы",
+  "fps": 24,
+  "duration": 4.0,
+  "nodes": [
+    {
+      "empty": false,
+      "empty_shape": "Axes",
+      "empty_size": 1.0,
+      "modifiers": [
+        {
+          "id": 1,
+          "name": "Подразделение",
+          "enabled": true,
+          "settings": {
+            "Subdivision": {
+              "levels": 2,
+              "smooth": true
+            }
+          }
+        },
+        {
+          "id": 2,
+          "name": "Массив",
+          "enabled": true,
+          "settings": {
+            "Array": {
+              "count": 3,
+              "offset": [
+                2.5,
+                0.0,
+                0.0
+              ]
+            }
+          }
+        }
+      ],
+      "physics": null,
+      "id": 1,
+      "name": "Подразделение → Массив",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "rest_transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "mesh": 10,
+      "camera": null,
+      "skin": null,
+      "morph_weights": [],
+      "visible": true,
+      "render_visible": true,
+      "shadow_only": false,
+      "locked": false,
+      "is_joint": false
+    },
+    {
+      "empty": false,
+      "empty_shape": "Axes",
+      "empty_size": 1.0,
+      "physics": null,
+      "id": 2,
+      "name": "Исходный куб · без модификаторов",
+      "parent": null,
+      "transform": {
+        "translation": [
+          8.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "rest_transform": {
+        "translation": [
+          8.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "mesh": 10,
+      "camera": null,
+      "skin": null,
+      "morph_weights": [],
+      "visible": true,
+      "render_visible": true,
+      "shadow_only": false,
+      "locked": false,
+      "is_joint": false
+    }
+  ],
+  "meshes": [
+    {
+      "id": 10,
+      "name": "Куб",
+      "vertices": [
+        {
+          "position": [
+            1.0,
+            -1.0,
+            -1.0
+          ],
+          "normal": [
+            1.0,
+            0.0,
+            0.0
+          ],
+          "uv": [
+            0.0,
+            0.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            1.0,
+            1.0,
+            -1.0
+          ],
+          "normal": [
+            1.0,
+            0.0,
+            0.0
+          ],
+          "uv": [
+            1.0,
+            0.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            1.0,
+            -1.0,
+            1.0
+          ],
+          "normal": [
+            1.0,
+            0.0,
+            0.0
+          ],
+          "uv": [
+            0.0,
+            1.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "normal": [
+            1.0,
+            0.0,
+            0.0
+          ],
+          "uv": [
+            1.0,
+            1.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            -1.0,
+            1.0,
+            -1.0
+          ],
+          "normal": [
+            -1.0,
+            -0.0,
+            -0.0
+          ],
+          "uv": [
+            0.0,
+            0.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            -1.0,
+            -1.0,
+            -1.0
+          ],
+          "normal": [
+            -1.0,
+            -0.0,
+            -0.0
+          ],
+          "uv": [
+            1.0,
+            0.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            -1.0,
+            1.0,
+            1.0
+          ],
+          "normal": [
+            -1.0,
+            -0.0,
+            -0.0
+          ],
+          "uv": [
+            0.0,
+            1.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            -1.0,
+            -1.0,
+            1.0
+          ],
+          "normal": [
+            -1.0,
+            -0.0,
+            -0.0
+          ],
+          "uv": [
+            1.0,
+            1.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            -1.0,
+            1.0,
+            -1.0
+          ],
+          "normal": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "uv": [
+            0.0,
+            0.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            -1.0,
+            1.0,
+            1.0
+          ],
+          "normal": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "uv": [
+            1.0,
+            0.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            1.0,
+            1.0,
+            -1.0
+          ],
+          "normal": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "uv": [
+            0.0,
+            1.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "normal": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "uv": [
+            1.0,
+            1.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            -1.0,
+            -1.0,
+            1.0
+          ],
+          "normal": [
+            -0.0,
+            -1.0,
+            -0.0
+          ],
+          "uv": [
+            0.0,
+            0.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            -1.0,
+            -1.0,
+            -1.0
+          ],
+          "normal": [
+            -0.0,
+            -1.0,
+            -0.0
+          ],
+          "uv": [
+            1.0,
+            0.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            1.0,
+            -1.0,
+            1.0
+          ],
+          "normal": [
+            -0.0,
+            -1.0,
+            -0.0
+          ],
+          "uv": [
+            0.0,
+            1.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            1.0,
+            -1.0,
+            -1.0
+          ],
+          "normal": [
+            -0.0,
+            -1.0,
+            -0.0
+          ],
+          "uv": [
+            1.0,
+            1.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            -1.0,
+            -1.0,
+            1.0
+          ],
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "uv": [
+            0.0,
+            0.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            1.0,
+            -1.0,
+            1.0
+          ],
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "uv": [
+            1.0,
+            0.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            -1.0,
+            1.0,
+            1.0
+          ],
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "uv": [
+            0.0,
+            1.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "uv": [
+            1.0,
+            1.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            1.0,
+            -1.0,
+            -1.0
+          ],
+          "normal": [
+            -0.0,
+            -0.0,
+            -1.0
+          ],
+          "uv": [
+            0.0,
+            0.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            -1.0,
+            -1.0,
+            -1.0
+          ],
+          "normal": [
+            -0.0,
+            -0.0,
+            -1.0
+          ],
+          "uv": [
+            1.0,
+            0.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            1.0,
+            1.0,
+            -1.0
+          ],
+          "normal": [
+            -0.0,
+            -0.0,
+            -1.0
+          ],
+          "uv": [
+            0.0,
+            1.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "position": [
+            -1.0,
+            1.0,
+            -1.0
+          ],
+          "normal": [
+            -0.0,
+            -0.0,
+            -1.0
+          ],
+          "uv": [
+            1.0,
+            1.0
+          ],
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "joints": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "weights": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      ],
+      "indices": [
+        0,
+        1,
+        3,
+        0,
+        3,
+        2,
+        4,
+        5,
+        7,
+        4,
+        7,
+        6,
+        8,
+        9,
+        11,
+        8,
+        11,
+        10,
+        12,
+        13,
+        15,
+        12,
+        15,
+        14,
+        16,
+        17,
+        19,
+        16,
+        19,
+        18,
+        20,
+        21,
+        23,
+        20,
+        23,
+        22
+      ],
+      "topology": {
+        "face_materials": [],
+        "faces": [
+          [
+            0,
+            1,
+            3,
+            2
+          ],
+          [
+            4,
+            5,
+            7,
+            6
+          ],
+          [
+            8,
+            9,
+            11,
+            10
+          ],
+          [
+            12,
+            13,
+            15,
+            14
+          ],
+          [
+            16,
+            17,
+            19,
+            18
+          ],
+          [
+            20,
+            21,
+            23,
+            22
+          ]
+        ],
+        "smooth_normals": false,
+        "primitive": {
+          "kind": "Cube",
+          "size": [
+            2.0,
+            2.0,
+            2.0
+          ],
+          "segments": [
+            1,
+            1,
+            1
+          ],
+          "radius": 0.5,
+          "smooth": false,
+          "curve_points": [
+            [
+              -1.0,
+              0.0,
+              0.0
+            ],
+            [
+              -0.5,
+              1.0,
+              0.0
+            ],
+            [
+              0.5,
+              -1.0,
+              0.0
+            ],
+            [
+              1.0,
+              0.0,
+              0.0
+            ]
+          ]
+        }
+      },
+      "material": null,
+      "morph_targets": []
+    }
+  ],
+  "materials": [],
+  "textures": [],
+  "video_textures": [],
+  "clips": [],
+  "animation_layers": [],
+  "camera": {
+    "effects": {
+      "enabled": false,
+      "exposure": 0.0,
+      "contrast": 1.0,
+      "saturation": 1.0,
+      "temperature": 0.0,
+      "vignette": 0.0,
+      "grain": 0.0,
+      "aberration": 0.0
+    },
+    "eye": [
+      11.0,
+      6.0,
+      15.0
+    ],
+    "target": [
+      3.5,
+      0.0,
+      0.0
+    ],
+    "up": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "fov_y_radians": 0.7853982,
+    "near": 0.01,
+    "far": 1000.0,
+    "orthographic": false,
+    "ortho_size": 3.0,
+    "depth_of_field": {
+      "enabled": false,
+      "focus_distance": 4.0,
+      "f_stop": 2.8
+    }
+  },
+  "active_camera": null,
+  "lights": [
+    {
+      "name": "Основной свет",
+      "kind": "Directional",
+      "position": [
+        0.0,
+        3.0,
+        0.0
+      ],
+      "direction": [
+        -0.42107597,
+        -0.84215194,
+        -0.33686078
+      ],
+      "color": [
+        1.0,
+        0.95,
+        0.88
+      ],
+      "intensity": 3.0,
+      "range": 0.0,
+      "area_size": [
+        1.0,
+        1.0
+      ],
+      "area_rotation": 0.0,
+      "use_temperature": false,
+      "temperature_kelvin": 6500.0,
+      "inner_cone_angle": 0.0,
+      "outer_cone_angle": 0.7853982,
+      "enabled": true,
+      "casts_shadow": true,
+      "volume": {
+        "enabled": false,
+        "strength": 1.0,
+        "tint": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    }
+  ],
+  "render_settings": {
+    "npr_contours": {
+      "width": 0.0,
+      "depth_threshold": 0.01,
+      "normal_angle": 45.0,
+      "color": [
+        0.008,
+        0.012,
+        0.025
+      ]
+    },
+    "hdri_enabled": true,
+    "hdri_background": true,
+    "hdri_strength": 1.0,
+    "hdri_rotation": 0.0,
+    "ray_reflections": false,
+    "reflection_samples": 4,
+    "ray_shadows": false,
+    "area_shadow_samples": 16,
+    "background_mode": "Theme",
+    "background_secondary": [
+      0.18,
+      0.24,
+      0.34
+    ],
+    "background_angle": 90.0,
+    "atmosphere": {
+      "density": 0.0,
+      "height": 8.0,
+      "distance": 30.0,
+      "anisotropy": 0.2,
+      "color": [
+        0.8,
+        0.88,
+        1.0
+      ]
+    },
+    "exposure": 0.0,
+    "ambient_intensity": 1.0,
+    "antialiasing": 4,
+    "output_width": 1920,
+    "output_height": 1080,
+    "transparent_background": false,
+    "tone_mapping": "Aces",
+    "shadows": true,
+    "shadow_resolution": 1024,
+    "shadow_bias": 0.001,
+    "shadow_strength": 0.85,
+    "shadow_filter_radius": 1.0,
+    "ambient_occlusion": 0.0,
+    "ambient_occlusion_radius": 0.35,
+    "sky_color": [
+      0.28,
+      0.28,
+      0.28
+    ],
+    "ground_color": [
+      0.12,
+      0.12,
+      0.12
+    ],
+    "background_color": [
+      0.032,
+      0.043,
+      0.055
+    ]
+  },
+  "fluid_settings": {
+    "source_kind": 0,
+    "source_center": [
+      -0.36,
+      0.73,
+      0.0
+    ],
+    "source_size": [
+      0.88,
+      0.56,
+      0.4
+    ],
+    "gravity": 9.81,
+    "viscosity": 0.04,
+    "vorticity": 0.1,
+    "boundary_friction": 0.05,
+    "iterations": 4,
+    "max_substeps": 4,
+    "time_scale": 1.0,
+    "surface_cell_size": 0.045,
+    "surface_iso_density": 0.5
+  },
+  "poses": [],
+  "rig_profiles": []
+}

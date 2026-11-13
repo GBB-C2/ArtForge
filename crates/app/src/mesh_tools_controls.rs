@@ -140,7 +140,7 @@ impl App {
             N::AutoLength => {
                 if let Some(id) = self.editor.selected {
                     if let (Ok(mesh), Ok(eval)) =
-                        (self.editor.editable_mesh(id), self.editor.evaluated())
+                        (self.editor.editable_mesh(id), self.evaluated_interactive())
                     {
                         if let Some(model) = eval.global.get(&id) {
                             let mut min = Vec3::splat(f32::INFINITY);
@@ -549,7 +549,7 @@ impl App {
         let Ok(mesh) = self.editor.editable_mesh(id) else {
             return;
         };
-        let Ok(eval) = self.editor.evaluated() else {
+        let Ok(eval) = self.evaluated_interactive() else {
             return;
         };
         let model = eval.global[&id];

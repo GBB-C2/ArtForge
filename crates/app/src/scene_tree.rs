@@ -14,6 +14,7 @@ pub(super) enum SceneEntry {
     Node(SceneRow),
     Light(usize),
     Material(u64, Option<u64>, usize),
+    Modifier(u64, u64, usize),
     Fluid(u64, usize),
     Cloth(u64, usize),
     Destruction(u64, usize),
@@ -143,6 +144,7 @@ impl App {
             result.push(entry);
             if let Some((node, depth)) = expanded {
                 let id = node.id;
+                result.extend(node.modifiers.iter().map(|m|SceneEntry::Modifier(id,m.id,depth)));
                 let materials = node.mesh.and_then(|id| meshes.get(&id))
                     .map(|mesh| self.scene_material_ids_for(node, mesh)).unwrap_or_default();
                 if materials.is_empty() {
@@ -578,6 +580,20 @@ impl App {
                     u.hits.push(ui::Hit { rect: r, action: Action::SceneFluid(*node) });
                     u.eye_button([lw - 54., y + 1., 25., 23.], Action::SceneFluidVisible(*node), settings.visible);
                     u.scene_close_button([lw - 27., y + 1., 25., 23.], Action::SceneFluidRemove(*node));
+                }
+                SceneEntry::Modifier(node,id,depth) => {
+                    let Some(modifier)=self.editor.project.node(*node).and_then(|n|n.modifiers.iter().find(|m|m.id==*id)) else {continue;};
+                    let x=52.+(*depth).min(5) as f32*10.+if self.editor.project.node_collection(*node).is_some() {14.}else{0.};
+                    let selected=self.editor.selected==Some(*node) && self.procedural.selected==Some((*node,*id)) && self.surface.tab==8;
+                    if selected {u.surface_outline(r,p.accent);}else if ui::contains(r,self.mouse) {u.surface(r,p.hover);}
+                    let color=if modifier.enabled {p.text}else{p.muted};
+                    Icon::Modifiers.draw(u,[x+2.,y+4.,18.,18.],color);
+                    u.fitted_label([x+28.,y+5.,(lw-x-88.).max(1.),17.],&modifier.name,11.,color);
+                    u.hits.push(ui::Hit {rect:r,action:Action::Modifier(ui::ModifierAction::Select(*node,*id))});
+                    if self.modifier_editable(*node) {
+                        u.eye_button([lw-54.,y+1.,25.,23.],Action::Modifier(ui::ModifierAction::Toggle(*node,*id)),modifier.enabled);
+                        u.scene_close_button([lw-27.,y+1.,25.,23.],Action::Modifier(ui::ModifierAction::Remove(*node,*id)));
+                    }
                 }
                 SceneEntry::Material(node, material, depth) => {
                     let x = 52.

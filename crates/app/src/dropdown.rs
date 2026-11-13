@@ -15,6 +15,7 @@ use winit::{
 enum Target {
     Scene,
     Bone(poseforge_core::Node),
+    Modifiers {node:poseforge_core::Node, modifier:Option<u64>, choices:Vec<u64>},
     Helper(poseforge_core::Node),
     Text {node:u64,settings:poseforge_core::TextSettings},
     RigReference { reference: RigReference, choices: Vec<u64>, selection: Option<u64>, skeleton: Option<u64>, mesh: Option<u64> },
@@ -63,6 +64,9 @@ impl MaterialLibraryEntry {
     }
 }
 
+fn modifier_targets(project:&poseforge_core::Project,owner:u64)->Vec<u64> {
+    project.nodes.iter().filter(|n|n.id!=owner && project.modifier_supported(n.id) && !project.node_locked(n.id)).map(|n|n.id).collect()
+}
 fn preset_category(preset: MaterialPreset) -> &'static str { preset.category() }
 
 fn labels(kind: DropdownKind, project: &poseforge_core::Project) -> Vec<String> {
@@ -108,7 +112,13 @@ fn labels(kind: DropdownKind, project: &poseforge_core::Project) -> Vec<String> 
             .chain(project.collections.iter().map(|c| c.name.clone()))
             .collect();
     }
+    if let DropdownKind::ModifierTarget(_,owner)=kind {
+        return modifier_targets(project,owner).iter().filter_map(|id|project.node(*id))
+            .map(|n|format!("{} · №{}",n.name,n.id)).collect();
+    }
     let items = match kind {
+        DropdownKind::ModifierTarget(..) => unreachable!(),
+        DropdownKind::ModifierAdd => poseforge_core::ModifierKind::ALL.into_iter().map(|k|k.label()).collect(),
         DropdownKind::ReflectionSamples => vec!["1 луч", "4 луча", "8 лучей", "16 лучей"],
         DropdownKind::AreaShadowSamples => vec!["4 выборки", "16 выборок", "64 выборки"],
         DropdownKind::Background => vec!["Тема интерфейса", "Однотонный"],
@@ -224,6 +234,7 @@ impl App {
     pub(super) fn dropdown_selected(&self, kind: DropdownKind) -> Option<usize> {
         let settings = self.editor.project.render_settings;
         match kind {
+            DropdownKind::ModifierAdd | DropdownKind::ModifierTarget(..) => None,
             DropdownKind::BoneShape => self.bone_display_node().and_then(|n| poseforge_core::BoneShape::ALL.iter().position(|s| *s == n.bone_display.unwrap_or_default().shape)),
             DropdownKind::JointShape => self.bone_display_node().and_then(|n| poseforge_core::JointShape::ALL.iter().position(|s| *s == n.bone_display.unwrap_or_default().joint_shape)),
             DropdownKind::EmptyShape=>self.selected_helper().and_then(|n|poseforge_core::EmptyShape::ALL.iter().position(|s|*s==n.empty_shape)),
@@ -387,6 +398,10 @@ impl App {
         }
         match &dropdown.target {
             Target::Scene => true,
+            Target::Modifiers {node,modifier,choices} => self.surface.tab==8 && self.editor.selected==Some(node.id)
+                && self.modifier_editable(node.id) && self.editor.project.node(node.id)==Some(node)
+                && (modifier.is_none() || self.selected_modifier().is_some_and(|(id,m)|id==node.id && Some(m.id)==*modifier)
+                    && modifier_targets(&self.editor.project,node.id)==*choices),
             Target::Bone(node) => self.surface.tab == 0 && self.bone_display_editable() && self.bone_display_node() == Some(node),
             Target::Helper(node)=>self.selected_helper()==Some(node) && self.helper_editable(node.id),
             Target::Text {node,settings} => self.surface.tab==0 && self.selected_text()==Some((*node,settings)) && self.text_editable(*node),
@@ -481,6 +496,17 @@ impl App {
             return;
         };
         let target = match kind {
+            DropdownKind::ModifierAdd | DropdownKind::ModifierTarget(..) => {
+                let Some(node)=self.editor.selected.and_then(|id|self.editor.project.node(id)).filter(|n|self.modifier_editable(n.id)) else {return;};
+                if self.surface.tab!=8 {return;}
+                let modifier=if let DropdownKind::ModifierTarget(_,owner)=kind {
+                    if owner!=node.id {return;}
+                    let Some((_,m))=self.selected_modifier() else {return;};Some(m.id)
+                }else{None};
+                let choices=if modifier.is_some() {modifier_targets(&self.editor.project,node.id)}else{vec![]};
+                if modifier.is_some() && choices.is_empty() {return;}
+                Target::Modifiers {node:node.clone(),modifier,choices}
+            },
             DropdownKind::BoneShape | DropdownKind::JointShape => {
                 if !self.bone_display_editable() || self.surface.tab != 0 { return; }
                 Target::Bone(self.bone_display_node().unwrap().clone())
@@ -599,6 +625,11 @@ impl App {
             return;
         }
         let action = match dropdown.kind {
+            DropdownKind::ModifierAdd => poseforge_core::ModifierKind::ALL.get(index).map(|k|Action::Modifier(crate::ui::ModifierAction::Add(*k))),
+            DropdownKind::ModifierTarget(copy,_) => match &dropdown.target {
+                Target::Modifiers {node,modifier:Some(id),choices} => choices.get(index).map(|target|Action::Modifier(crate::ui::ModifierAction::Transfer(node.id,*id,*target,copy))),
+                _=>None,
+            },
             DropdownKind::BoneShape => poseforge_core::BoneShape::ALL.get(index).map(|s| Action::BoneDisplay(crate::ui::BoneDisplayAction::BodyShape(*s))),
             DropdownKind::JointShape => poseforge_core::JointShape::ALL.get(index).map(|s| Action::BoneDisplay(crate::ui::BoneDisplayAction::JointShape(*s))),
             DropdownKind::RigSkeleton | DropdownKind::RigMesh => match &dropdown.target {

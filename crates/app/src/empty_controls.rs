@@ -84,7 +84,7 @@ impl App {
         let visible=self.editor.project.visible_node_ids(false);
         let nodes:Vec<_>=self.editor.project.nodes.iter().filter(|n|n.empty&&visible.contains(&n.id)&&self.in_isolation(n.id)).take(512).collect();
         if nodes.is_empty() {return vec![];}
-        let Ok(eval)=self.editor.evaluated() else{return vec![];};
+        let Ok(eval)=self.evaluated_interactive() else{return vec![];};
         let view=self.view();let vp=self.viewport();let mut out=vec![];
         for node in nodes {
             let Some(model)=eval.global.get(&node.id) else{continue;};let center=model.transform_point3(Vec3::ZERO);

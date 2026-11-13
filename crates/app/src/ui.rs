@@ -257,6 +257,8 @@ impl SliderRange {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DropdownKind {
+    ModifierAdd,
+    ModifierTarget(bool,u64),
     Accent,
     ReflectionSamples,
     AreaShadowSamples,
@@ -542,8 +544,15 @@ pub enum PathAction { Pick, Bind(u64), Clear, Follow, Repeat, Field(u8), SelectC
 pub enum MediaAction { Slot(usize), UvNumber(usize,u8), ResetUv(usize), VideoNumber(usize,u8), VideoLoop(usize), VideoEnabled(usize), NormalFlip, NprPreset(u8), PruneVideos }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MorphAction { Add, Select(usize), Weight(usize), Rename(usize), Delete(usize), Copy, Sources, Source(u64), Replace, Key, Page(i8), ApplyCopy, Original }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModifierAction {
+    Add(poseforge_core::ModifierKind), Select(u64,u64), Toggle(u64,u64), Remove(u64,u64),
+    Field(u64,u64,u8), Axis(u64,u64,u8), Smooth(u64,u64), Reset(u64,u64),
+    Step(u64,u64,i8), Duplicate(u64,u64), Transfer(u64,u64,u64,bool), Apply(u64),
+}
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
+    Modifier(ModifierAction),
     Helper(HelperAction),
     Fx(FxAction),
     CreateEmpty,
@@ -907,6 +916,7 @@ impl Action {
     }
 
     pub fn is_field(&self) -> bool {
+        if matches!(self,Self::Modifier(ModifierAction::Field(..))) {return true;}
         if matches!(self,Self::Fx(FxAction::Field(_)|FxAction::Color|FxAction::KeyColor(_)|FxAction::SmokeColor)) {return true;}
         if matches!(self,Self::Helper(HelperAction::Size|HelperAction::Number(_))) {return true;}
         if matches!(self, Self::Text(TextAction::Content|TextAction::Field(_))) {return true;}
@@ -1035,6 +1045,13 @@ impl Action {
             Self::DropdownOpen(DropdownKind::SkeletonCreate) => Some("Создать объект скелета · пустая кость, цепь или гуманоид · ↑/↓ и Enter"),
             Self::Author(AuthorAction::CreateBone) => Some("Добавить отдельную кость без меша и привязки в центре координат"),
             Self::CameraTool(CameraTool::Effects) => Some("Эффекты выбранной камеры · вид из камеры, режим Материал или Рендер"),
+            Self::Modifier(ModifierAction::Select(..)) => Some("Параметры модификатора · перетащите для порядка или переноса · Ctrl — копия"),
+            Self::Modifier(ModifierAction::Toggle(..)) => Some("Включить или выключить модификатор без изменения исходной сетки"),
+            Self::Modifier(ModifierAction::Remove(..)) => Some("Удалить модификатор из стека · Ctrl+Z — отменить"),
+            Self::Modifier(ModifierAction::Apply(_)) => Some("Записать результат в меш и очистить стек · Ctrl+Z возвращает исходную сетку и весь стек"),
+            Self::Modifier(ModifierAction::Reset(..)) => Some("Вернуть начальные параметры этого модификатора"),
+            Self::DropdownOpen(DropdownKind::ModifierAdd) => Some("Добавить модификатор в конец стека · ↑/↓ и Enter"),
+            Self::DropdownOpen(DropdownKind::ModifierTarget(..)) => Some("Выбрать меш для переноса или копирования модификатора"),
             Self::DropdownOpen(DropdownKind::LightCreate) => Some("Создать источник света · ↑/↓ и Enter"),
             Self::DropdownOpen(DropdownKind::MaterialActions) => Some("Действия с материалом"),
             Self::DropdownOpen(DropdownKind::MaterialCreate) => Some("Создать и назначить материал"),
@@ -1211,7 +1228,7 @@ impl Action {
             Self::Author(AuthorAction::LiveCancel) => Some("Отменить предпросмотр · Esc"),
             Self::SurfaceTab(9) => Some("Настройки программы: тема, акцент, просмотр и импорт"),
             Self::InterfaceTheme(_) => Some("Изменить тему интерфейса"),
-            Self::SurfaceTab(8) => Some("Кости · скелет, привязка к геометрии и поза"),
+            Self::SurfaceTab(8) => Some("Модификаторы · порядок, параметры и перенос между мешами"),
             Self::Mode(0) => Some("Объект · завершить редактирование сетки и выбирать объекты целиком"),
             Self::Primitive(PrimitiveAction::CurvePoint(_)) => Some("Выбрать контрольную точку Безье для редактирования X/Y/Z"),
             Self::Primitive(PrimitiveAction::Open) => Some("Открыть полупрозрачную панель параметров меша или кривой"),

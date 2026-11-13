@@ -278,7 +278,7 @@ impl App {
             self.status = "Камера или её родитель недоступны для изменения.".into();
             return None;
         }
-        let evaluated = self.editor.evaluated().ok()?;
+        let evaluated = self.evaluated_interactive().ok()?;
         let camera = self
             .editor
             .project

@@ -97,7 +97,7 @@ impl Editor {
         if source.is_some_and(|id|!self.project.fx_source_allowed(owner,id)) {
             return Err(CoreError::Invalid("Источник FX: нужен другой меш или кривая без циклической связи".into()));
         }
-        let sampled=self.evaluated()?;let mut candidate=self.project.clone();
+        let sampled=self.evaluated_base()?;let mut candidate=self.project.clone();
         if source.is_none() {
             candidate.detach_fx_source(owner,&sampled.global,sampled.local[&owner])?;
         } else {

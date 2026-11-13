@@ -521,6 +521,7 @@ impl Channel {
 }
 #[derive(Debug, Clone)]
 pub struct EvaluatedScene {
+    pub modifier_meshes: BTreeMap<NodeId, crate::Mesh>,
     pub text_meshes: BTreeMap<NodeId, crate::Mesh>,
     pub lights: Vec<crate::Light>,
     pub local: BTreeMap<NodeId, Transform>,
@@ -528,6 +529,18 @@ pub struct EvaluatedScene {
     pub morph_weights: BTreeMap<NodeId, Vec<f32>>,
 }
 pub fn evaluate(
+    project: &Project,
+    clip: Option<usize>,
+    time: f64,
+    overrides: &BTreeMap<NodeId, Transform>,
+) -> Result<EvaluatedScene, CoreError> {
+    let mut scene = evaluate_base(project, clip, time, overrides)?;
+    scene.modifier_meshes = project.evaluated_modifier_meshes(&std::sync::atomic::AtomicBool::new(false))?;
+    Ok(scene)
+}
+/// Transform evaluation without expensive procedural geometry; native previews
+/// fill modifier_meshes from worker-owned results, while exports use evaluate.
+pub fn evaluate_base(
     project: &Project,
     clip: Option<usize>,
     time: f64,
@@ -588,6 +601,7 @@ pub fn evaluate(
     let lights = project.evaluated_lights(&global, time)?;
     let text_meshes=project.evaluated_text_meshes(&global,&local,time)?;
     Ok(EvaluatedScene {
+        modifier_meshes: BTreeMap::new(),
         text_meshes,
         lights,
         local,

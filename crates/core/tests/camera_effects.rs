@@ -1,6 +1,39 @@
 use poseforge_core::*;
 
 #[test]
+fn effect_list_imports_old_values_without_changing_the_image() {
+    let old:CameraEffects=serde_json::from_str(r#"{"enabled":true,"contrast":1.3,"vignette":0.7,"grain":0.08}"#).unwrap();
+    assert!(old.list.is_none());
+    assert_eq!((4..=10).filter(|&f|old.contains(f)).collect::<Vec<_>>(),vec![5,8,9]);
+    assert_eq!(old.uniforms(),([0.,1.3,1.,0.],[0.7,0.08,0.,1.]));
+    let mut edited=old;edited.toggle(8);
+    assert_eq!(edited.vignette,0.7);assert_eq!(edited.uniforms().1,[0.,0.08,0.,1.]);
+    edited.toggle(8);assert_eq!(edited.uniforms(),old.uniforms());
+    let json=serde_json::to_string(&edited).unwrap();
+    assert_eq!(serde_json::from_str::<CameraEffects>(&json).unwrap(),edited);
+}
+
+#[test]
+fn effect_rows_keep_neutral_and_muted_values_and_reject_invalid_masks() {
+    let mut effects=CameraEffects::default();
+    for field in 4..=10 {
+        effects.add(field).unwrap();assert!(effects.contains(field) && effects.effect_enabled(field));
+        let before=effects;effects.add(field).unwrap();assert_eq!(effects,before);
+        let stored=effects.field(field).unwrap().0;effects.toggle(field);
+        assert_eq!(effects.field(field).unwrap().0,stored);
+        effects.set(field,CameraEffects::default().field(field).unwrap().0).unwrap();
+        assert!(effects.contains(field) && !effects.effect_enabled(field));
+    }
+    effects.validate().unwrap();assert_eq!(effects.uniforms(),([0.,1.,1.,0.],[0.,0.,0.,1.]));
+    for field in 4..=10 {effects.remove(field);assert!(!effects.contains(field));}
+    assert_eq!(effects.effect_list().present,0);effects.validate().unwrap();
+    let before=effects;assert!(effects.add(99).is_err());assert_eq!(effects,before);
+    for list in [CameraEffectList{present:128,enabled:0},CameraEffectList{present:1,enabled:2}] {
+        effects.list=Some(list);assert!(effects.validate().is_err());
+    }
+}
+
+#[test]
 fn missing_effects_preserve_legacy_camera_appearance() {
     let mut json = serde_json::to_value(Camera::default()).unwrap();
     json.as_object_mut().unwrap().remove("effects");

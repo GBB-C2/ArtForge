@@ -3218,10 +3218,16 @@ fn camera_effects_change_color_preserve_png_alpha_and_restore_when_disabled() {
     let mut renderer = pollster::block_on(Renderer::headless(160, 160)).unwrap();
     let before = material_picture(&mut renderer, &project, &view, "42-effects-off");
     view.effects = poseforge_core::CameraEffects { enabled: true, exposure: 0.5, contrast: 1.2,
-        saturation: 0.2, temperature: -0.5, vignette: 0.8, grain: 0.08, aberration: 4. };
+        saturation: 0.2, temperature: -0.5, vignette: 0.8, grain: 0.08, aberration: 4., ..Default::default() };
     let after = material_picture(&mut renderer, &project, &view, "42-effects-on");
     assert!(before.pixels().zip(after.pixels()).filter(|(a,b)| a[3] > 0 && a.0[..3] != b.0[..3]).count() > 100);
     assert!(before.pixels().zip(after.pixels()).all(|(a,b)| a[3] == b[3]));
+    let authored=view.effects;
+    for field in 4..=10 {view.effects.toggle(field);}
+    let muted=material_picture(&mut renderer,&project,&view,"camera-effect-list-muted");
+    assert_images_equal(&before,&muted,"muted rows preserve the source image and alpha");
+    for field in 4..=10 {view.effects.toggle(field);}
+    assert_eq!(view.effects.uniforms(),authored.uniforms());
     view.effects.enabled = false;
     let restored = material_picture(&mut renderer, &project, &view, "42-effects-restored");
     assert_images_equal(&before, &restored, "disabled effects preserve the source image");

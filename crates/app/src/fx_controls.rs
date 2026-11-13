@@ -69,18 +69,16 @@ impl App {
     }
     pub(super) fn fx_action(&mut self,action:F) {
         if self.job.is_some() || self.native_picker.is_some() || self.scene_write_pending() || self.editor.has_staged() {return;}
-        if let F::Create(index)|F::CreatePreset(index,_)=action {
+        if let F::Create(index)=action {
             let Some(&kind)=FxKind::ALL.get(index as usize) else{return;};
-            let start=self.fx_view_time().clamp(0.,86400.);
-            let result=if let F::CreatePreset(_,preset)=action {self.editor.create_fx_preset_at(kind,preset,start)}else{self.editor.create_pyro_at(kind,start)};
+            let start=self.fx_view_time().clamp(0.,86400.);let result=self.editor.create_pyro_at(kind,start);
             if let Some(id)=self.result(result) {
                 self.editor.playing=false;self.editor.mode=EditorMode::Scene;
                 self.authoring=Default::default();self.curves=Default::default();self.primitive_panel=None;
                 self.action(Action::Select(id));self.set_properties_tab(0);self.preferences.right_panel=true;
                 self.preferences.viewport_shading=self.preferences.viewport_shading.max(2);self.tool=Tool::Move;
                 self.fx_preview.time=Some(start);self.fx_preview.running=true;
-                let name=&self.editor.project.node(id).unwrap().name;
-                self.status=format!("{name} · размер задаётся масштабом объекта · запуск без ключей");self.redraw();
+                self.status=format!("FX · {} · размер задаётся масштабом объекта · запуск без ключей",kind.label());self.redraw();
             }return;
         }
         if self.selected_fx().is_some() {match action {

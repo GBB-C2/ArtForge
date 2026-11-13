@@ -13,6 +13,7 @@ use winit::{
 
 #[derive(Clone)]
 enum Target {
+    CameraEffects { node: u64, effects: poseforge_core::CameraEffects },
     Scene,
     Bone(poseforge_core::Node),
     Modifiers {node:poseforge_core::Node, modifier:Option<u64>, choices:Vec<u64>},
@@ -117,6 +118,7 @@ fn labels(kind: DropdownKind, project: &poseforge_core::Project) -> Vec<String> 
             .map(|n|format!("{} · №{}",n.name,n.id)).collect();
     }
     let items = match kind {
+        DropdownKind::CameraEffectAdd => poseforge_core::CameraEffects::LABELS.to_vec(),
         DropdownKind::ModifierTarget(..) => unreachable!(),
         DropdownKind::ModifierAdd => poseforge_core::ModifierKind::ALL.into_iter().map(|k|k.label()).collect(),
         DropdownKind::ReflectionSamples => vec!["1 луч", "4 луча", "8 лучей", "16 лучей"],
@@ -267,6 +269,7 @@ impl App {
                     .map_or(0, |i| i + 1),
             ),
             DropdownKind::SavedViews => self.last_saved_view,
+            DropdownKind::CameraEffectAdd => None,
             DropdownKind::MaterialCategory => labels(kind, &self.editor.project)
                 .iter()
                 .position(|s| *s == self.preferences.material_category)
@@ -397,6 +400,8 @@ impl App {
             return false;
         }
         match &dropdown.target {
+            Target::CameraEffects {node,effects} => self.surface.tab==0 && self.camera_effect_editable()
+                && self.selected_camera_effects()==Some((*node,*effects)),
             Target::Scene => true,
             Target::Modifiers {node,modifier,choices} => self.surface.tab==8 && self.editor.selected==Some(node.id)
                 && self.modifier_editable(node.id) && self.editor.project.node(node.id)==Some(node)
@@ -456,8 +461,7 @@ impl App {
     }
 
     pub(super) fn open_dropdown(&mut self, kind: DropdownKind) {
-        if self.dropdown.as_ref().is_some_and(|d| d.kind == kind
-            || kind==DropdownKind::FxCreate && d.kind==DropdownKind::AssetLibrary && self.assets.category==super::asset_library::FX_CATEGORY) {
+        if self.dropdown.as_ref().is_some_and(|d| d.kind == kind) {
             self.close_asset_popup();
             self.close_material_dropdown();
             self.dropdown = None;
@@ -469,7 +473,7 @@ impl App {
         if self.has_modal() || self.job.is_some() || self.native_picker.is_some() {
             return;
         }
-        if matches!(kind,DropdownKind::AssetLibrary|DropdownKind::FxCreate) && self.editor.has_staged() { return; }
+        if kind == DropdownKind::AssetLibrary && self.editor.has_staged() { return; }
         if kind == DropdownKind::SkeletonCreate
             && (self.editor.has_staged() || self.editor.playing || self.scene_write_pending())
         {
@@ -496,12 +500,12 @@ impl App {
         else {
             return;
         };
-        let kind=if kind==DropdownKind::FxCreate {
-            self.assets.category=super::asset_library::FX_CATEGORY;
-            self.assets.query.clear();
-            DropdownKind::AssetLibrary
-        }else{kind};
         let target = match kind {
+            DropdownKind::CameraEffectAdd => {
+                if self.surface.tab!=0 || !self.camera_effect_editable() {return;}
+                let Some((node,effects))=self.selected_camera_effects() else {return;};
+                Target::CameraEffects {node,effects}
+            },
             DropdownKind::ModifierAdd | DropdownKind::ModifierTarget(..) => {
                 let Some(node)=self.editor.selected.and_then(|id|self.editor.project.node(id)).filter(|n|self.modifier_editable(n.id)) else {return;};
                 if self.surface.tab!=8 {return;}
@@ -631,6 +635,7 @@ impl App {
             return;
         }
         let action = match dropdown.kind {
+            DropdownKind::CameraEffectAdd => (index<7).then_some(Action::CameraTool(crate::ui::CameraTool::AddEffect(index+4))),
             DropdownKind::ModifierAdd => poseforge_core::ModifierKind::ALL.get(index).map(|k|Action::Modifier(crate::ui::ModifierAction::Add(*k))),
             DropdownKind::ModifierTarget(copy,_) => match &dropdown.target {
                 Target::Modifiers {node,modifier:Some(id),choices} => choices.get(index).map(|target|Action::Modifier(crate::ui::ModifierAction::Transfer(node.id,*id,*target,copy))),
@@ -797,7 +802,9 @@ impl App {
         if let Some(action) = action {
             self.action(action);
         }
-        self.dropdown_focus = Some(dropdown.kind);
+        if dropdown.kind != DropdownKind::CameraEffectAdd {
+            self.dropdown_focus = Some(dropdown.kind);
+        }
         self.redraw();
     }
 
@@ -861,6 +868,8 @@ impl App {
             let checked = if dropdown.kind == DropdownKind::SceneFilter {
                 ui.surface_outline([rect[0] + 5., rect[1] + 6., 18., 18.], p.border);
                 self.scene_tools.hidden_types & (1 << index) == 0
+            } else if dropdown.kind==DropdownKind::CameraEffectAdd {
+                self.selected_camera_effects().is_some_and(|(_,effects)|effects.contains(index+4))
             } else {
                 selected == Some(index)
             };

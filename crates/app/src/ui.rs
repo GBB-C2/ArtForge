@@ -257,6 +257,7 @@ impl SliderRange {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DropdownKind {
+    CameraEffectAdd,
     ModifierAdd,
     ModifierTarget(bool,u64),
     Accent,
@@ -334,6 +335,10 @@ pub enum LightTool {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CameraTool {
+    AddEffect(usize),
+    SelectEffect(usize),
+    ToggleEffect(usize),
+    RemoveEffect(usize),
     Effects,
     Dof,
     Thirds,
@@ -531,7 +536,7 @@ pub enum CurveAction {
 pub enum HelperAction {Empty(u8),Shape(u8),Size,CreateField(u8),Kind(u8),Number(u8),Enabled,Target(u8),Play,Reset}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FxAction {Create(u8),CreatePreset(u8,u8),Kind(u8),Enabled,Field(u8),Color,Play,Reset,Illuminate,Defaults,Source(Option<u64>),Fields,MeshCollision,Cloud,Burst,Loop,
+pub enum FxAction {Create(u8),Kind(u8),Enabled,Field(u8),Color,Play,Reset,Illuminate,Defaults,Source(Option<u64>),Fields,MeshCollision,Cloud,Burst,Loop,
     Preset(u8),Quality(u8),Gas,Hollow,Evolution,Smooth,Point(u8),Channel(u8),KeyColor(u8),ClearCache,Upgrade,Emission(u8),SelfShadow,TemperatureColor,SmokeColor}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1045,6 +1050,11 @@ impl Action {
             Self::DropdownOpen(DropdownKind::SkeletonCreate) => Some("Создать объект скелета · пустая кость, цепь или гуманоид · ↑/↓ и Enter"),
             Self::Author(AuthorAction::CreateBone) => Some("Добавить отдельную кость без меша и привязки в центре координат"),
             Self::CameraTool(CameraTool::Effects) => Some("Эффекты выбранной камеры · вид из камеры, режим Материал или Рендер"),
+            Self::DropdownOpen(DropdownKind::CameraEffectAdd) => Some("Добавить эффект камеры · ↑/↓ и Enter · Esc — отмена"),
+            Self::CameraTool(CameraTool::AddEffect(_)) => Some("Добавить эффект в список выбранной камеры"),
+            Self::CameraTool(CameraTool::SelectEffect(_)) => Some("Параметры эффекта · ↑/↓ — выбор · Enter — значение · пробел — включить/выключить"),
+            Self::CameraTool(CameraTool::ToggleEffect(_)) => Some("Включить или выключить эффект с сохранением его параметров"),
+            Self::CameraTool(CameraTool::RemoveEffect(_)) => Some("Удалить эффект камеры · Ctrl+Z — отменить"),
             Self::Modifier(ModifierAction::Select(..)) => Some("Параметры модификатора · перетащите для порядка или переноса · Ctrl — копия"),
             Self::Modifier(ModifierAction::Toggle(..)) => Some("Включить или выключить модификатор без изменения исходной сетки"),
             Self::Modifier(ModifierAction::Remove(..)) => Some("Удалить модификатор из стека · Ctrl+Z — отменить"),
@@ -1101,7 +1111,7 @@ impl Action {
             Self::Text(TextAction::OnCurve) => Some("Изогнуть текст вдоль привязанной кривой · путь выбирается ниже"),
             Self::Helper(HelperAction::CreateField(_)) | Self::DropdownOpen(DropdownKind::ForceCreate) => Some("Создать поле · сила, ветер, вихрь или магнит · действует на симуляцию"),
             Self::Helper(HelperAction::Number(_)|HelperAction::Size) => Some("Перетащить для изменения · двойной щелчок — точное значение · Esc — отмена"),
-            Self::Fx(FxAction::Create(_)|FxAction::CreatePreset(..)) | Self::DropdownOpen(DropdownKind::FxCreate) => Some("Добавить FX в сцену · библиотека огня, дыма, тумана и пара"),
+            Self::Fx(FxAction::Create(_)) | Self::DropdownOpen(DropdownKind::FxCreate) => Some("Добавить объёмный FX · огонь, дым, туман или пар"),
             Self::Fx(FxAction::Play) => Some("Общий запуск или пауза FX · без записи ключей"),
             Self::Fx(FxAction::Reset) => Some("Общие часы FX к началу выбранного эффекта · настройки и ключи сохраняются"),
             Self::Fx(FxAction::Color) => Some("Цвет FX в формате #RRGGBB"),

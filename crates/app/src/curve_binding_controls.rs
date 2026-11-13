@@ -85,7 +85,7 @@ impl App {
     pub(super) fn path_panel_start(&self) -> Option<f32> {
         match self.path_target()? {
             BindingTarget::Light(_) => Some(1690.),
-            BindingTarget::Node(id) if self.editor.project.node(id)?.camera.is_some() => Some(camera_controls::CAMERA_PANEL_BOTTOM),
+            BindingTarget::Node(id) if self.editor.project.node(id)?.camera.is_some() => Some(self.camera_panel_bottom()),
             BindingTarget::Node(id) if self.editor.project.node(id)?.text.is_some() => Some(text_controls::PANEL_BOTTOM),
             BindingTarget::Node(id) if self.editor.project.node(id)?.empty => Some(self.helper_panel_bottom()),
             BindingTarget::Node(_) => Some(602.),

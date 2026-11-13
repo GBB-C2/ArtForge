@@ -187,6 +187,9 @@ impl Camera {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct CameraEffects {
+    /// None preserves the appearance of files written before the effect list.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub list: Option<CameraEffectList>,
     pub enabled: bool,
     pub exposure: f32,
     pub contrast: f32,
@@ -197,10 +200,43 @@ pub struct CameraEffects {
     /// Radial red/blue displacement in pixels at a 1080-pixel frame height.
     pub aberration: f32,
 }
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+pub struct CameraEffectList {
+    pub present: u8,
+    pub enabled: u8,
+}
 impl Default for CameraEffects {
-    fn default() -> Self { Self { enabled: false, exposure: 0., contrast: 1., saturation: 1., temperature: 0., vignette: 0., grain: 0., aberration: 0. } }
+    fn default() -> Self { Self { list: None, enabled: false, exposure: 0., contrast: 1., saturation: 1., temperature: 0., vignette: 0., grain: 0., aberration: 0. } }
 }
 impl CameraEffects {
+    pub const LABELS: [&'static str; 7] = ["Экспозиция", "Контраст", "Насыщенность", "Температура", "Виньетка", "Зерно", "Хроматическая аберрация"];
+    fn effect_bit(field: usize) -> u8 { if (4..=10).contains(&field) { 1 << (field - 4) } else { 0 } }
+    pub fn effect_list(self) -> CameraEffectList {
+        self.list.unwrap_or_else(|| {
+            let defaults=Self::default();
+            let present=(4..=10).filter(|&field| self.field(field).unwrap().0!=defaults.field(field).unwrap().0)
+                .fold(0,|mask,field|mask|Self::effect_bit(field));
+            CameraEffectList {present,enabled:present}
+        })
+    }
+    pub fn contains(self, field: usize) -> bool { self.effect_list().present & Self::effect_bit(field) != 0 }
+    pub fn effect_enabled(self, field: usize) -> bool { self.effect_list().enabled & Self::effect_bit(field) != 0 }
+    pub fn add(&mut self, field: usize) -> Result<(), CoreError> {
+        let value=match field {4=>0.5,5|6=>1.2,7=>0.15,8=>0.3,9=>0.04,10=>1.5,
+            _=>return Err(CoreError::Invalid("Неизвестный эффект камеры".into()))};
+        if self.contains(field) {return Ok(());}
+        self.set(field,value)?;self.enabled=true;Ok(())
+    }
+    pub fn remove(&mut self, field: usize) {
+        if !self.contains(field) {return;}
+        let mut list=self.effect_list();let bit=Self::effect_bit(field);
+        list.present&=!bit;list.enabled&=!bit;self.list=Some(list);
+        self.set_value(field,Self::default().field(field).unwrap().0);
+    }
+    pub fn toggle(&mut self, field: usize) {
+        if !self.contains(field) {return;}
+        let mut list=self.effect_list();list.enabled^=Self::effect_bit(field);self.list=Some(list);
+    }
     pub fn field(self, field: usize) -> Option<(f32, f32, f32, &'static str)> {
         Some(match field {
             4 => (self.exposure, -8., 8., "Экспозиция, EV"),
@@ -218,18 +254,28 @@ impl CameraEffects {
         if !value.is_finite() || !(min..=max).contains(&value) {
             return Err(CoreError::Invalid(format!("Эффект камеры: допустимый диапазон {min}…{max}")));
         }
+        let mut list=self.effect_list();let bit=Self::effect_bit(field);
+        if list.present&bit==0 {list.present|=bit;list.enabled|=bit;}
+        self.list=Some(list);self.set_value(field,value);
+        Ok(())
+    }
+    fn set_value(&mut self, field:usize, value:f32) {
         match field { 4 => self.exposure = value, 5 => self.contrast = value, 6 => self.saturation = value,
             7 => self.temperature = value, 8 => self.vignette = value, 9 => self.grain = value,
             10 => self.aberration = value, _ => unreachable!() }
-        Ok(())
     }
     pub fn validate(self) -> Result<(), CoreError> {
+        if self.list.is_some_and(|list|list.present&!127!=0 || list.enabled&!list.present!=0) {
+            return Err(CoreError::Invalid("Список эффектов камеры".into()));
+        }
         for field in 4..=10 { let (value, min, max, _) = self.field(field).unwrap();
             if !value.is_finite() || !(min..=max).contains(&value) { return Err(CoreError::Invalid("Параметры эффектов камеры".into())); }
         } Ok(())
     }
     pub fn uniforms(self) -> ([f32; 4], [f32; 4]) {
         if !self.enabled { return ([0., 1., 1., 0.], [0.; 4]); }
-        ([self.exposure, self.contrast, self.saturation, self.temperature], [self.vignette, self.grain, self.aberration, 1.])
+        let mut active=self;
+        for field in 4..=10 {if !self.effect_enabled(field) {active.set_value(field,Self::default().field(field).unwrap().0);}}
+        ([active.exposure, active.contrast, active.saturation, active.temperature], [active.vignette, active.grain, active.aberration, 1.])
     }
 }

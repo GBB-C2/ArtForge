@@ -1,7 +1,7 @@
 //! Anchored asset browser. Browsing is transient; a card dispatches one existing command.
 use super::*;
 use crate::ui::{DropdownKind, Hit};
-use poseforge_core::{FxKind, FxSettings, Material, MaterialPreset, Node, PrimitiveKind, PrimitiveSettings};
+use poseforge_core::{Material, MaterialPreset, Node, PrimitiveKind, PrimitiveSettings};
 use super::asset_thumbnails::AssetImage;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -18,11 +18,9 @@ pub(super) struct AssetLibrary {
     focus: Focus,
     dragging: Option<u8>,
 }
-pub(super) const FX_CATEGORY:u8=7;
-const CATEGORIES: [(&str, Icon); 8] = [
+const CATEGORIES: [(&str, Icon); 7] = [
     ("Примитивы", Icon::Object), ("Материалы", Icon::Material), ("Кривые", Icon::Curve),
     ("Свет", Icon::Light), ("Сцены", Icon::Scene), ("Камеры", Icon::Camera), ("Скелеты", Icon::Bone),
-    ("FX", Icon::Fx),
 ];
 const GAP: f32 = 8.;
 const CARD_HEIGHT: f32 = 132.;
@@ -91,17 +89,6 @@ impl App {
             6 => for (humanoid, name) in [(false,"Цепь · 3 кости"),(true,"Человек · 67 костей")] {
                 push(name.into(), "Добавить скелет", Icon::Bone, Action::Author(ui::AuthorAction::CreateSkeleton(humanoid)), Thumbnail::Image(AssetImage::Skeleton(humanoid)), "кости риг");
             },
-            FX_CATEGORY => for kind in FxKind::ALL {
-                push(kind.label().into(),"Базовый эффект",super::fx_controls::fx_icon(kind),
-                    Action::Fx(ui::FxAction::Create(kind.index() as u8)),
-                    Thumbnail::Image(AssetImage::Fx(FxSettings::modern(kind))),"fx эффект базовый");
-                for (preset,label) in FxSettings::preset_labels(kind).into_iter().enumerate() {
-                    let settings=FxSettings::modern(kind).styled(preset as u8).unwrap();
-                    push(label.into(), "Добавить в сцену", super::fx_controls::fx_icon(kind),
-                        Action::Fx(ui::FxAction::CreatePreset(kind.index() as u8,preset as u8)),
-                        Thumbnail::Image(AssetImage::Fx(settings)),&format!("fx эффект {}",kind.label()));
-                }
-            },
             _ => {}
         }
         for node in &self.editor.project.nodes {
@@ -110,7 +97,6 @@ impl App {
                 2 if node.curve.is_some() => Some((Icon::Curve, AssetImage::Curve(node.curve.clone().unwrap()))),
                 5 if node.camera.is_some() => Some((Icon::Camera, AssetImage::Camera(node.camera.unwrap()))),
                 6 if node.is_joint && node.parent.and_then(|p| self.editor.project.node(p)).is_none_or(|n| !n.is_joint) => Some((Icon::Bone, AssetImage::Rig(node.id))),
-                FX_CATEGORY if node.fx.is_some() => Some((super::fx_controls::fx_icon(node.fx.unwrap().kind),AssetImage::Fx(node.fx.unwrap()))),
                 _ => None,
             };
             if let Some((icon, image)) = image { push(node.name.clone(), "Выделить в сцене", icon, Action::Select(node.id), Thumbnail::Image(image), "в сцене"); }
@@ -125,7 +111,7 @@ impl App {
     }
     fn asset_layout(&self) -> Layout { Layout::new([self.width,self.height], self.assets.anchor) }
     fn refresh_assets(&mut self) {
-        self.assets.category = self.assets.category.min(CATEGORIES.len() as u8-1);
+        self.assets.category = self.assets.category.min(6);
         let query = self.asset_query();
         if self.assets.filtered_query != query { self.assets.filtered_query = query; self.assets.offset = 0; self.assets.candidate = 0; }
         let count = self.asset_entries().len(); let layout = self.asset_layout();
@@ -136,9 +122,6 @@ impl App {
     pub(super) fn begin_asset_popup(&mut self, anchor: [f32; 4]) {
         self.assets.anchor = anchor; self.assets.focus = Focus::Search; self.assets.dragging = None;
         self.input(Action::AssetSearch, self.assets.query.clone()); self.refresh_assets();
-        let page=self.asset_layout().category_page();let category=self.assets.category as usize;
-        if category<self.assets.category_offset {self.assets.category_offset=category;}
-        if category>=self.assets.category_offset+page {self.assets.category_offset=category+1-page;}
     }
     pub(super) fn close_asset_popup(&mut self) {
         if !self.dropdown_is_open(DropdownKind::AssetLibrary) { return; }
@@ -288,7 +271,7 @@ impl App {
                 if self.assets.focus == Focus::Search && !matches!(key,Key::Named(NamedKey::ArrowUp|NamedKey::ArrowDown|NamedKey::PageUp|NamedKey::PageDown)) { return false; }
                 let forward = matches!(key,Key::Named(NamedKey::ArrowDown|NamedKey::ArrowRight|NamedKey::PageDown|NamedKey::End));
                 if self.assets.focus == Focus::Categories {
-                    let c = if forward { (self.assets.category+1).min(CATEGORIES.len() as u8-1) } else { self.assets.category.saturating_sub(1) };
+                    let c = if forward { (self.assets.category+1).min(6) } else { self.assets.category.saturating_sub(1) };
                     self.asset_action(Action::AssetCategory(c));
                     if (c as usize) < self.assets.category_offset { self.assets.category_offset = c as usize; }
                     if c as usize >= self.assets.category_offset+layout.category_page() { self.assets.category_offset = c as usize+1-layout.category_page(); }
@@ -308,7 +291,7 @@ impl App {
     }
     pub(super) fn asset_action(&mut self, action: Action) {
         match action {
-            Action::AssetCategory(category) => { self.assets.category = category.min(CATEGORIES.len() as u8-1); self.assets.offset = 0; self.assets.candidate = 0; }
+            Action::AssetCategory(category) => { self.assets.category = category.min(6); self.assets.offset = 0; self.assets.candidate = 0; }
             Action::AssetSearch => self.input(action, self.assets.query.clone()),
             Action::AssetSearchClear => { self.assets.query.clear(); self.assets.offset = 0; self.assets.candidate = 0; }
             Action::AssetMaterial(id) => {
@@ -382,64 +365,6 @@ pub(super) fn primitive_studio() -> Result<Project, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn fx_toolbar_opens_searchable_library_and_one_click_creates_one_independent_effect() {
-        let mut a=app();a.close_asset_popup();a.action(Action::CreateCamera);
-        let before=a.editor.project.clone();let undo=a.editor.undo_len();
-        a.ui=a.build_ui();a.open_dropdown(DropdownKind::FxCreate);
-        assert!(a.dropdown_is_open(DropdownKind::AssetLibrary));
-        assert_eq!(a.assets.category,FX_CATEGORY);assert_eq!(a.asset_entries().len(),17);
-        assert_eq!(a.editor.project,before);assert_eq!(a.editor.undo_len(),undo);
-        a.input.as_mut().unwrap().value="кинематографичный".into();a.refresh_assets();
-        assert_eq!(a.asset_entries().len(),1);
-        a.ui=a.build_ui();a.mouse=a.ui.action_point(&Action::DropdownChoose(0)).unwrap();
-        assert!(a.asset_popup_pointer_down(MouseButton::Left));
-        assert!(a.dropdown.is_none() && a.input.is_none());
-        let (id,settings)=a.selected_fx().unwrap();
-        assert_eq!(a.editor.project.node(id).unwrap().name,"FX · Кинематографичный взрыв");
-        assert!(settings.pyro.unwrap().cinematic_blast);
-        assert!(a.editor.project.node(id).unwrap().parent.is_none());
-        assert_eq!(a.editor.project.nodes[0],before.nodes[0]);
-        assert_eq!(a.editor.project.active_camera,before.active_camera);
-        assert_eq!(a.editor.undo_len(),undo+1);
-        let bytes=serde_json::to_vec(&a.editor.project).unwrap();
-        let loaded:Project=serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(loaded,a.editor.project);loaded.validate().unwrap();
-        assert!(a.editor.undo());assert_eq!(a.editor.project,before);
-    }
-    #[test]
-    fn fx_library_keyboard_cancel_and_existing_effect_selection_do_not_create_copies() {
-        let mut a=app();a.asset_action(Action::AssetCategory(FX_CATEGORY));
-        let before=a.editor.project.clone();a.input.as_mut().unwrap().value="огонь".into();a.refresh_assets();
-        assert_eq!(a.asset_entries().len(),5);
-        a.asset_popup_key(&Key::Named(NamedKey::Escape),false);
-        assert_eq!(a.editor.project,before);assert_eq!(a.editor.undo_len(),0);
-        a.assets.query.clear();a.ui=a.build_ui();a.open_dropdown(DropdownKind::FxCreate);
-        a.input.as_mut().unwrap().value="мягкий пар".into();a.refresh_assets();
-        a.asset_popup_key(&Key::Named(NamedKey::Enter),false);
-        let id=a.selected_fx().unwrap().0;let created=a.editor.project.clone();let undo=a.editor.undo_len();
-        a.ui=a.build_ui();a.open_dropdown(DropdownKind::FxCreate);
-        let index=a.asset_entries().iter().position(|e|e.action==Action::Select(id)).unwrap();
-        a.choose_asset(index);
-        assert_eq!(a.editor.selected,Some(id));assert_eq!(a.editor.project,created);assert_eq!(a.editor.undo_len(),undo);
-    }
-    #[test]
-    fn fx_library_category_and_cards_are_reachable_in_both_themes_and_small_windows() {
-        for theme in [ui::Theme::Dark,ui::Theme::Light] {for scale in [1.,2.] {for size in [[640.,480.],[1200.,820.]] {
-            let mut a=app();a.close_asset_popup();a.preferences.theme=theme;a.scale=scale;
-            a.width=size[0];a.height=size[1];a.ui=a.build_ui();a.open_dropdown(DropdownKind::FxCreate);
-            assert_eq!(a.assets.category,FX_CATEGORY);a.ui=a.build_ui();
-            assert!(a.ui.hits.iter().any(|h|h.action==Action::AssetCategory(FX_CATEGORY)));
-            let before=a.editor.project.clone();
-            a.asset_popup_key(&Key::Named(NamedKey::Tab),false);
-            a.asset_popup_key(&Key::Named(NamedKey::Tab),false);
-            a.asset_popup_key(&Key::Named(NamedKey::End),false);
-            assert_eq!(a.assets.candidate,16);
-            let layout=a.asset_layout();assert!(a.assets.offset<=layout.max_offset(17));
-            a.asset_popup_key(&Key::Named(NamedKey::Escape),false);
-            assert_eq!(a.editor.project,before);
-        }}}
-    }
     fn app() -> App {
         let mut a = App::new(None); a.preferences = Preferences::default(); a.preferences.right_panel = true;
         a.preferences.animation_visible = false; a.width = 1200.; a.height = 820.;

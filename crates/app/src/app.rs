@@ -80,6 +80,8 @@ mod number_defaults;
 mod fluid_preview;
 #[path = "lens_controls.rs"]
 mod lens_controls;
+#[path = "camera_effect_controls.rs"]
+mod camera_effect_controls;
 #[path = "light_controls.rs"]
 mod light_controls;
 #[cfg(test)]
@@ -588,6 +590,7 @@ struct App {
     recalled_view: Option<poseforge_core::Camera>,
     last_saved_view: Option<usize>,
     focus_pick: Option<u64>,
+    camera_effects: camera_effect_controls::State,
     path_pick: Option<curve_binding_controls::BindingTarget>,
     path_edit: Option<curve_binding_edit::EditTarget>,
     camera_navigation_lock: bool,
@@ -763,6 +766,7 @@ impl App {
             recalled_view: None,
             last_saved_view: None,
             focus_pick: None,
+            camera_effects: Default::default(),
             path_pick: None,
             path_edit: None,
             camera_navigation_lock: false,
@@ -990,7 +994,7 @@ impl App {
                 if self.active_light_index().is_some() {
                     1690.
                 } else if self.selected_camera_id().is_some() {
-                    camera_controls::CAMERA_PANEL_BOTTOM
+                    self.camera_panel_bottom()
                 } else if let Some((_, curve)) = self.selected_curve() {
                     curve.geometry.map_or(908., |g| if g.profile == poseforge_core::CurveProfile::Tube { 1130. } else { 1038. })
                 } else if self.editor.selected.and_then(|id| self.editor.project.node(id)).is_some_and(|n| n.mesh.is_some()) { 602. }
@@ -3689,6 +3693,7 @@ impl App {
         self.set_time(frame / self.editor.project.fps as f64);
     }
     fn mouse_down(&mut self, button: MouseButton) {
+        self.camera_effect_pointer_focus();
         // A second mouse button must not replace or finish the active gesture.
         if self.drag.is_some() || self.native_picker.is_some() {
             return;
@@ -5355,6 +5360,7 @@ impl App {
         ) {
             return;
         }
+        if self.camera_effect_key(&event.logical_key, ctrl, self.modifiers.alt_key()) { return; }
         if self.input.is_some() {
             if event.logical_key == Key::Named(NamedKey::Escape) {
                 self.end_input();

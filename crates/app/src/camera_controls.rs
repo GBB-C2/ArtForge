@@ -9,8 +9,6 @@ use poseforge_core::{camera_transform, Camera, CameraLens, Node, Project, Transf
 use poseforge_render::View;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) const CAMERA_PANEL_BOTTOM: f32 = 1580.;
-
 fn frame_rect(viewport: [f32; 4], aspect: f32) -> [f32; 4] {
     let width = viewport[2].min(viewport[3] * aspect);
     let height = viewport[3].min(viewport[2] / aspect);
@@ -861,12 +859,6 @@ impl App {
                 false,
             );
         }
-        u.checkbox([x, 1154., width, 28.], "Эффекты объектива", Action::CameraTool(C::Effects), lens.effects.enabled);
-        for field in 4..=10 {
-            let (value, min, max, label) = lens.effects.field(field).unwrap();
-            u.number_field([x, 1194. + (field - 4) as f32 * 50., width, 44.], label, value as f64,
-                Action::CameraNumber(field), SliderRange::new(min as f64, max as f64, 0.01));
-        }
-        u.fitted_label([x, 1548., width, 22.], "Вид из камеры · Материал / Рендер", 10., p.muted);
+        self.draw_camera_effect_list(u, x, width, lens.effects);
     }
 }

@@ -109,29 +109,19 @@ impl Editor {
         self.transact("Источник FX",|p|*p=candidate)
     }
     pub fn create_fx(&mut self,kind:FxKind)->Result<u64,CoreError> {
-        self.create_fx_settings(FxSettings::preset(kind),None)
+        self.create_fx_settings(FxSettings::preset(kind))
     }
     pub fn create_pyro(&mut self,kind:FxKind)->Result<u64,CoreError> {
         self.create_pyro_at(kind,0.)
     }
     pub fn create_pyro_at(&mut self,kind:FxKind,start:f64)->Result<u64,CoreError> {
-        let mut settings=FxSettings::modern(kind);settings.start=start;self.create_fx_settings(settings,None)
+        let mut settings=FxSettings::modern(kind);settings.start=start;settings.validate()?;self.create_fx_settings(settings)
     }
-    /// Create the selected look in one transaction, including its display name.
-    pub fn create_fx_preset_at(&mut self,kind:FxKind,preset:u8,start:f64)->Result<u64,CoreError> {
-        let label=FxSettings::preset_labels(kind).get(preset as usize).copied()
-            .ok_or_else(||CoreError::Invalid("Неизвестный пресет FX".into()))?;
-        let mut settings=FxSettings::modern(kind).styled(preset)
-            .ok_or_else(||CoreError::Invalid("Неизвестный пресет FX".into()))?;
-        settings.start=start;
-        self.create_fx_settings(settings,Some(label))
-    }
-    fn create_fx_settings(&mut self,settings:FxSettings,label:Option<&str>)->Result<u64,CoreError> {
-        settings.validate()?;
+    fn create_fx_settings(&mut self,settings:FxSettings)->Result<u64,CoreError> {
         let kind=settings.kind;
         if self.has_staged() {return Err(CoreError::UncommittedPose);}
         if self.project.nodes.iter().filter(|n|n.fx.is_some()).count()>=MAX_FX {return Err(CoreError::Invalid("В сцене поддерживается до 8 объёмных FX".into()));}
-        let id=self.project.next_id();let mut node=Node::new(id,format!("FX · {}",label.unwrap_or(kind.label())));
+        let id=self.project.next_id();let mut node=Node::new(id,format!("FX · {}",kind.label()));
         node.empty=true;node.empty_shape=EmptyShape::Cube;
         node.fx=Some(FxSettings {seed:(id%999999).max(1) as u32,..settings});
         node.collision_targets.fx=Some(Vec::new());
@@ -172,33 +162,6 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn preset_creation_is_atomic_preserves_cameras_and_rejects_invalid_choices() {
-        for kind in FxKind::ALL {for preset in 0..FxSettings::preset_labels(kind).len() {
-            let mut project=Project::default();let mut camera=Node::new(100,"Камера");
-            camera.camera=Some(Default::default());project.nodes.push(camera);project.active_camera=Some(100);
-            let mut editor=Editor::new(project);let project=editor.project.clone();
-            let id=editor.create_fx_preset_at(kind,preset as u8,12.5).unwrap();
-            let node=editor.project.node(id).unwrap();let fx=node.fx.unwrap();
-            assert_eq!(node.name,format!("FX · {}",FxSettings::preset_labels(kind)[preset]));
-            assert_eq!(fx.start,12.5);assert_eq!(fx.kind,kind);assert!(fx.pyro.is_some());
-            assert!(node.parent.is_none() && node.camera.is_none());
-            assert_eq!(editor.project.node(100),project.node(100));
-            assert_eq!(editor.undo_len(),1);editor.project.validate().unwrap();
-            assert!(editor.undo());assert_eq!(editor.project,project);
-            assert!(editor.redo());assert_eq!(editor.project.node(id).unwrap().fx,Some(fx));
-        }}
-        let mut editor=Editor::new(Project::default());
-        for (kind,preset,time) in [(FxKind::Smoke,3,0.),(FxKind::Fire,99,0.),(FxKind::Fire,0,f64::NAN),(FxKind::Fog,0,-1.)] {
-            let before=editor.project.clone();
-            assert!(editor.create_fx_preset_at(kind,preset,time).is_err());
-            assert_eq!(editor.project,before);assert_eq!(editor.undo_len(),0);
-        }
-        for _ in 0..MAX_FX {editor.create_fx_preset_at(FxKind::Steam,0,0.).unwrap();}
-        let before=editor.project.clone();let undo=editor.undo_len();
-        assert!(editor.create_fx_preset_at(FxKind::Fire,3,0.).is_err());
-        assert_eq!(editor.project,before);assert_eq!(editor.undo_len(),undo);
-    }
     #[test]
     fn volume_creation_preserves_scene_and_has_one_undo() {
         let mut editor=Editor::new(Project::default());let before=editor.project.clone();

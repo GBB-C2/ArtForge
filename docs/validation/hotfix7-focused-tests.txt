@@ -1,0 +1,57 @@
+
+running 52 tests
+test app::bone_display_controls_tests::display_shapes_and_view_tracking_persist_without_changing_other_bones_or_geometry ... ok
+test app::bone_display_controls_tests::bone_and_joint_color_previews_cancel_and_commit_independently_as_one_undo ... ok
+test app::bone_display_controls_tests::each_color_reset_is_independent_reversible_and_does_not_create_empty_history ... ok
+test app::bone_display_controls_tests::appearance_panel_exports_real_ui_for_visual_review ... ok
+test app::color_interaction_tests::absorption_cancel_reset_and_locked_material_keep_history_and_original_color ... ok
+test app::bone_display_controls_tests::shape_lists_commit_every_variant_and_cancel_or_stale_selection_never_edits ... ok
+test app::color_interaction_tests::alt_down_tab_and_enter_keep_keyboard_focus_inside_the_color_transaction ... ok
+test app::color_interaction_tests::capture_cancel_restores_drag_start_and_escape_restores_the_session_baseline ... ok
+test app::color_interaction_tests::color_bar_double_click_preserves_preview_then_accepts_exact_percent ... ok
+test app::color_interaction_tests::alpha_only_edits_preserve_exact_rgb_and_respect_existing_alpha_modes ... ok
+test app::color_interaction_tests::color_channel_reset_keeps_popup_open_and_restores_opening_channel ... ok
+test app::color_interaction_tests::emissive_black_then_new_color_retains_the_opening_hdr_strength ... ok
+test app::color_interaction_tests::invalid_color_text_blocks_apply_tab_and_outside_click_but_escape_discards_it ... ok
+test app::color_interaction_tests::marker_clicks_and_return_to_start_preserve_original_float_colors ... ok
+test app::color_interaction_tests::marker_grab_offsets_do_not_jump_and_outer_sv_marker_halves_remain_draggable ... ok
+test app::color_interaction_tests::keyboard_open_returns_to_source_hex_after_finish_while_mouse_open_does_not ... ok
+test app::color_interaction_tests::outside_dismissal_applies_once_and_consumes_selection_and_delete_hits ... ok
+test app::color_interaction_tests::popup_geometry_and_draft_survive_theme_dpi_and_window_size_changes ... ok
+test app::color_interaction_tests::popup_owns_scene_keys_scroll_and_nonleft_pointer_input ... ok
+test app::color_interaction_tests::rewriting_existing_inline_hex_before_alt_down_preserves_float_and_hdr_sources ... ok
+test app::color_interaction_tests::wheel_sv_and_numeric_track_preview_live_then_commit_one_undo ... ok
+test app::color_interaction_tests::all_eight_color_triggers_keep_hex_entry_and_only_modify_their_own_target ... ok
+test app::dropdown::tests::candidates_are_transient_escape_cancels_and_enter_creates_one_undo ... ok
+test app::dropdown::tests::keyboard_entry_returned_focus_and_tab_navigation_are_available ... ok
+test app::dropdown::tests::light_type_and_creation_menus_are_explicit_and_snapshot_guarded ... ok
+test app::dropdown::tests::popup_consumes_pointer_wheel_and_shortcuts_without_editing_underneath ... ok
+test app::dropdown::tests::material_alpha_menu_commits_explicit_choice_and_rejects_stale_target ... ok
+test app::dropdown::tests::softbox_preset_is_an_undoable_area_lighting_rig ... ok
+test app::object_selection_tests::armature_selection_excludes_skin_owners_and_attached_meshes ... ok
+test app::object_selection_tests::hidden_and_locked_surfaces_remain_unselectable ... ok
+test app::object_selection_tests::mesh_parent_is_never_promoted_to_a_skeleton_or_highlights_its_child_bones ... ok
+test app::dropdown::tests::popups_flip_inside_minimum_window_in_both_themes_and_dpi ... ok
+test bones::display_tests::custom_colors_stay_visible_when_selected_and_wire_shapes_pick_only_their_outline ... ok
+test bones::display_tests::every_shape_shares_rendering_and_picking_with_bounded_clipped_geometry ... ok
+test bones::display_tests::following_view_keeps_joints_facing_the_camera_and_rotates_body_about_its_axis ... ok
+test bones::display_tests::shape_gallery_exports_real_overlay_geometry ... ok
+test bones::display_tests::the_full_human_has_one_visible_body_per_authored_bone_including_finger_tips ... ok
+test bones::tests::bone_body_selects_its_base_and_shared_endpoint_selects_the_joint ... ok
+test bones::tests::bones_crossing_viewport_edges_are_pickable_and_draw_inside_it ... ok
+test bones::tests::depth_clipping_accepts_crossing_near_plane_and_rejects_hidden_segment ... ok
+test bones::tests::empty_bone_guide_is_pickable_and_extension_replaces_it ... ok
+test bones::tests::end_on_and_zero_length_joints_remain_finite_and_selectable ... ok
+test bones::tests::every_joint_has_a_larger_filled_circle_with_contrast_halo ... ok
+test bones::tests::hidden_and_locked_ancestors_apply_to_drawing_and_picking ... ok
+test bones::tests::near_plane_clips_bone_faces_and_strokes_before_drawing ... ok
+test bones::tests::non_joint_helpers_preserve_segment_ownership_and_branches ... ok
+test bones::tests::octahedral_bodies_are_shaded_tapered_and_pickable_across_their_width ... ok
+test bones::tests::octahedral_faces_follow_joint_roll_and_camera_rotation ... ok
+test bones::tests::reference_style_uses_matching_bone_and_joint_colors_and_exports_actual_primitives ... ok
+test app::object_selection_tests::viewport_selects_bones_and_skinned_surfaces_independently_with_every_tool ... ok
+test app::bone_display_controls_tests::appearance_controls_remain_reachable_in_both_themes_and_narrow_panels ... ok
+test app::color_interaction_tests::untouched_hex_and_restore_original_preserve_float_hdr_dirty_state_and_redo ... ok
+
+test result: ok. 52 passed; 0 failed; 0 ignored; 0 measured; 634 filtered out; finished in 6.44s
+

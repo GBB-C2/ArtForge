@@ -1,0 +1,18 @@
+[package]
+name = "poseforge-io"
+version.workspace = true
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+poseforge-core = { path = "../core" }
+glam = { version = "=0.29.3", features = ["serde"] }
+gltf = { version = "=1.4.1", features = ["import", "utils", "names", "extensions", "KHR_lights_punctual", "KHR_materials_emissive_strength", "KHR_texture_transform"] }
+image = { version = "=0.25.5", default-features = false, features = ["png", "jpeg", "hdr", "tga", "bmp", "dds"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+urlencoding = "2"
+
+[dev-dependencies]
+tempfile = "3"

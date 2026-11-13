@@ -1,0 +1,11 @@
+
+running 1 test
+nodes=1000 outliner_ms=1.025 evaluate_ms=0.576 ui_ms=8.594
+nodes=5000 outliner_ms=5.792 evaluate_ms=3.353 ui_ms=13.466
+nodes=10000 outliner_ms=14.507 evaluate_ms=7.643 ui_ms=22.093
+rounded_controls=500 scale=1 rounded_ms=6.330
+rounded_controls=500 scale=2 rounded_ms=21.284
+test app::performance_regression_tests::large_scene_cpu_benchmark ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 667 filtered out; finished in 0.66s
+

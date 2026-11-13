@@ -1,0 +1,6 @@
+/target
+/output
+*.autosave.poseforge
+
+__pycache__/
+*.pyc

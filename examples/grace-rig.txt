@@ -1,0 +1,1248 @@
+Armature: Grace_rig
+Bones: 623
+
+c_pos	parent: -	path: c_pos
+
+c_traj	parent: c_pos	path: c_pos > c_traj
+
+c_root_master.x	parent: c_traj	path: c_pos > c_traj > c_root_master.x
+
+c_root.x	parent: c_root_master.x	path: c_pos > c_traj > c_root_master.x > c_root.x
+
+root.x	parent: c_root.x	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x
+
+c_p_root.x	parent: root.x	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_p_root.x
+
+c_root_bend.x	parent: root.x	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_root_bend.x
+
+c_thigh_b.l	parent: root.x	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l
+
+thigh_ik.l	parent: c_thigh_b.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > thigh_ik.l
+
+leg_ik.l	parent: thigh_ik.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > thigh_ik.l > leg_ik.l
+
+c_thigh_fk.l	parent: c_thigh_b.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l
+
+thigh_fk.l	parent: c_thigh_fk.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > thigh_fk.l
+
+c_leg_fk.l	parent: c_thigh_fk.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l
+
+leg_fk.l	parent: c_leg_fk.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > leg_fk.l
+
+foot.l	parent: leg_fk.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > leg_fk.l > foot.l
+
+toes_01.l	parent: foot.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > leg_fk.l > foot.l > toes_01.l
+
+c_toes_thumb1.l	parent: toes_01.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > leg_fk.l > foot.l > toes_01.l > c_toes_thumb1.l
+
+c_toes_thumb2.l	parent: c_toes_thumb1.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > leg_fk.l > foot.l > toes_01.l > c_toes_thumb1.l > c_toes_thumb2.l
+
+c_toes_middle1.l	parent: toes_01.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > leg_fk.l > foot.l > toes_01.l > c_toes_middle1.l
+
+c_toes_middle2.l	parent: c_toes_middle1.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > leg_fk.l > foot.l > toes_01.l > c_toes_middle1.l > c_toes_middle2.l
+
+c_toes_middle3.l	parent: c_toes_middle2.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > leg_fk.l > foot.l > toes_01.l > c_toes_middle1.l > c_toes_middle2.l > c_toes_middle3.l
+
+c_toes_pinky1.l	parent: toes_01.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > leg_fk.l > foot.l > toes_01.l > c_toes_pinky1.l
+
+c_toes_pinky2.l	parent: c_toes_pinky1.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > leg_fk.l > foot.l > toes_01.l > c_toes_pinky1.l > c_toes_pinky2.l
+
+c_toes_pinky3.l	parent: c_toes_pinky2.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > leg_fk.l > foot.l > toes_01.l > c_toes_pinky1.l > c_toes_pinky2.l > c_toes_pinky3.l
+
+foot_pole.l	parent: foot.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > leg_fk.l > foot.l > foot_pole.l
+
+foot_fk_scale_fix.l	parent: c_leg_fk.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > foot_fk_scale_fix.l
+
+c_foot_fk.l	parent: foot_fk_scale_fix.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > foot_fk_scale_fix.l > c_foot_fk.l
+
+foot_fk.l	parent: c_foot_fk.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > foot_fk_scale_fix.l > c_foot_fk.l > foot_fk.l
+
+c_toes_fk.l	parent: foot_fk.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > foot_fk_scale_fix.l > c_foot_fk.l > foot_fk.l > c_toes_fk.l
+
+c_p_foot_fk.l	parent: c_foot_fk.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > foot_fk_scale_fix.l > c_foot_fk.l > c_p_foot_fk.l
+
+leg_fk_pre_pole.l	parent: c_leg_fk.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > leg_fk_pre_pole.l
+
+leg_fk_pole.l	parent: leg_fk_pre_pole.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_fk.l > c_leg_fk.l > leg_fk_pre_pole.l > leg_fk_pole.l
+
+thigh.l	parent: c_thigh_b.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > thigh.l
+
+c_stretch_leg.l	parent: thigh.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > thigh.l > c_stretch_leg.l
+
+leg_pole_line.l	parent: c_stretch_leg.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > thigh.l > c_stretch_leg.l > leg_pole_line.l
+
+leg.l	parent: thigh.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > thigh.l > leg.l
+
+thigh_twist.l	parent: c_thigh_b.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > thigh_twist.l
+
+thigh_ik_nostr.l	parent: c_thigh_b.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > thigh_ik_nostr.l
+
+leg_ik_nostr.l	parent: thigh_ik_nostr.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > thigh_ik_nostr.l > leg_ik_nostr.l
+
+c_thigh_ik.l	parent: c_thigh_b.l	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.l > c_thigh_ik.l
+
+c_thigh_b.r	parent: root.x	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r
+
+thigh_ik.r	parent: c_thigh_b.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > thigh_ik.r
+
+leg_ik.r	parent: thigh_ik.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > thigh_ik.r > leg_ik.r
+
+thigh_ik_nostr.r	parent: c_thigh_b.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > thigh_ik_nostr.r
+
+leg_ik_nostr.r	parent: thigh_ik_nostr.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > thigh_ik_nostr.r > leg_ik_nostr.r
+
+c_thigh_fk.r	parent: c_thigh_b.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r
+
+thigh_fk.r	parent: c_thigh_fk.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > thigh_fk.r
+
+c_leg_fk.r	parent: c_thigh_fk.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r
+
+leg_fk.r	parent: c_leg_fk.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > leg_fk.r
+
+foot.r	parent: leg_fk.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > leg_fk.r > foot.r
+
+toes_01.r	parent: foot.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > leg_fk.r > foot.r > toes_01.r
+
+c_toes_thumb1.r	parent: toes_01.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > leg_fk.r > foot.r > toes_01.r > c_toes_thumb1.r
+
+c_toes_thumb2.r	parent: c_toes_thumb1.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > leg_fk.r > foot.r > toes_01.r > c_toes_thumb1.r > c_toes_thumb2.r
+
+c_toes_middle1.r	parent: toes_01.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > leg_fk.r > foot.r > toes_01.r > c_toes_middle1.r
+
+c_toes_middle2.r	parent: c_toes_middle1.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > leg_fk.r > foot.r > toes_01.r > c_toes_middle1.r > c_toes_middle2.r
+
+c_toes_middle3.r	parent: c_toes_middle2.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > leg_fk.r > foot.r > toes_01.r > c_toes_middle1.r > c_toes_middle2.r > c_toes_middle3.r
+
+c_toes_pinky1.r	parent: toes_01.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > leg_fk.r > foot.r > toes_01.r > c_toes_pinky1.r
+
+c_toes_pinky2.r	parent: c_toes_pinky1.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > leg_fk.r > foot.r > toes_01.r > c_toes_pinky1.r > c_toes_pinky2.r
+
+c_toes_pinky3.r	parent: c_toes_pinky2.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > leg_fk.r > foot.r > toes_01.r > c_toes_pinky1.r > c_toes_pinky2.r > c_toes_pinky3.r
+
+foot_pole.r	parent: foot.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > leg_fk.r > foot.r > foot_pole.r
+
+foot_fk_scale_fix.r	parent: c_leg_fk.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > foot_fk_scale_fix.r
+
+c_foot_fk.r	parent: foot_fk_scale_fix.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > foot_fk_scale_fix.r > c_foot_fk.r
+
+foot_fk.r	parent: c_foot_fk.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > foot_fk_scale_fix.r > c_foot_fk.r > foot_fk.r
+
+c_toes_fk.r	parent: foot_fk.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > foot_fk_scale_fix.r > c_foot_fk.r > foot_fk.r > c_toes_fk.r
+
+c_p_foot_fk.r	parent: c_foot_fk.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > foot_fk_scale_fix.r > c_foot_fk.r > c_p_foot_fk.r
+
+leg_fk_pre_pole.r	parent: c_leg_fk.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > leg_fk_pre_pole.r
+
+leg_fk_pole.r	parent: leg_fk_pre_pole.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_fk.r > c_leg_fk.r > leg_fk_pre_pole.r > leg_fk_pole.r
+
+thigh.r	parent: c_thigh_b.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > thigh.r
+
+c_stretch_leg.r	parent: thigh.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > thigh.r > c_stretch_leg.r
+
+leg_pole_line.r	parent: c_stretch_leg.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > thigh.r > c_stretch_leg.r > leg_pole_line.r
+
+leg.r	parent: thigh.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > thigh.r > leg.r
+
+thigh_twist.r	parent: c_thigh_b.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > thigh_twist.r
+
+c_thigh_ik.r	parent: c_thigh_b.r	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_thigh_b.r > c_thigh_ik.r
+
+c_p_spine_00.x	parent: root.x	path: c_pos > c_traj > c_root_master.x > c_root.x > root.x > c_p_spine_00.x
+
+vag	parent: c_root.x	path: c_pos > c_traj > c_root_master.x > c_root.x > vag
+
+Bone.001	parent: c_root.x	path: c_pos > c_traj > c_root_master.x > c_root.x > Bone.001
+
+VagK.L	parent: c_root.x	path: c_pos > c_traj > c_root_master.x > c_root.x > VagK.L
+
+VagK.R	parent: c_root.x	path: c_pos > c_traj > c_root_master.x > c_root.x > VagK.R
+
+Ass.L	parent: c_root.x	path: c_pos > c_traj > c_root_master.x > c_root.x > Ass.L
+
+Ass.R	parent: c_root.x	path: c_pos > c_traj > c_root_master.x > c_root.x > Ass.R
+
+c_p_root_master.x	parent: c_root_master.x	path: c_pos > c_traj > c_root_master.x > c_p_root_master.x
+
+spine_01_cns.x	parent: c_root_master.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x
+
+c_spine_01.x	parent: spine_01_cns.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x
+
+spine_01.x	parent: c_spine_01.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_01.x
+
+c_p_spine_01.x	parent: spine_01.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_01.x > c_p_spine_01.x
+
+spine_02_cns.x	parent: c_spine_01.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x
+
+c_spine_02.x	parent: spine_02_cns.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x
+
+spine_02.x	parent: c_spine_02.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_02.x
+
+c_p_spine_02.x	parent: spine_02.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_02.x > c_p_spine_02.x
+
+c_p_neck_01.x	parent: c_spine_02.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > c_p_neck_01.x
+
+spine_03_cns.x	parent: c_spine_02.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x
+
+c_spine_03.x	parent: spine_03_cns.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x
+
+spine_03.x	parent: c_spine_03.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x
+
+c_neck.x	parent: spine_03.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_neck.x
+
+c_p_neck.x	parent: c_neck.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_neck.x > c_p_neck.x
+
+neck.x	parent: c_neck.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_neck.x > neck.x
+
+neck_twist.x	parent: neck.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_neck.x > neck.x > neck_twist.x
+
+c_shoulder.r	parent: spine_03.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r
+
+arm_ik.r	parent: c_shoulder.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm_ik.r
+
+forearm_ik.r	parent: arm_ik.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm_ik.r > forearm_ik.r
+
+shoulder.r	parent: c_shoulder.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > shoulder.r
+
+shoulder_track_pole.r	parent: shoulder.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > shoulder.r > shoulder_track_pole.r
+
+shoulder_pole.r	parent: shoulder_track_pole.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > shoulder.r > shoulder_track_pole.r > shoulder_pole.r
+
+arm_twist_twk.r	parent: shoulder.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > shoulder.r > arm_twist_twk.r
+
+arm_stretch_rotated_01.r	parent: shoulder.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > shoulder.r > arm_stretch_rotated_01.r
+
+arm_stretch_rotated_02.r	parent: shoulder.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > shoulder.r > arm_stretch_rotated_02.r
+
+arm_stretch_rotated_03.r	parent: shoulder.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > shoulder.r > arm_stretch_rotated_03.r
+
+arm.r	parent: c_shoulder.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r
+
+c_stretch_arm.r	parent: arm.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > c_stretch_arm.r
+
+arm_pole_line.r	parent: c_stretch_arm.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > c_stretch_arm.r > arm_pole_line.r
+
+forearm.r	parent: arm.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r
+
+hand.r	parent: forearm.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r
+
+c_pinky1_base.r	parent: hand.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_pinky1_base.r
+
+pinky_bend_all.r	parent: c_pinky1_base.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_pinky1_base.r > pinky_bend_all.r
+
+pinky1_rot.r	parent: c_pinky1_base.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_pinky1_base.r > pinky1_rot.r
+
+c_pinky1.r	parent: pinky1_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_pinky1_base.r > pinky1_rot.r > c_pinky1.r
+
+pinky1.r	parent: c_pinky1.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_pinky1_base.r > pinky1_rot.r > c_pinky1.r > pinky1.r
+
+pinky2_rot.r	parent: pinky1.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_pinky1_base.r > pinky1_rot.r > c_pinky1.r > pinky1.r > pinky2_rot.r
+
+c_pinky2.r	parent: pinky2_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_pinky1_base.r > pinky1_rot.r > c_pinky1.r > pinky1.r > pinky2_rot.r > c_pinky2.r
+
+pinky3_rot.r	parent: c_pinky2.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_pinky1_base.r > pinky1_rot.r > c_pinky1.r > pinky1.r > pinky2_rot.r > c_pinky2.r > pinky3_rot.r
+
+c_pinky3.r	parent: pinky3_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_pinky1_base.r > pinky1_rot.r > c_pinky1.r > pinky1.r > pinky2_rot.r > c_pinky2.r > pinky3_rot.r > c_pinky3.r
+
+c_ring1_base.r	parent: hand.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_ring1_base.r
+
+ring_bend_all.r	parent: c_ring1_base.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_ring1_base.r > ring_bend_all.r
+
+ring1_rot.r	parent: c_ring1_base.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_ring1_base.r > ring1_rot.r
+
+c_ring1.r	parent: ring1_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_ring1_base.r > ring1_rot.r > c_ring1.r
+
+ring1.r	parent: c_ring1.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_ring1_base.r > ring1_rot.r > c_ring1.r > ring1.r
+
+ring2_rot.r	parent: ring1.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_ring1_base.r > ring1_rot.r > c_ring1.r > ring1.r > ring2_rot.r
+
+c_ring2.r	parent: ring2_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_ring1_base.r > ring1_rot.r > c_ring1.r > ring1.r > ring2_rot.r > c_ring2.r
+
+ring3_rot.r	parent: c_ring2.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_ring1_base.r > ring1_rot.r > c_ring1.r > ring1.r > ring2_rot.r > c_ring2.r > ring3_rot.r
+
+c_ring3.r	parent: ring3_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_ring1_base.r > ring1_rot.r > c_ring1.r > ring1.r > ring2_rot.r > c_ring2.r > ring3_rot.r > c_ring3.r
+
+c_middle1_base.r	parent: hand.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_middle1_base.r
+
+middle_bend_all.r	parent: c_middle1_base.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_middle1_base.r > middle_bend_all.r
+
+middle1_rot.r	parent: c_middle1_base.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_middle1_base.r > middle1_rot.r
+
+c_middle1.r	parent: middle1_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_middle1_base.r > middle1_rot.r > c_middle1.r
+
+middle1.r	parent: c_middle1.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_middle1_base.r > middle1_rot.r > c_middle1.r > middle1.r
+
+middle2_rot.r	parent: middle1.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_middle1_base.r > middle1_rot.r > c_middle1.r > middle1.r > middle2_rot.r
+
+c_middle2.r	parent: middle2_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_middle1_base.r > middle1_rot.r > c_middle1.r > middle1.r > middle2_rot.r > c_middle2.r
+
+middle3_rot.r	parent: c_middle2.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_middle1_base.r > middle1_rot.r > c_middle1.r > middle1.r > middle2_rot.r > c_middle2.r > middle3_rot.r
+
+c_middle3.r	parent: middle3_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_middle1_base.r > middle1_rot.r > c_middle1.r > middle1.r > middle2_rot.r > c_middle2.r > middle3_rot.r > c_middle3.r
+
+c_index1_base.r	parent: hand.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_index1_base.r
+
+index1_rot.r	parent: c_index1_base.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_index1_base.r > index1_rot.r
+
+c_index1.r	parent: index1_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_index1_base.r > index1_rot.r > c_index1.r
+
+index1.r	parent: c_index1.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_index1_base.r > index1_rot.r > c_index1.r > index1.r
+
+index2_rot.r	parent: index1.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_index1_base.r > index1_rot.r > c_index1.r > index1.r > index2_rot.r
+
+c_index2.r	parent: index2_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_index1_base.r > index1_rot.r > c_index1.r > index1.r > index2_rot.r > c_index2.r
+
+index3_rot.r	parent: c_index2.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_index1_base.r > index1_rot.r > c_index1.r > index1.r > index2_rot.r > c_index2.r > index3_rot.r
+
+c_index3.r	parent: index3_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_index1_base.r > index1_rot.r > c_index1.r > index1.r > index2_rot.r > c_index2.r > index3_rot.r > c_index3.r
+
+index_bend_all.r	parent: c_index1_base.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_index1_base.r > index_bend_all.r
+
+c_thumb1_base.r	parent: hand.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_thumb1_base.r
+
+thumb_bend_all.r	parent: c_thumb1_base.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_thumb1_base.r > thumb_bend_all.r
+
+thumb1_rot.r	parent: c_thumb1_base.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_thumb1_base.r > thumb1_rot.r
+
+c_thumb1.r	parent: thumb1_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_thumb1_base.r > thumb1_rot.r > c_thumb1.r
+
+thumb1.r	parent: c_thumb1.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_thumb1_base.r > thumb1_rot.r > c_thumb1.r > thumb1.r
+
+thumb2_rot.r	parent: thumb1.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_thumb1_base.r > thumb1_rot.r > c_thumb1.r > thumb1.r > thumb2_rot.r
+
+c_thumb2.r	parent: thumb2_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_thumb1_base.r > thumb1_rot.r > c_thumb1.r > thumb1.r > thumb2_rot.r > c_thumb2.r
+
+thumb3_rot.r	parent: c_thumb2.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_thumb1_base.r > thumb1_rot.r > c_thumb1.r > thumb1.r > thumb2_rot.r > c_thumb2.r > thumb3_rot.r
+
+c_thumb3.r	parent: thumb3_rot.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_thumb1_base.r > thumb1_rot.r > c_thumb1.r > thumb1.r > thumb2_rot.r > c_thumb2.r > thumb3_rot.r > c_thumb3.r
+
+hand_rot_twist.r	parent: hand.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > hand_rot_twist.r
+
+c_fist.r	parent: hand.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm.r > forearm.r > hand.r > c_fist.r
+
+arm_ik_nostr_scale_fix.r	parent: c_shoulder.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm_ik_nostr_scale_fix.r
+
+arm_ik_nostr.r	parent: arm_ik_nostr_scale_fix.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm_ik_nostr_scale_fix.r > arm_ik_nostr.r
+
+forearm_ik_nostr.r	parent: arm_ik_nostr.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm_ik_nostr_scale_fix.r > arm_ik_nostr.r > forearm_ik_nostr.r
+
+arm_twist.r	parent: c_shoulder.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm_twist.r
+
+c_arm_twist_offset.r	parent: arm_twist.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > arm_twist.r > c_arm_twist_offset.r
+
+c_arm_ik.r	parent: c_shoulder.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.r > c_arm_ik.r
+
+c_shoulder.l	parent: spine_03.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l
+
+arm_ik.l	parent: c_shoulder.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm_ik.l
+
+forearm_ik.l	parent: arm_ik.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm_ik.l > forearm_ik.l
+
+arm.l	parent: c_shoulder.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l
+
+c_stretch_arm.l	parent: arm.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > c_stretch_arm.l
+
+arm_pole_line.l	parent: c_stretch_arm.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > c_stretch_arm.l > arm_pole_line.l
+
+forearm.l	parent: arm.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l
+
+hand.l	parent: forearm.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l
+
+c_pinky1_base.l	parent: hand.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_pinky1_base.l
+
+pinky_bend_all.l	parent: c_pinky1_base.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_pinky1_base.l > pinky_bend_all.l
+
+pinky1_rot.l	parent: c_pinky1_base.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_pinky1_base.l > pinky1_rot.l
+
+c_pinky1.l	parent: pinky1_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_pinky1_base.l > pinky1_rot.l > c_pinky1.l
+
+pinky1.l	parent: c_pinky1.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_pinky1_base.l > pinky1_rot.l > c_pinky1.l > pinky1.l
+
+pinky2_rot.l	parent: pinky1.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_pinky1_base.l > pinky1_rot.l > c_pinky1.l > pinky1.l > pinky2_rot.l
+
+c_pinky2.l	parent: pinky2_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_pinky1_base.l > pinky1_rot.l > c_pinky1.l > pinky1.l > pinky2_rot.l > c_pinky2.l
+
+pinky3_rot.l	parent: c_pinky2.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_pinky1_base.l > pinky1_rot.l > c_pinky1.l > pinky1.l > pinky2_rot.l > c_pinky2.l > pinky3_rot.l
+
+c_pinky3.l	parent: pinky3_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_pinky1_base.l > pinky1_rot.l > c_pinky1.l > pinky1.l > pinky2_rot.l > c_pinky2.l > pinky3_rot.l > c_pinky3.l
+
+c_ring1_base.l	parent: hand.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_ring1_base.l
+
+ring_bend_all.l	parent: c_ring1_base.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_ring1_base.l > ring_bend_all.l
+
+ring1_rot.l	parent: c_ring1_base.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_ring1_base.l > ring1_rot.l
+
+c_ring1.l	parent: ring1_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_ring1_base.l > ring1_rot.l > c_ring1.l
+
+ring1.l	parent: c_ring1.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_ring1_base.l > ring1_rot.l > c_ring1.l > ring1.l
+
+ring2_rot.l	parent: ring1.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_ring1_base.l > ring1_rot.l > c_ring1.l > ring1.l > ring2_rot.l
+
+c_ring2.l	parent: ring2_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_ring1_base.l > ring1_rot.l > c_ring1.l > ring1.l > ring2_rot.l > c_ring2.l
+
+ring3_rot.l	parent: c_ring2.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_ring1_base.l > ring1_rot.l > c_ring1.l > ring1.l > ring2_rot.l > c_ring2.l > ring3_rot.l
+
+c_ring3.l	parent: ring3_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_ring1_base.l > ring1_rot.l > c_ring1.l > ring1.l > ring2_rot.l > c_ring2.l > ring3_rot.l > c_ring3.l
+
+c_middle1_base.l	parent: hand.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_middle1_base.l
+
+middle_bend_all.l	parent: c_middle1_base.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_middle1_base.l > middle_bend_all.l
+
+middle1_rot.l	parent: c_middle1_base.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_middle1_base.l > middle1_rot.l
+
+c_middle1.l	parent: middle1_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_middle1_base.l > middle1_rot.l > c_middle1.l
+
+middle1.l	parent: c_middle1.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_middle1_base.l > middle1_rot.l > c_middle1.l > middle1.l
+
+middle2_rot.l	parent: middle1.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_middle1_base.l > middle1_rot.l > c_middle1.l > middle1.l > middle2_rot.l
+
+c_middle2.l	parent: middle2_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_middle1_base.l > middle1_rot.l > c_middle1.l > middle1.l > middle2_rot.l > c_middle2.l
+
+middle3_rot.l	parent: c_middle2.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_middle1_base.l > middle1_rot.l > c_middle1.l > middle1.l > middle2_rot.l > c_middle2.l > middle3_rot.l
+
+c_middle3.l	parent: middle3_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_middle1_base.l > middle1_rot.l > c_middle1.l > middle1.l > middle2_rot.l > c_middle2.l > middle3_rot.l > c_middle3.l
+
+c_index1_base.l	parent: hand.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_index1_base.l
+
+index_bend_all.l	parent: c_index1_base.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_index1_base.l > index_bend_all.l
+
+index1_rot.l	parent: c_index1_base.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_index1_base.l > index1_rot.l
+
+c_index1.l	parent: index1_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_index1_base.l > index1_rot.l > c_index1.l
+
+index1.l	parent: c_index1.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_index1_base.l > index1_rot.l > c_index1.l > index1.l
+
+index2_rot.l	parent: index1.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_index1_base.l > index1_rot.l > c_index1.l > index1.l > index2_rot.l
+
+c_index2.l	parent: index2_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_index1_base.l > index1_rot.l > c_index1.l > index1.l > index2_rot.l > c_index2.l
+
+index3_rot.l	parent: c_index2.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_index1_base.l > index1_rot.l > c_index1.l > index1.l > index2_rot.l > c_index2.l > index3_rot.l
+
+c_index3.l	parent: index3_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_index1_base.l > index1_rot.l > c_index1.l > index1.l > index2_rot.l > c_index2.l > index3_rot.l > c_index3.l
+
+c_thumb1_base.l	parent: hand.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_thumb1_base.l
+
+thumb_bend_all.l	parent: c_thumb1_base.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_thumb1_base.l > thumb_bend_all.l
+
+thumb1_rot.l	parent: c_thumb1_base.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_thumb1_base.l > thumb1_rot.l
+
+c_thumb1.l	parent: thumb1_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_thumb1_base.l > thumb1_rot.l > c_thumb1.l
+
+thumb1.l	parent: c_thumb1.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_thumb1_base.l > thumb1_rot.l > c_thumb1.l > thumb1.l
+
+thumb2_rot.l	parent: thumb1.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_thumb1_base.l > thumb1_rot.l > c_thumb1.l > thumb1.l > thumb2_rot.l
+
+c_thumb2.l	parent: thumb2_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_thumb1_base.l > thumb1_rot.l > c_thumb1.l > thumb1.l > thumb2_rot.l > c_thumb2.l
+
+thumb3_rot.l	parent: c_thumb2.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_thumb1_base.l > thumb1_rot.l > c_thumb1.l > thumb1.l > thumb2_rot.l > c_thumb2.l > thumb3_rot.l
+
+c_thumb3.l	parent: thumb3_rot.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_thumb1_base.l > thumb1_rot.l > c_thumb1.l > thumb1.l > thumb2_rot.l > c_thumb2.l > thumb3_rot.l > c_thumb3.l
+
+hand_rot_twist.l	parent: hand.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > hand_rot_twist.l
+
+c_fist.l	parent: hand.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm.l > forearm.l > hand.l > c_fist.l
+
+shoulder.l	parent: c_shoulder.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > shoulder.l
+
+shoulder_track_pole.l	parent: shoulder.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > shoulder.l > shoulder_track_pole.l
+
+shoulder_pole.l	parent: shoulder_track_pole.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > shoulder.l > shoulder_track_pole.l > shoulder_pole.l
+
+arm_twist_twk.l	parent: shoulder.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > shoulder.l > arm_twist_twk.l
+
+arm_stretch_rotated_01.l	parent: shoulder.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > shoulder.l > arm_stretch_rotated_01.l
+
+arm_stretch_rotated_02.l	parent: shoulder.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > shoulder.l > arm_stretch_rotated_02.l
+
+arm_stretch_rotated_03.l	parent: shoulder.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > shoulder.l > arm_stretch_rotated_03.l
+
+arm_ik_nostr_scale_fix.l	parent: c_shoulder.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm_ik_nostr_scale_fix.l
+
+arm_ik_nostr.l	parent: arm_ik_nostr_scale_fix.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm_ik_nostr_scale_fix.l > arm_ik_nostr.l
+
+forearm_ik_nostr.l	parent: arm_ik_nostr.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm_ik_nostr_scale_fix.l > arm_ik_nostr.l > forearm_ik_nostr.l
+
+arm_twist.l	parent: c_shoulder.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm_twist.l
+
+c_arm_twist_offset.l	parent: arm_twist.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > arm_twist.l > c_arm_twist_offset.l
+
+c_arm_ik.l	parent: c_shoulder.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_shoulder.l > c_arm_ik.l
+
+c_arm_fk.l	parent: spine_03.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.l
+
+arm_fk.l	parent: c_arm_fk.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.l > arm_fk.l
+
+c_forearm_fk.l	parent: c_arm_fk.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.l > c_forearm_fk.l
+
+forearm_fk.l	parent: c_forearm_fk.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.l > c_forearm_fk.l > forearm_fk.l
+
+hand_fk_scale_fix.l	parent: forearm_fk.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.l > c_forearm_fk.l > forearm_fk.l > hand_fk_scale_fix.l
+
+c_hand_fk.l	parent: hand_fk_scale_fix.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.l > c_forearm_fk.l > forearm_fk.l > hand_fk_scale_fix.l > c_hand_fk.l
+
+arm_fk_pre_pole.l	parent: c_arm_fk.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.l > arm_fk_pre_pole.l
+
+arm_fk_pole.l	parent: arm_fk_pre_pole.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.l > arm_fk_pre_pole.l > arm_fk_pole.l
+
+c_arm_fk.r	parent: spine_03.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.r
+
+c_forearm_fk.r	parent: c_arm_fk.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.r > c_forearm_fk.r
+
+forearm_fk.r	parent: c_forearm_fk.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.r > c_forearm_fk.r > forearm_fk.r
+
+hand_fk_scale_fix.r	parent: forearm_fk.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.r > c_forearm_fk.r > forearm_fk.r > hand_fk_scale_fix.r
+
+c_hand_fk.r	parent: hand_fk_scale_fix.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.r > c_forearm_fk.r > forearm_fk.r > hand_fk_scale_fix.r > c_hand_fk.r
+
+arm_fk.r	parent: c_arm_fk.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.r > arm_fk.r
+
+arm_fk_pre_pole.r	parent: c_arm_fk.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.r > arm_fk_pre_pole.r
+
+arm_fk_pole.r	parent: arm_fk_pre_pole.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_arm_fk.r > arm_fk_pre_pole.r > arm_fk_pole.r
+
+c_p_spine_03.x	parent: spine_03.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_p_spine_03.x
+
+c_breast_01.l	parent: spine_03.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_breast_01.l
+
+breast.L	parent: c_breast_01.l	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_breast_01.l > breast.L
+
+breast.001.L	parent: breast.L	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_breast_01.l > breast.L > breast.001.L
+
+c_breast_01.r	parent: spine_03.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_breast_01.r
+
+breast.R	parent: c_breast_01.r	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_breast_01.r > breast.R
+
+breast.001.R	parent: breast.R	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_breast_01.r > breast.R > breast.001.R
+
+c_breast_02.l	parent: spine_03.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_breast_02.l
+
+c_breast_02.r	parent: spine_03.x	path: c_pos > c_traj > c_root_master.x > spine_01_cns.x > c_spine_01.x > spine_02_cns.x > c_spine_02.x > spine_03_cns.x > c_spine_03.x > spine_03.x > c_breast_02.r
+
+c_spine_master.x	parent: c_root_master.x	path: c_pos > c_traj > c_root_master.x > c_spine_master.x
+
+head_scale_fix.x	parent: c_traj	path: c_pos > c_traj > head_scale_fix.x
+
+c_head.x	parent: head_scale_fix.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x
+
+head.x	parent: c_head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x
+
+c_jawbone.x	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_jawbone.x
+
+jawbone.x	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x
+
+c_lips_bot_offset.l	parent: jawbone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_lips_bot_offset.l
+
+c_lips_bot.l	parent: c_lips_bot_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_lips_bot_offset.l > c_lips_bot.l
+
+c_lips_bot_offset.r	parent: jawbone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_lips_bot_offset.r
+
+c_lips_bot.r	parent: c_lips_bot_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_lips_bot_offset.r > c_lips_bot.r
+
+c_lips_bot_offset.x	parent: jawbone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_lips_bot_offset.x
+
+c_lips_bot.x	parent: c_lips_bot_offset.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_lips_bot_offset.x > c_lips_bot.x
+
+c_lips_roll_bot.x	parent: jawbone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_lips_roll_bot.x
+
+c_teeth_bot_master.x	parent: jawbone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_teeth_bot_master.x
+
+c_teeth_bot.x	parent: c_teeth_bot_master.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_teeth_bot_master.x > c_teeth_bot.x
+
+c_teeth_bot.l	parent: c_teeth_bot_master.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_teeth_bot_master.x > c_teeth_bot.l
+
+c_teeth_bot.r	parent: c_teeth_bot_master.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_teeth_bot_master.x > c_teeth_bot.r
+
+c_tong_01.x	parent: jawbone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_tong_01.x
+
+c_tong_02.x	parent: c_tong_01.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_tong_01.x > c_tong_02.x
+
+c_tong_03.x	parent: c_tong_02.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_tong_01.x > c_tong_02.x > c_tong_03.x
+
+tong_03.x	parent: c_tong_03.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_tong_01.x > c_tong_02.x > c_tong_03.x > tong_03.x
+
+tong_02.x	parent: c_tong_02.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_tong_01.x > c_tong_02.x > tong_02.x
+
+tong_01.x	parent: c_tong_01.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_tong_01.x > tong_01.x
+
+c_chin_01.x	parent: jawbone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_chin_01.x
+
+c_chin_02.x	parent: jawbone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_chin_02.x
+
+c_lips_bot_01_offset.l	parent: jawbone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_lips_bot_01_offset.l
+
+c_lips_bot_01.l	parent: c_lips_bot_01_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_lips_bot_01_offset.l > c_lips_bot_01.l
+
+c_lips_bot_01_offset.r	parent: jawbone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_lips_bot_01_offset.r
+
+c_lips_bot_01.r	parent: c_lips_bot_01_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone.x > c_lips_bot_01_offset.r > c_lips_bot_01.r
+
+jaw_ret_bone.x	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jaw_ret_bone.x
+
+c_lips_top_retain.x	parent: jaw_ret_bone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jaw_ret_bone.x > c_lips_top_retain.x
+
+c_lips_top_retain.l	parent: jaw_ret_bone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jaw_ret_bone.x > c_lips_top_retain.l
+
+c_lips_top_retain.r	parent: jaw_ret_bone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jaw_ret_bone.x > c_lips_top_retain.r
+
+c_lips_top_01_retain.l	parent: jaw_ret_bone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jaw_ret_bone.x > c_lips_top_01_retain.l
+
+c_lips_top_01_retain.r	parent: jaw_ret_bone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jaw_ret_bone.x > c_lips_top_01_retain.r
+
+c_lips_smile_retain.l	parent: jaw_ret_bone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jaw_ret_bone.x > c_lips_smile_retain.l
+
+c_lips_smile_retain.r	parent: jaw_ret_bone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jaw_ret_bone.x > c_lips_smile_retain.r
+
+c_lips_bot_01_retain.l	parent: jaw_ret_bone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jaw_ret_bone.x > c_lips_bot_01_retain.l
+
+c_lips_bot_01_retain.r	parent: jaw_ret_bone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jaw_ret_bone.x > c_lips_bot_01_retain.r
+
+c_lips_bot_retain.l	parent: jaw_ret_bone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jaw_ret_bone.x > c_lips_bot_retain.l
+
+c_lips_bot_retain.r	parent: jaw_ret_bone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jaw_ret_bone.x > c_lips_bot_retain.r
+
+c_lips_bot_retain.x	parent: jaw_ret_bone.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jaw_ret_bone.x > c_lips_bot_retain.x
+
+c_lips_top_offset.x	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_top_offset.x
+
+c_lips_top.x	parent: c_lips_top_offset.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_top_offset.x > c_lips_top.x
+
+c_lips_top_offset.l	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_top_offset.l
+
+c_lips_top.l	parent: c_lips_top_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_top_offset.l > c_lips_top.l
+
+c_lips_top_offset.r	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_top_offset.r
+
+c_lips_top.r	parent: c_lips_top_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_top_offset.r > c_lips_top.r
+
+c_lips_top_01_offset.l	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_top_01_offset.l
+
+c_lips_top_01.l	parent: c_lips_top_01_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_top_01_offset.l > c_lips_top_01.l
+
+c_lips_top_01_offset.r	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_top_01_offset.r
+
+c_lips_top_01.r	parent: c_lips_top_01_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_top_01_offset.r > c_lips_top_01.r
+
+c_lips_smile_offset.l	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_smile_offset.l
+
+c_lips_smile.l	parent: c_lips_smile_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_smile_offset.l > c_lips_smile.l
+
+c_lips_corner_mini.l	parent: c_lips_smile.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_smile_offset.l > c_lips_smile.l > c_lips_corner_mini.l
+
+c_lips_smile_offset.r	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_smile_offset.r
+
+c_lips_smile.r	parent: c_lips_smile_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_smile_offset.r > c_lips_smile.r
+
+c_lips_corner_mini.r	parent: c_lips_smile.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_smile_offset.r > c_lips_smile.r > c_lips_corner_mini.r
+
+jawbone_track.x	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > jawbone_track.x
+
+c_teeth_top_master.x	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_teeth_top_master.x
+
+c_teeth_top.x	parent: c_teeth_top_master.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_teeth_top_master.x > c_teeth_top.x
+
+c_teeth_top.l	parent: c_teeth_top_master.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_teeth_top_master.x > c_teeth_top.l
+
+c_teeth_top.r	parent: c_teeth_top_master.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_teeth_top_master.x > c_teeth_top.r
+
+c_nose_03.x	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_nose_03.x
+
+c_nose_01.x	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_nose_01.x
+
+c_nose_02.x	parent: c_nose_01.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_nose_01.x > c_nose_02.x
+
+c_eye_ref_track.l	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_ref_track.l
+
+c_eye_offset.l	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l
+
+c_eyelid_base.l	parent: c_eye_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eyelid_base.l
+
+eyelid_top.l	parent: c_eyelid_base.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eyelid_base.l > eyelid_top.l
+
+c_eyelid_top_01.l	parent: eyelid_top.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eyelid_base.l > eyelid_top.l > c_eyelid_top_01.l
+
+c_eyelid_top_02.l	parent: eyelid_top.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eyelid_base.l > eyelid_top.l > c_eyelid_top_02.l
+
+c_eyelid_top_03.l	parent: eyelid_top.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eyelid_base.l > eyelid_top.l > c_eyelid_top_03.l
+
+eyelid_bot.l	parent: c_eyelid_base.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eyelid_base.l > eyelid_bot.l
+
+c_eyelid_bot_01.l	parent: eyelid_bot.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eyelid_base.l > eyelid_bot.l > c_eyelid_bot_01.l
+
+c_eyelid_bot_02.l	parent: eyelid_bot.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eyelid_base.l > eyelid_bot.l > c_eyelid_bot_02.l
+
+c_eyelid_bot_03.l	parent: eyelid_bot.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eyelid_base.l > eyelid_bot.l > c_eyelid_bot_03.l
+
+c_eye.l	parent: c_eye_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eye.l
+
+c_eye_ref.l	parent: c_eye_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eye_ref.l
+
+c_eyelid_corner_01.l	parent: c_eye_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eyelid_corner_01.l
+
+c_eyelid_corner_02.l	parent: c_eye_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eyelid_corner_02.l
+
+c_eyelid_top.l	parent: c_eye_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eyelid_top.l
+
+c_eyelid_bot.l	parent: c_eye_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.l > c_eyelid_bot.l
+
+c_eye_ref_track.r	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_ref_track.r
+
+c_eye_offset.r	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r
+
+c_eyelid_corner_01.r	parent: c_eye_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eyelid_corner_01.r
+
+c_eyelid_corner_02.r	parent: c_eye_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eyelid_corner_02.r
+
+c_eyelid_base.r	parent: c_eye_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eyelid_base.r
+
+eyelid_top.r	parent: c_eyelid_base.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eyelid_base.r > eyelid_top.r
+
+c_eyelid_top_01.r	parent: eyelid_top.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eyelid_base.r > eyelid_top.r > c_eyelid_top_01.r
+
+c_eyelid_top_02.r	parent: eyelid_top.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eyelid_base.r > eyelid_top.r > c_eyelid_top_02.r
+
+c_eyelid_top_03.r	parent: eyelid_top.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eyelid_base.r > eyelid_top.r > c_eyelid_top_03.r
+
+eyelid_bot.r	parent: c_eyelid_base.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eyelid_base.r > eyelid_bot.r
+
+c_eyelid_bot_01.r	parent: eyelid_bot.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eyelid_base.r > eyelid_bot.r > c_eyelid_bot_01.r
+
+c_eyelid_bot_02.r	parent: eyelid_bot.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eyelid_base.r > eyelid_bot.r > c_eyelid_bot_02.r
+
+c_eyelid_bot_03.r	parent: eyelid_bot.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eyelid_base.r > eyelid_bot.r > c_eyelid_bot_03.r
+
+c_eye.r	parent: c_eye_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eye.r
+
+c_eye_ref.r	parent: c_eye_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eye_ref.r
+
+c_eyelid_top.r	parent: c_eye_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eyelid_top.r
+
+c_eyelid_bot.r	parent: c_eye_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eye_offset.r > c_eyelid_bot.r
+
+c_eyebrow_full.l	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eyebrow_full.l
+
+c_eyebrow_full.r	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_eyebrow_full.r
+
+c_cheek_smile.l	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_cheek_smile.l
+
+c_cheek_smile.r	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_cheek_smile.r
+
+c_cheek_inflate.l	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_cheek_inflate.l
+
+c_cheek_inflate.r	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_cheek_inflate.r
+
+c_lips_offset.x	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_offset.x
+
+c_lips_roll_top.x	parent: c_lips_offset.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_lips_offset.x > c_lips_roll_top.x
+
+eyebrow_01_end_offset.l	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_01_end_offset.l
+
+c_eyebrow_01_end_master.l	parent: eyebrow_01_end_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_01_end_offset.l > c_eyebrow_01_end_master.l
+
+c_eyebrow_01_end.l	parent: c_eyebrow_01_end_master.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_01_end_offset.l > c_eyebrow_01_end_master.l > c_eyebrow_01_end.l
+
+eyebrow_01_offset.l	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_01_offset.l
+
+c_eyebrow_01.l	parent: eyebrow_01_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_01_offset.l > c_eyebrow_01.l
+
+eyebrow_02_offset.l	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_02_offset.l
+
+c_eyebrow_02.l	parent: eyebrow_02_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_02_offset.l > c_eyebrow_02.l
+
+eyebrow_03_offset.l	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_03_offset.l
+
+c_eyebrow_03_master.l	parent: eyebrow_03_offset.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_03_offset.l > c_eyebrow_03_master.l
+
+c_eyebrow_03.l	parent: c_eyebrow_03_master.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_03_offset.l > c_eyebrow_03_master.l > c_eyebrow_03.l
+
+eyebrow_01_end_offset.r	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_01_end_offset.r
+
+c_eyebrow_01_end_master.r	parent: eyebrow_01_end_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_01_end_offset.r > c_eyebrow_01_end_master.r
+
+c_eyebrow_01_end.r	parent: c_eyebrow_01_end_master.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_01_end_offset.r > c_eyebrow_01_end_master.r > c_eyebrow_01_end.r
+
+eyebrow_01_offset.r	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_01_offset.r
+
+c_eyebrow_01.r	parent: eyebrow_01_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_01_offset.r > c_eyebrow_01.r
+
+eyebrow_02_offset.r	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_02_offset.r
+
+c_eyebrow_02.r	parent: eyebrow_02_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_02_offset.r > c_eyebrow_02.r
+
+eyebrow_03_offset.r	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_03_offset.r
+
+c_eyebrow_03_master.r	parent: eyebrow_03_offset.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_03_offset.r > c_eyebrow_03_master.r
+
+c_eyebrow_03.r	parent: c_eyebrow_03_master.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > eyebrow_03_offset.r > c_eyebrow_03_master.r > c_eyebrow_03.r
+
+c_ear_01.l	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_ear_01.l
+
+c_ear_02.l	parent: c_ear_01.l	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_ear_01.l > c_ear_02.l
+
+c_ear_01.r	parent: head.x	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_ear_01.r
+
+c_ear_02.r	parent: c_ear_01.r	path: c_pos > c_traj > head_scale_fix.x > c_head.x > head.x > c_ear_01.r > c_ear_02.r
+
+leg_stretch.l	parent: c_traj	path: c_pos > c_traj > leg_stretch.l
+
+leg_twist.l	parent: leg_stretch.l	path: c_pos > c_traj > leg_stretch.l > leg_twist.l
+
+foot_rotated_01.l	parent: leg_twist.l	path: c_pos > c_traj > leg_stretch.l > leg_twist.l > foot_rotated_01.l
+
+thigh_stretch_rotated_01.l	parent: leg_stretch.l	path: c_pos > c_traj > leg_stretch.l > thigh_stretch_rotated_01.l
+
+leg_stretch.r	parent: c_traj	path: c_pos > c_traj > leg_stretch.r
+
+leg_twist.r	parent: leg_stretch.r	path: c_pos > c_traj > leg_stretch.r > leg_twist.r
+
+foot_rotated_01.r	parent: leg_twist.r	path: c_pos > c_traj > leg_stretch.r > leg_twist.r > foot_rotated_01.r
+
+thigh_stretch.l	parent: c_traj	path: c_pos > c_traj > thigh_stretch.l
+
+leg_stretch_rotated_01.l	parent: thigh_stretch.l	path: c_pos > c_traj > thigh_stretch.l > leg_stretch_rotated_01.l
+
+thigh_stretch.r	parent: c_traj	path: c_pos > c_traj > thigh_stretch.r
+
+leg_stretch_rotated_01.r	parent: thigh_stretch.r	path: c_pos > c_traj > thigh_stretch.r > leg_stretch_rotated_01.r
+
+leg_stretch_rotated_02.r	parent: thigh_stretch.r	path: c_pos > c_traj > thigh_stretch.r > leg_stretch_rotated_02.r
+
+arm_stretch.l	parent: c_traj	path: c_pos > c_traj > arm_stretch.l
+
+shoulder_rotated_01.l	parent: arm_stretch.l	path: c_pos > c_traj > arm_stretch.l > shoulder_rotated_01.l
+
+arm_stretch.r	parent: c_traj	path: c_pos > c_traj > arm_stretch.r
+
+forearm_stretch.l	parent: c_traj	path: c_pos > c_traj > forearm_stretch.l
+
+forearm_twist.l	parent: forearm_stretch.l	path: c_pos > c_traj > forearm_stretch.l > forearm_twist.l
+
+forearm_stretch.r	parent: c_traj	path: c_pos > c_traj > forearm_stretch.r
+
+forearm_twist.r	parent: forearm_stretch.r	path: c_pos > c_traj > forearm_stretch.r > forearm_twist.r
+
+c_stretch_leg_pin.l	parent: c_pos	path: c_pos > c_stretch_leg_pin.l
+
+c_stretch_leg_pin.r	parent: c_pos	path: c_pos > c_stretch_leg_pin.r
+
+c_stretch_arm_pin.r	parent: c_pos	path: c_pos > c_stretch_arm_pin.r
+
+c_stretch_arm_pin.l	parent: c_pos	path: c_pos > c_stretch_arm_pin.l
+
+c_arms_pole.l	parent: -	path: c_arms_pole.l
+
+c_arms_pole.r	parent: -	path: c_arms_pole.r
+
+c_foot_ik.r	parent: -	path: c_foot_ik.r
+
+c_p_foot_ik.r	parent: c_foot_ik.r	path: c_foot_ik.r > c_p_foot_ik.r
+
+foot_ik.r	parent: c_foot_ik.r	path: c_foot_ik.r > foot_ik.r
+
+toes_track.r	parent: foot_ik.r	path: c_foot_ik.r > foot_ik.r > toes_track.r
+
+toes_01_ik.r	parent: toes_track.r	path: c_foot_ik.r > foot_ik.r > toes_track.r > toes_01_ik.r
+
+toes_02.r	parent: toes_01_ik.r	path: c_foot_ik.r > foot_ik.r > toes_track.r > toes_01_ik.r > toes_02.r
+
+foot_snap_fk.r	parent: foot_ik.r	path: c_foot_ik.r > foot_ik.r > foot_snap_fk.r
+
+foot_bank_01.r	parent: c_foot_ik.r	path: c_foot_ik.r > foot_bank_01.r
+
+foot_bank_02.r	parent: foot_bank_01.r	path: c_foot_ik.r > foot_bank_01.r > foot_bank_02.r
+
+foot_heel.r	parent: foot_bank_02.r	path: c_foot_ik.r > foot_bank_01.r > foot_bank_02.r > foot_heel.r
+
+toes_end.r	parent: foot_heel.r	path: c_foot_ik.r > foot_bank_01.r > foot_bank_02.r > foot_heel.r > toes_end.r
+
+c_toes_ik.r	parent: toes_end.r	path: c_foot_ik.r > foot_bank_01.r > foot_bank_02.r > foot_heel.r > toes_end.r > c_toes_ik.r
+
+c_foot_01.r	parent: toes_end.r	path: c_foot_ik.r > foot_bank_01.r > foot_bank_02.r > foot_heel.r > toes_end.r > c_foot_01.r
+
+foot_ik_target.r	parent: c_foot_01.r	path: c_foot_ik.r > foot_bank_01.r > foot_bank_02.r > foot_heel.r > toes_end.r > c_foot_01.r > foot_ik_target.r
+
+foot_01_pole.r	parent: c_foot_01.r	path: c_foot_ik.r > foot_bank_01.r > foot_bank_02.r > foot_heel.r > toes_end.r > c_foot_01.r > foot_01_pole.r
+
+toes_end_01.r	parent: toes_end.r	path: c_foot_ik.r > foot_bank_01.r > foot_bank_02.r > foot_heel.r > toes_end.r > toes_end_01.r
+
+foot_roll.r	parent: c_foot_ik.r	path: c_foot_ik.r > foot_roll.r
+
+c_foot_roll_cursor.r	parent: foot_roll.r	path: c_foot_ik.r > foot_roll.r > c_foot_roll_cursor.r
+
+c_leg_pole.r	parent: -	path: c_leg_pole.r
+
+c_foot_ik.l	parent: -	path: c_foot_ik.l
+
+c_p_foot_ik.l	parent: c_foot_ik.l	path: c_foot_ik.l > c_p_foot_ik.l
+
+foot_ik.l	parent: c_foot_ik.l	path: c_foot_ik.l > foot_ik.l
+
+toes_track.l	parent: foot_ik.l	path: c_foot_ik.l > foot_ik.l > toes_track.l
+
+toes_01_ik.l	parent: toes_track.l	path: c_foot_ik.l > foot_ik.l > toes_track.l > toes_01_ik.l
+
+toes_02.l	parent: toes_01_ik.l	path: c_foot_ik.l > foot_ik.l > toes_track.l > toes_01_ik.l > toes_02.l
+
+foot_snap_fk.l	parent: foot_ik.l	path: c_foot_ik.l > foot_ik.l > foot_snap_fk.l
+
+foot_bank_01.l	parent: c_foot_ik.l	path: c_foot_ik.l > foot_bank_01.l
+
+foot_bank_02.l	parent: foot_bank_01.l	path: c_foot_ik.l > foot_bank_01.l > foot_bank_02.l
+
+foot_heel.l	parent: foot_bank_02.l	path: c_foot_ik.l > foot_bank_01.l > foot_bank_02.l > foot_heel.l
+
+toes_end.l	parent: foot_heel.l	path: c_foot_ik.l > foot_bank_01.l > foot_bank_02.l > foot_heel.l > toes_end.l
+
+c_toes_ik.l	parent: toes_end.l	path: c_foot_ik.l > foot_bank_01.l > foot_bank_02.l > foot_heel.l > toes_end.l > c_toes_ik.l
+
+c_foot_01.l	parent: toes_end.l	path: c_foot_ik.l > foot_bank_01.l > foot_bank_02.l > foot_heel.l > toes_end.l > c_foot_01.l
+
+foot_01_pole.l	parent: c_foot_01.l	path: c_foot_ik.l > foot_bank_01.l > foot_bank_02.l > foot_heel.l > toes_end.l > c_foot_01.l > foot_01_pole.l
+
+foot_ik_target.l	parent: c_foot_01.l	path: c_foot_ik.l > foot_bank_01.l > foot_bank_02.l > foot_heel.l > toes_end.l > c_foot_01.l > foot_ik_target.l
+
+toes_end_01.l	parent: toes_end.l	path: c_foot_ik.l > foot_bank_01.l > foot_bank_02.l > foot_heel.l > toes_end.l > toes_end_01.l
+
+foot_roll.l	parent: c_foot_ik.l	path: c_foot_ik.l > foot_roll.l
+
+c_foot_roll_cursor.l	parent: foot_roll.l	path: c_foot_ik.l > foot_roll.l > c_foot_roll_cursor.l
+
+c_leg_pole.l	parent: -	path: c_leg_pole.l
+
+c_hand_ik.r	parent: -	path: c_hand_ik.r
+
+c_hand_ik.l	parent: -	path: c_hand_ik.l
+
+root_ref.x	parent: -	path: root_ref.x
+
+thigh_ref.l	parent: root_ref.x	path: root_ref.x > thigh_ref.l
+
+leg_ref.l	parent: thigh_ref.l	path: root_ref.x > thigh_ref.l > leg_ref.l
+
+foot_bank_01_ref.l	parent: leg_ref.l	path: root_ref.x > thigh_ref.l > leg_ref.l > foot_bank_01_ref.l
+
+foot_bank_02_ref.l	parent: leg_ref.l	path: root_ref.x > thigh_ref.l > leg_ref.l > foot_bank_02_ref.l
+
+foot_heel_ref.l	parent: leg_ref.l	path: root_ref.x > thigh_ref.l > leg_ref.l > foot_heel_ref.l
+
+foot_ref.l	parent: leg_ref.l	path: root_ref.x > thigh_ref.l > leg_ref.l > foot_ref.l
+
+toes_ref.l	parent: foot_ref.l	path: root_ref.x > thigh_ref.l > leg_ref.l > foot_ref.l > toes_ref.l
+
+toes_thumb1_ref.l	parent: toes_ref.l	path: root_ref.x > thigh_ref.l > leg_ref.l > foot_ref.l > toes_ref.l > toes_thumb1_ref.l
+
+toes_thumb2_ref.l	parent: toes_thumb1_ref.l	path: root_ref.x > thigh_ref.l > leg_ref.l > foot_ref.l > toes_ref.l > toes_thumb1_ref.l > toes_thumb2_ref.l
+
+toes_middle1_ref.l	parent: toes_ref.l	path: root_ref.x > thigh_ref.l > leg_ref.l > foot_ref.l > toes_ref.l > toes_middle1_ref.l
+
+toes_middle2_ref.l	parent: toes_middle1_ref.l	path: root_ref.x > thigh_ref.l > leg_ref.l > foot_ref.l > toes_ref.l > toes_middle1_ref.l > toes_middle2_ref.l
+
+toes_middle3_ref.l	parent: toes_middle2_ref.l	path: root_ref.x > thigh_ref.l > leg_ref.l > foot_ref.l > toes_ref.l > toes_middle1_ref.l > toes_middle2_ref.l > toes_middle3_ref.l
+
+toes_pinky1_ref.l	parent: toes_ref.l	path: root_ref.x > thigh_ref.l > leg_ref.l > foot_ref.l > toes_ref.l > toes_pinky1_ref.l
+
+toes_pinky2_ref.l	parent: toes_pinky1_ref.l	path: root_ref.x > thigh_ref.l > leg_ref.l > foot_ref.l > toes_ref.l > toes_pinky1_ref.l > toes_pinky2_ref.l
+
+toes_pinky3_ref.l	parent: toes_pinky2_ref.l	path: root_ref.x > thigh_ref.l > leg_ref.l > foot_ref.l > toes_ref.l > toes_pinky1_ref.l > toes_pinky2_ref.l > toes_pinky3_ref.l
+
+thigh_ref.r	parent: root_ref.x	path: root_ref.x > thigh_ref.r
+
+leg_ref.r	parent: thigh_ref.r	path: root_ref.x > thigh_ref.r > leg_ref.r
+
+foot_bank_01_ref.r	parent: leg_ref.r	path: root_ref.x > thigh_ref.r > leg_ref.r > foot_bank_01_ref.r
+
+foot_bank_02_ref.r	parent: leg_ref.r	path: root_ref.x > thigh_ref.r > leg_ref.r > foot_bank_02_ref.r
+
+foot_heel_ref.r	parent: leg_ref.r	path: root_ref.x > thigh_ref.r > leg_ref.r > foot_heel_ref.r
+
+foot_ref.r	parent: leg_ref.r	path: root_ref.x > thigh_ref.r > leg_ref.r > foot_ref.r
+
+toes_ref.r	parent: foot_ref.r	path: root_ref.x > thigh_ref.r > leg_ref.r > foot_ref.r > toes_ref.r
+
+toes_thumb1_ref.r	parent: toes_ref.r	path: root_ref.x > thigh_ref.r > leg_ref.r > foot_ref.r > toes_ref.r > toes_thumb1_ref.r
+
+toes_thumb2_ref.r	parent: toes_thumb1_ref.r	path: root_ref.x > thigh_ref.r > leg_ref.r > foot_ref.r > toes_ref.r > toes_thumb1_ref.r > toes_thumb2_ref.r
+
+toes_middle1_ref.r	parent: toes_ref.r	path: root_ref.x > thigh_ref.r > leg_ref.r > foot_ref.r > toes_ref.r > toes_middle1_ref.r
+
+toes_middle2_ref.r	parent: toes_middle1_ref.r	path: root_ref.x > thigh_ref.r > leg_ref.r > foot_ref.r > toes_ref.r > toes_middle1_ref.r > toes_middle2_ref.r
+
+toes_middle3_ref.r	parent: toes_middle2_ref.r	path: root_ref.x > thigh_ref.r > leg_ref.r > foot_ref.r > toes_ref.r > toes_middle1_ref.r > toes_middle2_ref.r > toes_middle3_ref.r
+
+toes_pinky1_ref.r	parent: toes_ref.r	path: root_ref.x > thigh_ref.r > leg_ref.r > foot_ref.r > toes_ref.r > toes_pinky1_ref.r
+
+toes_pinky2_ref.r	parent: toes_pinky1_ref.r	path: root_ref.x > thigh_ref.r > leg_ref.r > foot_ref.r > toes_ref.r > toes_pinky1_ref.r > toes_pinky2_ref.r
+
+toes_pinky3_ref.r	parent: toes_pinky2_ref.r	path: root_ref.x > thigh_ref.r > leg_ref.r > foot_ref.r > toes_ref.r > toes_pinky1_ref.r > toes_pinky2_ref.r > toes_pinky3_ref.r
+
+spine_01_ref.x	parent: root_ref.x	path: root_ref.x > spine_01_ref.x
+
+spine_02_ref.x	parent: spine_01_ref.x	path: root_ref.x > spine_01_ref.x > spine_02_ref.x
+
+spine_03_ref.x	parent: spine_02_ref.x	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x
+
+neck_ref.x	parent: spine_03_ref.x	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > neck_ref.x
+
+head_ref.x	parent: neck_ref.x	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > neck_ref.x > head_ref.x
+
+ear_01_ref.l	parent: head_ref.x	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > neck_ref.x > head_ref.x > ear_01_ref.l
+
+ear_02_ref.l	parent: ear_01_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > neck_ref.x > head_ref.x > ear_01_ref.l > ear_02_ref.l
+
+ear_01_ref.r	parent: head_ref.x	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > neck_ref.x > head_ref.x > ear_01_ref.r
+
+ear_02_ref.r	parent: ear_01_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > neck_ref.x > head_ref.x > ear_01_ref.r > ear_02_ref.r
+
+lips_offset_ref.x	parent: head_ref.x	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > neck_ref.x > head_ref.x > lips_offset_ref.x
+
+shoulder_ref.r	parent: spine_03_ref.x	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r
+
+arm_ref.r	parent: shoulder_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r
+
+forearm_ref.r	parent: arm_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r
+
+hand_ref.r	parent: forearm_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r
+
+pinky1_base_ref.r	parent: hand_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > pinky1_base_ref.r
+
+pinky1_ref.r	parent: pinky1_base_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > pinky1_base_ref.r > pinky1_ref.r
+
+pinky2_ref.r	parent: pinky1_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > pinky1_base_ref.r > pinky1_ref.r > pinky2_ref.r
+
+pinky3_ref.r	parent: pinky2_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > pinky1_base_ref.r > pinky1_ref.r > pinky2_ref.r > pinky3_ref.r
+
+ring1_base_ref.r	parent: hand_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > ring1_base_ref.r
+
+ring1_ref.r	parent: ring1_base_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > ring1_base_ref.r > ring1_ref.r
+
+ring2_ref.r	parent: ring1_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > ring1_base_ref.r > ring1_ref.r > ring2_ref.r
+
+ring3_ref.r	parent: ring2_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > ring1_base_ref.r > ring1_ref.r > ring2_ref.r > ring3_ref.r
+
+middle1_base_ref.r	parent: hand_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > middle1_base_ref.r
+
+middle1_ref.r	parent: middle1_base_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > middle1_base_ref.r > middle1_ref.r
+
+middle2_ref.r	parent: middle1_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > middle1_base_ref.r > middle1_ref.r > middle2_ref.r
+
+middle3_ref.r	parent: middle2_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > middle1_base_ref.r > middle1_ref.r > middle2_ref.r > middle3_ref.r
+
+index1_base_ref.r	parent: hand_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > index1_base_ref.r
+
+index1_ref.r	parent: index1_base_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > index1_base_ref.r > index1_ref.r
+
+index2_ref.r	parent: index1_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > index1_base_ref.r > index1_ref.r > index2_ref.r
+
+index3_ref.r	parent: index2_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > index1_base_ref.r > index1_ref.r > index2_ref.r > index3_ref.r
+
+thumb1_ref.r	parent: hand_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > thumb1_ref.r
+
+thumb2_ref.r	parent: thumb1_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > thumb1_ref.r > thumb2_ref.r
+
+thumb3_ref.r	parent: thumb2_ref.r	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.r > arm_ref.r > forearm_ref.r > hand_ref.r > thumb1_ref.r > thumb2_ref.r > thumb3_ref.r
+
+shoulder_ref.l	parent: spine_03_ref.x	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l
+
+arm_ref.l	parent: shoulder_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l
+
+forearm_ref.l	parent: arm_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l
+
+hand_ref.l	parent: forearm_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l
+
+pinky1_base_ref.l	parent: hand_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > pinky1_base_ref.l
+
+pinky1_ref.l	parent: pinky1_base_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > pinky1_base_ref.l > pinky1_ref.l
+
+pinky2_ref.l	parent: pinky1_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > pinky1_base_ref.l > pinky1_ref.l > pinky2_ref.l
+
+pinky3_ref.l	parent: pinky2_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > pinky1_base_ref.l > pinky1_ref.l > pinky2_ref.l > pinky3_ref.l
+
+ring1_base_ref.l	parent: hand_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > ring1_base_ref.l
+
+ring1_ref.l	parent: ring1_base_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > ring1_base_ref.l > ring1_ref.l
+
+ring2_ref.l	parent: ring1_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > ring1_base_ref.l > ring1_ref.l > ring2_ref.l
+
+ring3_ref.l	parent: ring2_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > ring1_base_ref.l > ring1_ref.l > ring2_ref.l > ring3_ref.l
+
+middle1_base_ref.l	parent: hand_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > middle1_base_ref.l
+
+middle1_ref.l	parent: middle1_base_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > middle1_base_ref.l > middle1_ref.l
+
+middle2_ref.l	parent: middle1_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > middle1_base_ref.l > middle1_ref.l > middle2_ref.l
+
+middle3_ref.l	parent: middle2_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > middle1_base_ref.l > middle1_ref.l > middle2_ref.l > middle3_ref.l
+
+index1_base_ref.l	parent: hand_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > index1_base_ref.l
+
+index1_ref.l	parent: index1_base_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > index1_base_ref.l > index1_ref.l
+
+index2_ref.l	parent: index1_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > index1_base_ref.l > index1_ref.l > index2_ref.l
+
+index3_ref.l	parent: index2_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > index1_base_ref.l > index1_ref.l > index2_ref.l > index3_ref.l
+
+thumb1_ref.l	parent: hand_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > thumb1_ref.l
+
+thumb2_ref.l	parent: thumb1_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > thumb1_ref.l > thumb2_ref.l
+
+thumb3_ref.l	parent: thumb2_ref.l	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > shoulder_ref.l > arm_ref.l > forearm_ref.l > hand_ref.l > thumb1_ref.l > thumb2_ref.l > thumb3_ref.l
+
+breast_01_ref.l	parent: spine_03_ref.x	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > breast_01_ref.l
+
+breast_01_ref.r	parent: spine_03_ref.x	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > breast_01_ref.r
+
+breast_02_ref.l	parent: spine_03_ref.x	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > breast_02_ref.l
+
+breast_02_ref.r	parent: spine_03_ref.x	path: root_ref.x > spine_01_ref.x > spine_02_ref.x > spine_03_ref.x > breast_02_ref.r
+
+lips_top_ref.x	parent: -	path: lips_top_ref.x
+
+lips_top_ref.l	parent: lips_top_ref.x	path: lips_top_ref.x > lips_top_ref.l
+
+lips_top_01_ref.l	parent: lips_top_ref.l	path: lips_top_ref.x > lips_top_ref.l > lips_top_01_ref.l
+
+lips_smile_ref.l	parent: lips_top_01_ref.l	path: lips_top_ref.x > lips_top_ref.l > lips_top_01_ref.l > lips_smile_ref.l
+
+lips_corner_mini_ref.l	parent: lips_smile_ref.l	path: lips_top_ref.x > lips_top_ref.l > lips_top_01_ref.l > lips_smile_ref.l > lips_corner_mini_ref.l
+
+lips_top_ref.r	parent: lips_top_ref.x	path: lips_top_ref.x > lips_top_ref.r
+
+lips_top_01_ref.r	parent: lips_top_ref.r	path: lips_top_ref.x > lips_top_ref.r > lips_top_01_ref.r
+
+lips_smile_ref.r	parent: lips_top_01_ref.r	path: lips_top_ref.x > lips_top_ref.r > lips_top_01_ref.r > lips_smile_ref.r
+
+lips_corner_mini_ref.r	parent: lips_smile_ref.r	path: lips_top_ref.x > lips_top_ref.r > lips_top_01_ref.r > lips_smile_ref.r > lips_corner_mini_ref.r
+
+lips_bot_ref.x	parent: -	path: lips_bot_ref.x
+
+lips_bot_ref.l	parent: lips_bot_ref.x	path: lips_bot_ref.x > lips_bot_ref.l
+
+lips_bot_01_ref.l	parent: lips_bot_ref.l	path: lips_bot_ref.x > lips_bot_ref.l > lips_bot_01_ref.l
+
+lips_bot_ref.r	parent: lips_bot_ref.x	path: lips_bot_ref.x > lips_bot_ref.r
+
+lips_bot_01_ref.r	parent: lips_bot_ref.r	path: lips_bot_ref.x > lips_bot_ref.r > lips_bot_01_ref.r
+
+lips_roll_top_ref.x	parent: -	path: lips_roll_top_ref.x
+
+lips_roll_bot_ref.x	parent: -	path: lips_roll_bot_ref.x
+
+jaw_ref.x	parent: -	path: jaw_ref.x
+
+teeth_bot_ref.x	parent: -	path: teeth_bot_ref.x
+
+teeth_bot_ref.l	parent: teeth_bot_ref.x	path: teeth_bot_ref.x > teeth_bot_ref.l
+
+teeth_bot_ref.r	parent: teeth_bot_ref.x	path: teeth_bot_ref.x > teeth_bot_ref.r
+
+teeth_top_ref.x	parent: -	path: teeth_top_ref.x
+
+teeth_top_ref.l	parent: teeth_top_ref.x	path: teeth_top_ref.x > teeth_top_ref.l
+
+teeth_top_ref.r	parent: teeth_top_ref.x	path: teeth_top_ref.x > teeth_top_ref.r
+
+tong_01_ref.x	parent: -	path: tong_01_ref.x
+
+tong_02_ref.x	parent: tong_01_ref.x	path: tong_01_ref.x > tong_02_ref.x
+
+tong_03_ref.x	parent: tong_02_ref.x	path: tong_01_ref.x > tong_02_ref.x > tong_03_ref.x
+
+chin_02_ref.x	parent: -	path: chin_02_ref.x
+
+chin_01_ref.x	parent: chin_02_ref.x	path: chin_02_ref.x > chin_01_ref.x
+
+nose_01_ref.x	parent: -	path: nose_01_ref.x
+
+nose_02_ref.x	parent: nose_01_ref.x	path: nose_01_ref.x > nose_02_ref.x
+
+nose_03_ref.x	parent: nose_02_ref.x	path: nose_01_ref.x > nose_02_ref.x > nose_03_ref.x
+
+eye_offset_ref.l	parent: -	path: eye_offset_ref.l
+
+eyelid_top_ref.l	parent: eye_offset_ref.l	path: eye_offset_ref.l > eyelid_top_ref.l
+
+eyelid_bot_ref.l	parent: eye_offset_ref.l	path: eye_offset_ref.l > eyelid_bot_ref.l
+
+eyelid_top_01_ref.l	parent: eye_offset_ref.l	path: eye_offset_ref.l > eyelid_top_01_ref.l
+
+eyelid_top_02_ref.l	parent: eye_offset_ref.l	path: eye_offset_ref.l > eyelid_top_02_ref.l
+
+eyelid_top_03_ref.l	parent: eye_offset_ref.l	path: eye_offset_ref.l > eyelid_top_03_ref.l
+
+eyelid_bot_01_ref.l	parent: eye_offset_ref.l	path: eye_offset_ref.l > eyelid_bot_01_ref.l
+
+eyelid_bot_02_ref.l	parent: eye_offset_ref.l	path: eye_offset_ref.l > eyelid_bot_02_ref.l
+
+eyelid_bot_03_ref.l	parent: eye_offset_ref.l	path: eye_offset_ref.l > eyelid_bot_03_ref.l
+
+eyelid_corner_01_ref.l	parent: eye_offset_ref.l	path: eye_offset_ref.l > eyelid_corner_01_ref.l
+
+eyelid_corner_02_ref.l	parent: eye_offset_ref.l	path: eye_offset_ref.l > eyelid_corner_02_ref.l
+
+c_eye_target.x	parent: -	path: c_eye_target.x
+
+c_eye_target.l	parent: c_eye_target.x	path: c_eye_target.x > c_eye_target.l
+
+c_eye_target.r	parent: c_eye_target.x	path: c_eye_target.x > c_eye_target.r
+
+eye_offset_ref.r	parent: -	path: eye_offset_ref.r
+
+eyelid_top_ref.r	parent: eye_offset_ref.r	path: eye_offset_ref.r > eyelid_top_ref.r
+
+eyelid_bot_ref.r	parent: eye_offset_ref.r	path: eye_offset_ref.r > eyelid_bot_ref.r
+
+eyelid_top_01_ref.r	parent: eye_offset_ref.r	path: eye_offset_ref.r > eyelid_top_01_ref.r
+
+eyelid_top_02_ref.r	parent: eye_offset_ref.r	path: eye_offset_ref.r > eyelid_top_02_ref.r
+
+eyelid_top_03_ref.r	parent: eye_offset_ref.r	path: eye_offset_ref.r > eyelid_top_03_ref.r
+
+eyelid_bot_01_ref.r	parent: eye_offset_ref.r	path: eye_offset_ref.r > eyelid_bot_01_ref.r
+
+eyelid_bot_02_ref.r	parent: eye_offset_ref.r	path: eye_offset_ref.r > eyelid_bot_02_ref.r
+
+eyelid_bot_03_ref.r	parent: eye_offset_ref.r	path: eye_offset_ref.r > eyelid_bot_03_ref.r
+
+eyelid_corner_01_ref.r	parent: eye_offset_ref.r	path: eye_offset_ref.r > eyelid_corner_01_ref.r
+
+eyelid_corner_02_ref.r	parent: eye_offset_ref.r	path: eye_offset_ref.r > eyelid_corner_02_ref.r
+
+eyebrow_full_ref.l	parent: -	path: eyebrow_full_ref.l
+
+eyebrow_03_ref.l	parent: eyebrow_full_ref.l	path: eyebrow_full_ref.l > eyebrow_03_ref.l
+
+eyebrow_02_ref.l	parent: eyebrow_full_ref.l	path: eyebrow_full_ref.l > eyebrow_02_ref.l
+
+eyebrow_01_ref.l	parent: eyebrow_full_ref.l	path: eyebrow_full_ref.l > eyebrow_01_ref.l
+
+eyebrow_01_end_ref.l	parent: eyebrow_full_ref.l	path: eyebrow_full_ref.l > eyebrow_01_end_ref.l
+
+eyebrow_full_ref.r	parent: -	path: eyebrow_full_ref.r
+
+eyebrow_03_ref.r	parent: eyebrow_full_ref.r	path: eyebrow_full_ref.r > eyebrow_03_ref.r
+
+eyebrow_02_ref.r	parent: eyebrow_full_ref.r	path: eyebrow_full_ref.r > eyebrow_02_ref.r
+
+eyebrow_01_ref.r	parent: eyebrow_full_ref.r	path: eyebrow_full_ref.r > eyebrow_01_ref.r
+
+eyebrow_01_end_ref.r	parent: eyebrow_full_ref.r	path: eyebrow_full_ref.r > eyebrow_01_end_ref.r
+
+cheek_smile_ref.l	parent: -	path: cheek_smile_ref.l
+
+cheek_inflate_ref.l	parent: cheek_smile_ref.l	path: cheek_smile_ref.l > cheek_inflate_ref.l
+
+cheek_smile_ref.r	parent: -	path: cheek_smile_ref.r
+
+cheek_inflate_ref.r	parent: cheek_smile_ref.r	path: cheek_smile_ref.r > cheek_inflate_ref.r
+
+Hair	parent: -	path: Hair
+
+Hair.001	parent: Hair	path: Hair > Hair.001
+
+Hair.002	parent: Hair.001	path: Hair > Hair.001 > Hair.002
+
+Hair.003.L	parent: Hair	path: Hair > Hair.003.L
+
+Hair.004.L	parent: Hair.003.L	path: Hair > Hair.003.L > Hair.004.L
+
+Hair.003.L.001	parent: Hair	path: Hair > Hair.003.L.001
+
+Hair.003.L.002	parent: Hair.003.L.001	path: Hair > Hair.003.L.001 > Hair.003.L.002

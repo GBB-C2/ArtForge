@@ -1,0 +1,175 @@
+    Checking artforge v0.48.3 (/workspace/scratch/40c18c9831a2/work/ArtForge-Studio-0.48.3/crates/app)
+warning: variants `ShrinkSelection`, `Connected`, `InvertSelection`, and `View` are never constructed
+  --> crates/app/src/icons.rs:7:59
+   |
+ 6 | pub enum Icon {
+   |          ---- variants in this enum
+ 7 |     SelectPointer, SelectBox, SelectLasso, GrowSelection, ShrinkSelection,
+   |                                                           ^^^^^^^^^^^^^^^
+ 8 |     Connected, InvertSelection, EdgeLoop, EdgeRing,
+   |     ^^^^^^^^^  ^^^^^^^^^^^^^^^
+...
+47 |     View,
+   |     ^^^^
+   |
+   = note: `Icon` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: variant `FluidSource` is never constructed
+   --> crates/app/src/ui.rs:273:5
+    |
+259 | pub enum DropdownKind {
+    |          ------------ variant in this enum
+...
+273 |     FluidSource,
+    |     ^^^^^^^^^^^
+    |
+    = note: `DropdownKind` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variant `FluidFromMesh` is never constructed
+   --> crates/app/src/ui.rs:366:5
+    |
+343 | pub enum StudioAction {
+    |          ------------ variant in this enum
+...
+366 |     FluidFromMesh,
+    |     ^^^^^^^^^^^^^
+    |
+    = note: `StudioAction` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variant `EdgeBevel` is never constructed
+   --> crates/app/src/ui.rs:443:5
+    |
+425 | pub enum AuthorAction {
+    |          ------------ variant in this enum
+...
+443 |     EdgeBevel,
+    |     ^^^^^^^^^
+    |
+    = note: `AuthorAction` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: multiple variants are never constructed
+   --> crates/app/src/ui.rs:547:5
+    |
+544 | pub enum Action {
+    |          ------ variants in this enum
+...
+547 |     CreateEmpty,
+    |     ^^^^^^^^^^^
+...
+577 |     MaterialGrid,
+    |     ^^^^^^^^^^^^
+578 |     MaterialBrowse(bool),
+    |     ^^^^^^^^^^^^^^
+...
+590 |     MaterialSize,
+    |     ^^^^^^^^^^^^
+...
+593 |     ToggleTools,
+    |     ^^^^^^^^^^^
+...
+601 |     MaterialAssign(u64, u64, Option<u64>),
+    |     ^^^^^^^^^^^^^^
+...
+651 |     Reset,
+    |     ^^^^^
+...
+676 |     CopyPose,
+    |     ^^^^^^^^
+677 |     PastePose,
+    |     ^^^^^^^^^
+...
+694 |     Fluid,
+    |     ^^^^^
+695 |     FluidBake,
+    |     ^^^^^^^^^
+696 |     FluidBakeCancel,
+    |     ^^^^^^^^^^^^^^^
+697 |     FluidCacheClear,
+    |     ^^^^^^^^^^^^^^^
+698 |     FluidCacheSave,
+    |     ^^^^^^^^^^^^^^
+699 |     FluidCacheLoad,
+    |     ^^^^^^^^^^^^^^
+700 |     ResetFluid,
+    |     ^^^^^^^^^^
+701 |     FluidSurface,
+    |     ^^^^^^^^^^^^
+...
+723 |     SurfaceNextMesh,
+    |     ^^^^^^^^^^^^^^^
+...
+729 |     SurfaceUnassignMaterial,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^
+...
+733 |     SurfaceAssignMaterial(u64),
+    |     ^^^^^^^^^^^^^^^^^^^^^
+...
+737 |     SurfaceArtisticToggle,
+    |     ^^^^^^^^^^^^^^^^^^^^^
+738 |     SurfaceArtisticNextStyle,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^
+739 |     SurfaceArtisticReset,
+    |     ^^^^^^^^^^^^^^^^^^^^
+...
+772 |     FluidNumber(usize),
+    |     ^^^^^^^^^^^
+773 |     FluidPreset(u8),
+    |     ^^^^^^^^^^^
+774 |     FluidResetSettings,
+    |     ^^^^^^^^^^^^^^^^^^
+775 |     FluidFrame,
+    |     ^^^^^^^^^^
+    |
+    = note: `Action` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: `artforge` (bin "artforge") generated 5 warnings
+warning: unused import: `import_blend_with_options`
+ --> crates/io/tests/blender.rs:2:5
+  |
+2 |     import_blend_with_options, import_blend_with_progress, locate_blender, BlendImportOptions,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `poseforge-io` (test "blender") generated 1 warning (run `cargo fix --test "blender" -p poseforge-io` to apply 1 suggestion)
+warning: method `solve_self_contacts` is never used
+   --> crates/simulation/src/deform.rs:343:8
+    |
+110 | impl DeformWorld {
+    | ---------------- method in this implementation
+...
+343 |     fn solve_self_contacts(&mut self, previous: &[Vec3], radius: f32) {
+    |        ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `poseforge-simulation` (lib test) generated 1 warning
+warning: variants `CreateEmpty`, `MaterialGrid`, `MaterialSize`, `Reset`, `CopyPose`, and `PastePose` are never constructed
+   --> crates/app/src/ui.rs:547:5
+    |
+544 | pub enum Action {
+    |          ------ variants in this enum
+...
+547 |     CreateEmpty,
+    |     ^^^^^^^^^^^
+...
+577 |     MaterialGrid,
+    |     ^^^^^^^^^^^^
+...
+590 |     MaterialSize,
+    |     ^^^^^^^^^^^^
+...
+651 |     Reset,
+    |     ^^^^^
+...
+676 |     CopyPose,
+    |     ^^^^^^^^
+677 |     PastePose,
+    |     ^^^^^^^^^
+    |
+    = note: `Action` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `artforge` (bin "artforge" test) generated 1 warning
+    Finished `dev` profile [optimized] target(s) in 8.04s

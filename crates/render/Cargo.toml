@@ -1,0 +1,18 @@
+[package]
+name = "poseforge-render"
+version.workspace = true
+edition = "2021"
+
+[dependencies]
+poseforge-core = { path = "../core" }
+poseforge-simulation = { path = "../simulation" }
+wgpu = "=24.0.5"
+winit = "=0.30.12"
+glyphon = "=0.8.0"
+glam = "=0.29.3"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
+image = { version = "=0.25.5", default-features = false, features = ["png", "jpeg"] }
+
+[dev-dependencies]
+poseforge-io = { path = "../io" }

@@ -1,0 +1,12 @@
+[package]
+name = "poseforge-core"
+version.workspace = true
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+base64 = "=0.13.1"
+glam = { version = "=0.29.3", features = ["serde"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+thiserror = "2"

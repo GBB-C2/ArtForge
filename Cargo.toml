@@ -1,0 +1,20 @@
+[workspace]
+members = ["crates/core", "crates/io", "crates/simulation", "crates/render", "crates/app"]
+resolver = "2"
+
+[workspace.package]
+version = "0.48.3"
+edition = "2021"
+license = "MIT"
+rust-version = "1.99"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+

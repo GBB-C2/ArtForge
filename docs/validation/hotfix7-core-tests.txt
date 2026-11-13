@@ -1,0 +1,36 @@
+
+running 31 tests
+test curve_primitive::tests::collapsed_bezier_is_rejected_and_legacy_parameters_load ... ok
+test bone_display::tests::legacy_and_partial_display_data_keep_the_existing_skeleton_style ... ok
+test destruction::tests::copying_source_keeps_parameters_without_stealing_original_result ... ok
+test destruction::tests::deleting_source_removes_result_but_deleting_result_restores_source ... ok
+test destruction::tests::result_cannot_contain_its_source_or_be_a_mesh ... ok
+test fracture::tests::cut_contrast_changes_only_interior_colors_and_preserves_closed_geometry ... ok
+test bone_display::tests::appearance_roundtrips_and_invalid_colors_are_rejected ... ok
+test curve_primitive::tests::curve_parameters_roundtrip_and_rebuild_real_geometry ... ok
+test fracture::tests::cut_material_survives_repeated_splits_and_outer_paint_is_preserved ... ok
+test fx::tests::all_volume_presets_validate_and_limit_rejection_is_atomic ... ok
+test fx::tests::burst_clock_is_deterministic_bounded_and_repeatable_without_keyframes ... ok
+test fx::tests::fire_pulse_is_deterministic_bounded_and_freezes_with_zero_speed ... ok
+test fx::tests::four_base_kinds_keep_identity_and_legacy_defaults_remain_continuous ... ok
+test fx::tests::new_shape_values_are_validated_and_legacy_fx_do_not_gain_scene_light ... ok
+test fx::tests::repeated_effect_creation_varies_seed_and_undo_preserves_existing_effect ... ok
+test fx::tests::volume_creation_preserves_scene_and_has_one_undo ... ok
+test fx_profiles::tests::envelopes_interpolate_every_channel_without_overshoot_and_reject_crossed_points ... ok
+test fx_profiles::tests::gas_holds_last_frame_and_looping_has_finite_relative_time ... ok
+test fx_profiles::tests::old_settings_keep_procedural_appearance_and_quality_is_bounded ... ok
+test fx_profiles::tests::thirteen_presets_keep_four_kinds_and_preserve_scene_links ... ok
+test fx_pyro::tests::creation_has_four_kinds_and_new_presets_always_validate ... ok
+test fx_pyro::tests::invalid_combustion_and_inconsistent_modes_are_rejected ... ok
+test fx_pyro::tests::legacy_settings_opt_in_without_changing_links_or_timing ... ok
+test humanoid_template::tests::human_has_67_independent_bones_and_complete_symmetric_hands ... ok
+test material_layers::tests::layers_are_local_library_is_explicit_and_undo_is_atomic ... ok
+test primitive::compatibility_tests::removed_pyramid_cannot_be_created_from_menu_but_old_settings_still_load ... ok
+test shared_buffer::tests::snapshots_share_storage_and_mutation_preserves_undo_and_json ... ok
+test texture_uv::tests::mapping_order_rotation_and_reflection_match_the_affine_definition ... ok
+test fracture::tests::concave_edited_mesh_preserves_volume_instead_of_replacing_with_hull ... ok
+test fracture::tests::cuts_are_closed_conserve_volume_preserve_material_and_are_repeatable ... ok
+test fracture::tests::sphere_uses_its_geometry_and_cancellation_never_changes_input ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+

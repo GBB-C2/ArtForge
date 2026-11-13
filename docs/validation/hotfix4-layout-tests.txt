@@ -1,0 +1,15 @@
+
+running 10 tests
+test app::workspace15_tests::creation_toolbar_commands_create_real_entities_from_render_tab ... ok
+test app::workspace15_tests::orientation_widget_uses_round_targets_and_repeated_click_reverses_axis ... ok
+test app::workspace15_tests::section_state_survives_tabs_and_clamps_scroll_when_collapsed ... ok
+test app::workspace15_tests::collapsing_material_library_removes_body_hits_and_preserves_document ... ok
+test app::workspace16_tests::library_icon_sits_below_more_and_opens_search_above_results ... ok
+test app::workspace16_tests::camera_button_is_round_and_view_menu_is_left_of_upper_gizmo ... ok
+test app::workspace16_tests::material_menu_reveals_rename_field_and_rejects_stale_or_locked_targets ... ok
+test app::workspace15_tests::clear_search_inside_field_wins_over_text_selection_and_ime ... ok
+test app::workspace16_tests::row_detach_plus_and_more_edit_materials_without_a_minus_button ... ok
+test app::workspace15_tests::creation_toolbar_stays_first_in_every_tab_mode_and_collapsed_panel ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 658 filtered out; finished in 2.70s
+

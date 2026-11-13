@@ -1,0 +1,54 @@
+   Compiling artforge v0.48.3 (/workspace/scratch/40c18c9831a2/work/ArtForge-Studio-0.48.3/crates/app)
+warning: variants `CreateEmpty`, `MaterialGrid`, `MaterialSize`, `Reset`, `CopyPose`, and `PastePose` are never constructed
+   --> crates/app/src/ui.rs:547:5
+    |
+544 | pub enum Action {
+    |          ------ variants in this enum
+...
+547 |     CreateEmpty,
+    |     ^^^^^^^^^^^
+...
+577 |     MaterialGrid,
+    |     ^^^^^^^^^^^^
+...
+590 |     MaterialSize,
+    |     ^^^^^^^^^^^^
+...
+651 |     Reset,
+    |     ^^^^^
+...
+676 |     CopyPose,
+    |     ^^^^^^^^
+677 |     PastePose,
+    |     ^^^^^^^^^
+    |
+    = note: `Action` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `artforge` (bin "artforge" test) generated 1 warning
+    Finished `test` profile [optimized] target(s) in 17.73s
+     Running unittests src/main.rs (/workspace/scratch/40c18c9831a2/build/debug/deps/artforge-238896db860bdd2b)
+
+running 19 tests
+test app::material_interaction_tests::artistic_numeric_reset_uses_the_current_style_and_is_undoable ... ok
+test app::material_interaction_tests::artistic_style_reset_toggle_and_lock_preserve_authored_data ... ok
+test app::material_interaction_tests::artistic_presets_create_through_existing_assignment_actions ... ok
+test app::material_interaction_tests::creation_menu_uses_preset_and_ignores_stale_selection ... ok
+test app::material_interaction_tests::fiber_controls_scroll_into_view_validate_and_commit_single_slider_history ... ok
+test app::material_interaction_tests::material_dropdown_navigation_requires_explicit_commit_and_scopes_assignment ... ok
+test app::material_interaction_tests::artistic_paint_fields_are_visible_editable_validated_and_undoable ... ok
+test app::material_interaction_tests::material_library_presets_add_local_layers_and_undo_preserves_the_source_mesh ... ok
+test app::material_interaction_tests::material_picker_preserves_ime_and_rejects_stale_modal_busy_or_locked_targets ... ok
+test app::material_interaction_tests::new_material_and_inline_unicode_rename_preserve_other_instances_and_undo ... ok
+test app::material_interaction_tests::new_surface_values_use_inline_validation_and_coat_slider_has_atomic_undo_and_cancel ... ok
+test app::material_interaction_tests::artistic_surface_and_sculpt_sections_are_removed_without_gaps ... ok
+test app::material_interaction_tests::npr_creation_dropdown_and_numeric_validation_undo_and_toggle ... ok
+test app::material_interaction_tests::npr_controls_remain_reachable_at_small_widths_and_integer_slider_cancels ... ok
+test app::material_interaction_tests::point_spot_and_sun_shadow_checkbox_and_filter_edit_use_existing_history ... ok
+test app::material_interaction_tests::texture_mapping_numeric_edits_and_reset_are_atomic_and_validate ... ok
+test app::material_interaction_tests::material_authoring_layout_is_accessible_in_both_themes_and_dpi_with_long_names ... ok
+test app::material_interaction_tests::npr_colors_preview_cancel_and_commit_one_history_entry ... ok
+test app::material_interaction_tests::npr_palette_hatching_fields_are_reachable_and_undoable ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 649 filtered out; finished in 12.29s
+

@@ -1,0 +1,53 @@
+{
+  "kind": "static_source_audit",
+  "rust_compilation": "not_run_by_static_audit",
+  "gui_validation": "not_run_by_static_audit",
+  "rust_files_scanned": 313,
+  "wgsl_files_scanned": 10,
+  "source_modules_checked": 225,
+  "workspace_packages": [
+    {
+      "name": "poseforge-core",
+      "version": "0.48.3"
+    },
+    {
+      "name": "poseforge-io",
+      "version": "0.48.3"
+    },
+    {
+      "name": "poseforge-simulation",
+      "version": "0.48.3"
+    },
+    {
+      "name": "poseforge-render",
+      "version": "0.48.3"
+    },
+    {
+      "name": "artforge",
+      "version": "0.48.3"
+    }
+  ],
+  "compile_time_resources_checked": [
+    "crates/render/src/environment.wgsl",
+    "crates/render/src/artistic.wgsl",
+    "crates/render/src/scene.wgsl",
+    "crates/render/src/artistic.wgsl",
+    "crates/render/src/post.wgsl",
+    "crates/render/src/ui.wgsl",
+    "crates/render/src/sheen_albedo.rgba8",
+    "crates/render/src/ui.wgsl",
+    "examples/orbit-atelier.artforge",
+    "crates/io/scripts/export_blend.py",
+    "examples/grace-rig.txt",
+    "crates/core/assets/text_glyphs.json",
+    "crates/core/assets/text_glyphs_serif.json",
+    "crates/core/assets/text_glyphs_mono.json",
+    "crates/core/assets/fox_head.json",
+    "crates/core/assets/starter_character.json",
+    "examples/grace-rig.txt"
+  ],
+  "compile_time_resources_unresolved": [],
+  "example_json_files_decoded": 20,
+  "archive": null,
+  "errors": []
+}

@@ -1,0 +1,235 @@
+//! Scene cameras are regular transform nodes, so parenting, keys, duplication
+//! and undo use the same stable object identity as other scene objects.
+use crate::{Camera, CoreError, NodeId, Project, Transform};
+use glam::{Mat4, Vec3};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct CameraLens {
+    pub effects: CameraEffects,
+    pub fov_y_radians: f32,
+    pub orthographic: bool,
+    /// Half-height of the orthographic frame in scene units.
+    pub ortho_size: f32,
+    pub depth_of_field: DepthOfField,
+    pub thirds: bool,
+}
+
+impl Default for CameraLens {
+    fn default() -> Self {
+        Self {
+            effects: CameraEffects::default(),
+            fov_y_radians: 45_f32.to_radians(),
+            orthographic: false,
+            ortho_size: 3.,
+            depth_of_field: DepthOfField::default(),
+            thirds: true,
+        }
+    }
+}
+
+impl CameraLens {
+    pub fn validate(&self) -> Result<(), CoreError> {
+        self.effects.validate()?;
+        self.depth_of_field.validate()?;
+        if !self.fov_y_radians.is_finite()
+            || !(0.01..3.13).contains(&self.fov_y_radians)
+            || !self.ortho_size.is_finite()
+            || !(0.001..=1_000_000.).contains(&self.ortho_size)
+        {
+            return Err(CoreError::Invalid("параметры объектива камеры".into()));
+        }
+        Ok(())
+    }
+
+    pub fn from_camera(camera: &Camera) -> Self {
+        Self {
+            effects: camera.effects,
+            fov_y_radians: camera.fov_y_radians,
+            orthographic: camera.orthographic,
+            ortho_size: camera.ortho_size,
+            depth_of_field: camera.depth_of_field,
+            thirds: true,
+        }
+    }
+}
+
+/// Use a right-handed camera with local -Z forward and local +Y up.
+pub fn camera_transform(camera: &Camera) -> Transform {
+    Transform::from_matrix(Mat4::look_at_rh(camera.eye, camera.target, camera.up).inverse())
+}
+
+impl Project {
+    pub fn camera_from_node(&self, id: NodeId, globals: &BTreeMap<NodeId, Mat4>) -> Option<Camera> {
+        let lens = self.node(id)?.camera?;
+        let world = *globals.get(&id)?;
+        let eye = world.transform_point3(Vec3::ZERO);
+        let forward = world.transform_vector3(Vec3::NEG_Z).try_normalize()?;
+        // Gram-Schmidt keeps a sheared/scaled parent from producing a skewed
+        // look-at basis. Scale does not change a camera's focal length.
+        let hint_up = world.transform_vector3(Vec3::Y);
+        let right = forward.cross(hint_up).try_normalize()?;
+        let up = right.cross(forward).try_normalize()?;
+        if !eye.is_finite() {
+            return None;
+        }
+        Some(Camera {
+            effects: lens.effects,
+            eye,
+            target: eye + forward,
+            up,
+            fov_y_radians: lens.fov_y_radians,
+            orthographic: lens.orthographic,
+            ortho_size: lens.ortho_size,
+            depth_of_field: lens.depth_of_field,
+            ..self.camera.clone()
+        })
+    }
+
+    /// Evaluate with the current frame's globals, including animated parents.
+    pub fn render_camera(&self, globals: &BTreeMap<NodeId, Mat4>) -> Camera {
+        self.active_camera
+            .and_then(|id| self.camera_from_node(id, globals))
+            .unwrap_or_else(|| self.camera.clone())
+    }
+
+    pub(crate) fn validate_scene_cameras(&self) -> Result<(), CoreError> {
+        for node in &self.nodes {
+            if let Some(lens) = &node.camera {
+                lens.validate()?;
+            }
+        }
+        if self
+            .active_camera
+            .is_some_and(|id| self.node(id).and_then(|node| node.camera).is_none())
+        {
+            return Err(CoreError::Invalid(
+                "активная камера отсутствует в сцене".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct DepthOfField {
+    pub enabled: bool,
+    /// Distance along the camera's forward axis, in metres.
+    pub focus_distance: f32,
+    pub f_stop: f32,
+}
+impl Default for DepthOfField {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            focus_distance: 4.,
+            f_stop: 2.8,
+        }
+    }
+}
+impl DepthOfField {
+    pub fn validate(&self) -> Result<(), CoreError> {
+        if !self.focus_distance.is_finite()
+            || !(0.01..=100000.).contains(&self.focus_distance)
+            || !self.f_stop.is_finite()
+            || !(0.7..=64.).contains(&self.f_stop)
+        {
+            return Err(CoreError::Invalid(
+                "фокус от 0.01 до 100000 м; диафрагма от f/0.7 до f/64".into(),
+            ));
+        }
+        Ok(())
+    }
+    /// Circle of confusion radius in output pixels, assuming a 24 mm sensor height.
+    pub fn pixel_coefficient(&self, fov_y: f32, height: f32) -> f32 {
+        if !self.enabled {
+            return 0.;
+        }
+        let focal = 0.024 / (2. * (fov_y * 0.5).tan());
+        0.5 * height * focal * focal
+            / (self.f_stop * 0.024 * (self.focus_distance - focal).max(0.001))
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SavedView {
+    pub name: String,
+    pub camera: Camera,
+}
+impl Camera {
+    pub fn validate(&self) -> Result<(), CoreError> {
+        self.effects.validate()?;
+        self.depth_of_field.validate()?;
+        let c = self;
+        if !c.eye.is_finite()
+            || !c.target.is_finite()
+            || !c.up.is_finite()
+            || c.eye.distance_squared(c.target) < 1e-8
+            || c.up.length_squared() < 1e-8
+            || (c.target - c.eye).normalize().dot(c.up.normalize()).abs() > 0.99999
+            || !c.near.is_finite()
+            || !c.far.is_finite()
+            || c.near <= 0.
+            || c.far <= c.near
+            || !c.fov_y_radians.is_finite()
+            || !(0.01..3.13).contains(&c.fov_y_radians)
+            || !c.ortho_size.is_finite()
+            || c.ortho_size <= 0.
+        {
+            return Err(CoreError::Invalid("параметры камеры".into()));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct CameraEffects {
+    pub enabled: bool,
+    pub exposure: f32,
+    pub contrast: f32,
+    pub saturation: f32,
+    pub temperature: f32,
+    pub vignette: f32,
+    pub grain: f32,
+    /// Radial red/blue displacement in pixels at a 1080-pixel frame height.
+    pub aberration: f32,
+}
+impl Default for CameraEffects {
+    fn default() -> Self { Self { enabled: false, exposure: 0., contrast: 1., saturation: 1., temperature: 0., vignette: 0., grain: 0., aberration: 0. } }
+}
+impl CameraEffects {
+    pub fn field(self, field: usize) -> Option<(f32, f32, f32, &'static str)> {
+        Some(match field {
+            4 => (self.exposure, -8., 8., "Экспозиция, EV"),
+            5 => (self.contrast, 0., 2., "Контраст"),
+            6 => (self.saturation, 0., 2., "Насыщенность"),
+            7 => (self.temperature, -1., 1., "Температура · холод / тепло"),
+            8 => (self.vignette, 0., 1., "Виньетка"),
+            9 => (self.grain, 0., 0.3, "Зерно"),
+            10 => (self.aberration, 0., 8., "Хроматическая аберрация, px"),
+            _ => return None,
+        })
+    }
+    pub fn set(&mut self, field: usize, value: f32) -> Result<(), CoreError> {
+        let (_, min, max, _) = self.field(field).ok_or_else(|| CoreError::Invalid("Неизвестный эффект камеры".into()))?;
+        if !value.is_finite() || !(min..=max).contains(&value) {
+            return Err(CoreError::Invalid(format!("Эффект камеры: допустимый диапазон {min}…{max}")));
+        }
+        match field { 4 => self.exposure = value, 5 => self.contrast = value, 6 => self.saturation = value,
+            7 => self.temperature = value, 8 => self.vignette = value, 9 => self.grain = value,
+            10 => self.aberration = value, _ => unreachable!() }
+        Ok(())
+    }
+    pub fn validate(self) -> Result<(), CoreError> {
+        for field in 4..=10 { let (value, min, max, _) = self.field(field).unwrap();
+            if !value.is_finite() || !(min..=max).contains(&value) { return Err(CoreError::Invalid("Параметры эффектов камеры".into())); }
+        } Ok(())
+    }
+    pub fn uniforms(self) -> ([f32; 4], [f32; 4]) {
+        if !self.enabled { return ([0., 1., 1., 0.], [0.; 4]); }
+        ([self.exposure, self.contrast, self.saturation, self.temperature], [self.vignette, self.grain, self.aberration, 1.])
+    }
+}

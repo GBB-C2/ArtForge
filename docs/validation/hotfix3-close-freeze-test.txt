@@ -1,0 +1,36 @@
+   Compiling artforge v0.48.3 (/workspace/scratch/40c18c9831a2/work/ArtForge-Studio-0.48.3/crates/app)
+warning: variants `CreateEmpty`, `MaterialGrid`, `MaterialSize`, `Reset`, `CopyPose`, and `PastePose` are never constructed
+   --> crates/app/src/ui.rs:547:5
+    |
+544 | pub enum Action {
+    |          ------ variants in this enum
+...
+547 |     CreateEmpty,
+    |     ^^^^^^^^^^^
+...
+577 |     MaterialGrid,
+    |     ^^^^^^^^^^^^
+...
+590 |     MaterialSize,
+    |     ^^^^^^^^^^^^
+...
+651 |     Reset,
+    |     ^^^^^
+...
+676 |     CopyPose,
+    |     ^^^^^^^^
+677 |     PastePose,
+    |     ^^^^^^^^^
+    |
+    = note: `Action` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `artforge` (bin "artforge" test) generated 1 warning
+    Finished `test` profile [optimized] target(s) in 17.16s
+     Running unittests src/main.rs (/workspace/scratch/40c18c9831a2/build/debug/deps/artforge-238896db860bdd2b)
+
+running 1 test
+test app::performance_regression_tests::closing_keeps_the_saved_scene_frozen_until_a_write_error_is_reported ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 667 filtered out; finished in 0.02s
+

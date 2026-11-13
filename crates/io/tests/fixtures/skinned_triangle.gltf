@@ -1,0 +1,280 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "PoseForge original test fixture"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0,
+        2
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "Корень",
+      "children": [
+        1
+      ]
+    },
+    {
+      "name": "Сустав",
+      "translation": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "Треугольник",
+      "mesh": 0,
+      "skin": 0,
+      "weights": [
+        0
+      ]
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Тестовый меш",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2,
+            "JOINTS_0": 3,
+            "WEIGHTS_0": 4
+          },
+          "indices": 5,
+          "material": 0,
+          "targets": [
+            {
+              "POSITION": 9
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "skins": [
+    {
+      "joints": [
+        1,
+        0
+      ],
+      "inverseBindMatrices": 6,
+      "skeleton": 0
+    }
+  ],
+  "materials": [
+    {
+      "name": "Клетка",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "baseColorTexture": {
+          "index": 0
+        },
+        "metallicFactor": 0,
+        "roughnessFactor": 0.6
+      }
+    }
+  ],
+  "textures": [
+    {
+      "source": 0
+    }
+  ],
+  "images": [
+    {
+      "uri": "checker.png"
+    }
+  ],
+  "animations": [
+    {
+      "name": "Подъём",
+      "samplers": [
+        {
+          "input": 7,
+          "output": 8,
+          "interpolation": "LINEAR"
+        },
+        {
+          "input": 7,
+          "output": 10,
+          "interpolation": "LINEAR"
+        }
+      ],
+      "channels": [
+        {
+          "sampler": 0,
+          "target": {
+            "node": 1,
+            "path": "translation"
+          }
+        },
+        {
+          "sampler": 1,
+          "target": {
+            "node": 2,
+            "path": "weights"
+          }
+        }
+      ]
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "skinned_triangle.bin",
+      "byteLength": 380
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 36
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 36,
+      "byteLength": 36
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 72,
+      "byteLength": 24
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 96,
+      "byteLength": 24
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 120,
+      "byteLength": 48
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 168,
+      "byteLength": 6
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 176,
+      "byteLength": 128
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 304,
+      "byteLength": 8
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 312,
+      "byteLength": 24
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 336,
+      "byteLength": 36
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 372,
+      "byteLength": 8
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 3,
+      "min": [
+        -0.5,
+        1,
+        0
+      ],
+      "max": [
+        0.5,
+        2,
+        0
+      ]
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 3
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "type": "VEC2",
+      "count": 3
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5123,
+      "type": "VEC4",
+      "count": 3
+    },
+    {
+      "bufferView": 4,
+      "componentType": 5126,
+      "type": "VEC4",
+      "count": 3
+    },
+    {
+      "bufferView": 5,
+      "componentType": 5123,
+      "type": "SCALAR",
+      "count": 3
+    },
+    {
+      "bufferView": 6,
+      "componentType": 5126,
+      "type": "MAT4",
+      "count": 2
+    },
+    {
+      "bufferView": 7,
+      "componentType": 5126,
+      "type": "SCALAR",
+      "count": 2,
+      "min": [
+        0
+      ],
+      "max": [
+        1
+      ]
+    },
+    {
+      "bufferView": 8,
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 2
+    },
+    {
+      "bufferView": 9,
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 3
+    },
+    {
+      "bufferView": 10,
+      "componentType": 5126,
+      "type": "SCALAR",
+      "count": 2
+    }
+  ]
+}

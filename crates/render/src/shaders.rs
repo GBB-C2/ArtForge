@@ -13,12 +13,13 @@ fn validate(name:&str,source:&str)->Result<(),String> {
         .validate(&module).map_err(|e|format!("Шейдер {name}:\n{}",e.emit_to_string(source)))?;
     Ok(())
 }
-fn assemble()->Sources {
+fn assemble(raster_preview:bool)->Sources {
+    let world=format!("const ARTFORGE_RAY_TRACING: bool = {};\n{}",!raster_preview,include_str!("world.wgsl"));
     Sources {
         scene:format!("{}\n{}\n{}\n{}\n{}",include_str!("artistic.wgsl"),include_str!("npr.wgsl"),include_str!("graph.wgsl"),
-            include_str!("scene.wgsl"),include_str!("world.wgsl").replace("WORLD_GROUP","2")),
+            include_str!("scene.wgsl"),world.replace("WORLD_GROUP","2")),
         post:format!("{}\n{}\n{}\n{}\n{}\n{}",include_str!("artistic.wgsl"),include_str!("npr.wgsl"),include_str!("graph.wgsl"),
-            include_str!("post.wgsl"),include_str!("fx.wgsl"),include_str!("world.wgsl").replace("WORLD_GROUP","1")),
+            include_str!("post.wgsl"),include_str!("fx.wgsl"),world.replace("WORLD_GROUP","1")),
         ui:include_str!("ui.wgsl"),particles:include_str!("particles.wgsl"),
     }
 }
@@ -27,7 +28,9 @@ pub(crate) fn sources()->Result<&'static Sources,String> {
         // The CLI and tests may run on a small main/test stack too. Validate once
         // on a dedicated worker, then pass exactly these sources to wgpu.
         let worker=std::thread::Builder::new().name("shader-validation".into()).stack_size(STACK_BYTES).spawn(|| {
-            let s=assemble();
+            let raster_preview=std::env::var_os("ARTFORGE_RASTER_PREVIEW").is_some_and(|v|v=="1");
+            if raster_preview {eprintln!("GPU: растровый предпросмотр — без трассировки лучей, объёмного преломления и освещения от мешей; режим применяется и к экспорту");}
+            let s=assemble(raster_preview);
             for (name,source) in [("scene.wgsl + NPR/PBR",s.scene.as_str()),
                 ("post.wgsl + fx.wgsl",s.post.as_str()),("ui.wgsl",s.ui),("particles.wgsl",s.particles)] {
                 eprintln!("GPU: проверка {name}");validate(name,source)?;
@@ -44,7 +47,7 @@ mod tests {
     #[test]
     fn the_previous_fx_identifier_is_reported_before_driver_initialization() {
         let worker=std::thread::Builder::new().stack_size(STACK_BYTES).spawn(|| {
-            let s=assemble();let broken=s.post.replace("guide_info","meta");
+            let s=assemble(false);let broken=s.post.replace("guide_info","meta");
             let error=validate("post.wgsl + fx.wgsl",&broken).unwrap_err();
             assert!(error.contains("meta") && error.contains("fx.wgsl"));
         }).unwrap();worker.join().unwrap();
@@ -53,5 +56,13 @@ mod tests {
     fn shader_type_errors_include_source_context_without_a_gpu() {
         let error=validate("broken.wgsl","fn broken() -> f32 { return true; }").unwrap_err();
         assert!(error.contains("broken.wgsl") && error.contains("return"));
+    }
+    #[test]
+    fn raster_preview_scene_and_post_shaders_validate_with_shared_bindings() {
+        let worker=std::thread::Builder::new().stack_size(STACK_BYTES).spawn(|| {
+            let s=assemble(true);
+            validate("raster scene",&s.scene).unwrap();
+            validate("raster post",&s.post).unwrap();
+        }).unwrap();worker.join().unwrap();
     }
 }

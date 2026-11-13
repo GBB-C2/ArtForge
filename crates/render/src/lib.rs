@@ -701,7 +701,7 @@ impl Renderer {
     pub fn prepare_window(window: Arc<Window>) -> Result<RendererStartup, String> {
         let size = window.inner_size();
         eprintln!("GPU: создание контекста и поверхности окна");
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
         let surface = instance.create_surface(window).map_err(|e| e.to_string())?;
         Ok(RendererStartup {instance,surface,width:size.width.max(1),height:size.height.max(1)})
     }
@@ -710,7 +710,7 @@ impl Renderer {
     }
     pub async fn headless(width: u32, height: u32) -> Result<Self, String> {
         Self::initialize(
-            wgpu::Instance::new(&wgpu::InstanceDescriptor::default()),
+            wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default()),
             None,
             width.max(1),
             height.max(1),
@@ -751,12 +751,13 @@ impl Renderer {
         } else {
             wgpu::Features::empty()
         };
+        let cache_features = adapter.features() & wgpu::Features::PIPELINE_CACHE;
         let limits = wgpu::Limits::default().using_resolution(adapter.limits());
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("Poseforge GPU"),
-                    required_features: timer_features,
+                    required_features: timer_features | cache_features,
                     required_limits: limits,
                     memory_hints: wgpu::MemoryHints::Performance,
                 },
@@ -765,6 +766,18 @@ impl Renderer {
             .await
             .map_err(|e| e.to_string())?;
         device.push_error_scope(wgpu::ErrorFilter::Validation);
+        // Share compiled shader programs between the MSAA, blend and culling
+        // variants. Drivers without pipeline-cache support retain their defaults.
+        let pipeline_cache = (!cache_features.is_empty()).then(|| {
+            // SAFETY: no externally supplied cache bytes are deserialized.
+            unsafe {
+                device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+                    label: Some("ArtForge startup pipelines"),
+                    data: None,
+                    fallback: true,
+                })
+            }
+        });
         eprintln!("GPU: устройство готово · создание ресурсов");
         let (format, alpha_mode) = if let Some(s) = &surface {
             let caps = s.get_capabilities(&adapter);
@@ -1087,8 +1100,9 @@ impl Renderer {
             depth_stencil: None,
             multisample: Default::default(),
             multiview: None,
-            cache: None,
+            cache: pipeline_cache.as_ref(),
         });
+        eprintln!("GPU: конвейер постобработки — готово");
         let scene_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[
@@ -1157,7 +1171,7 @@ impl Renderer {
                     ..Default::default()
                 },
                 multiview: None,
-                cache: None,
+                cache: pipeline_cache.as_ref(),
             })
         };
         let scene_pipelines = sample_counts
@@ -1168,6 +1182,7 @@ impl Renderer {
                 })
             })
             .collect();
+        eprintln!("GPU: конвейеры материалов — готово");
         let wire_pipelines = sample_counts.iter().map(|&samples| make_scene(samples, false, true, false, true)).collect();
         let shadow_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1221,7 +1236,7 @@ impl Renderer {
                 }),
                 multisample: Default::default(),
                 multiview: None,
-                cache: None,
+                cache: pipeline_cache.as_ref(),
             })
         });
         let depth_pipeline_layout =
@@ -1280,7 +1295,7 @@ impl Renderer {
                 }),
                 multisample: Default::default(),
                 multiview: None,
-                cache: None,
+                cache: pipeline_cache.as_ref(),
             })
         });
         startup_checkpoint(&device,&adapter_name,"конвейеры сцены, теней и FX").await?;
@@ -1316,7 +1331,7 @@ impl Renderer {
             depth_stencil: None,
             multisample: Default::default(),
             multiview: None,
-            cache: None,
+            cache: pipeline_cache.as_ref(),
         });
         let particle_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -1393,7 +1408,7 @@ impl Renderer {
                         ..Default::default()
                     },
                     multiview: None,
-                    cache: None,
+                    cache: pipeline_cache.as_ref(),
                 })
             })
             .collect();

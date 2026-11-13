@@ -99,6 +99,7 @@ fn ray_normal(hit:RayHit)->vec3<f32>{
     if dot(n,n)<0.0000001{return normalize(cross(t.b.xyz-t.a.xyz,t.c.xyz-t.a.xyz));}return normalize(n);
 }
 fn ray_query(origin:vec3<f32>,direction:vec3<f32>,maximum:f32,reflection:bool,object_id:f32)->RayHit{
+    if !ARTFORGE_RAY_TRACING {return RayHit(maximum,0xffffffffu,vec2(0.));}
     var hit=RayHit(maximum,0xffffffffu,vec2(0.));var index=0u;
     let inv=1./select(vec3(0.00000000000000000001),direction,abs(direction)>vec3(0.00000000000000000001));
     loop{
@@ -137,6 +138,7 @@ fn ray_fresnel(eta_i:f32,eta_t:f32,cosine:f32)->f32 {
 // Up to eight nested media and sixteen surface crossings. Inner volumes
 // displace outer media. Open surfaces use their authored thin-sheet thickness.
 fn ray_transmittance(position:vec3<f32>,normal:vec3<f32>,direction:vec3<f32>,maximum:f32)->vec3<f32>{
+    if !ARTFORGE_RAY_TRACING {return vec3(1.);}
     let bias=world_bias(position);var origin=position+normal*bias;var remaining=maximum-bias;var throughput=vec3(1.);
     var objects:array<f32,8>;var media:array<vec4<f32>,8>;var count=0u;
     for(var layer=0;layer<16;layer+=1){
@@ -167,7 +169,7 @@ fn ray_transmittance(position:vec3<f32>,normal:vec3<f32>,direction:vec3<f32>,max
 // Mesh emitters share the ray geometry and evaluate authored textures, graphs,
 // visibility, polygon assignments and material layers at actual surface points.
 struct MeshEmission { direction:vec3<f32>, radiance:vec3<f32> }
-fn world_emission_count()->u32 { return world.emission_meta.x; }
+fn world_emission_count()->u32 { return select(0u,world.emission_meta.x,ARTFORGE_RAY_TRACING); }
 fn emitted_radiance(hit:RayHit,outgoing:vec3<f32>,volume:bool)->vec3<f32> {
     let t=ray_triangles[hit.triangle];
     var normal=normalize(cross(t.b.xyz-t.a.xyz,t.c.xyz-t.a.xyz));
@@ -188,6 +190,7 @@ fn emitted_radiance(hit:RayHit,outgoing:vec3<f32>,volume:bool)->vec3<f32> {
     return emission;
 }
 fn mesh_emission(index:u32,position:vec3<f32>,normal:vec3<f32>,volume:bool)->MeshEmission {
+    if !ARTFORGE_RAY_TRACING {return MeshEmission(vec3(0.,1.,0.),vec3(0.));}
     var result=MeshEmission(vec3(0.,1.,0.),vec3(0.));
     if index>=world.emission_meta.x {return result;}
     let sample=world.emitters[index];
@@ -266,6 +269,7 @@ fn ray_shade(hit:RayHit,position:vec3<f32>,incoming:vec3<f32>)->vec3<f32>{
 // Bounded transmission walk for reflected objects and camera refraction.
 // The specular branch uses the environment; this is not a full path tracer.
 fn ray_radiance(start:vec3<f32>,initial:vec3<f32>,roughness:f32,seed_object:f32,seed_medium:vec4<f32>,transparent:bool)->vec4<f32>{
+    if !ARTFORGE_RAY_TRACING {return select(vec4(world_environment(initial,roughness)*world.sky.w,1.),vec4(0.),transparent);}
     var origin=start;var direction=initial;var throughput=vec3(1.);var color=vec3(0.);
     var objects:array<f32,8>;var media:array<vec4<f32>,8>;var count=0u;
     if seed_object>0. {objects[0]=seed_object;media[0]=seed_medium;count=1u;}
@@ -303,7 +307,7 @@ fn ray_radiance(start:vec3<f32>,initial:vec3<f32>,roughness:f32,seed_object:f32,
 }
 fn scene_reflection(position:vec3<f32>,normal:vec3<f32>,view:vec3<f32>,roughness:f32)->vec3<f32>{
     let reflected=reflect(-view,normal);
-    if world.counts.w==0u{return world_environment(reflected,roughness)*world.sky.w;}
+    if !ARTFORGE_RAY_TRACING || world.counts.w==0u{return world_environment(reflected,roughness)*world.sky.w;}
     let helper=select(vec3(0.,1.,0.),vec3(0.,0.,1.),abs(normal.y)>0.95);let tangent=normalize(cross(helper,normal));let bitangent=cross(normal,tangent);
     let samples=select(u32(world.quality.x),1u,roughness<0.08);let a2=pow(max(roughness,0.001),4.);let origin=position+normal*world_bias(position);var color=vec3(0.);var weight=0.;
     for(var i=0u;i<samples;i+=1u){
@@ -316,6 +320,6 @@ fn scene_reflection(position:vec3<f32>,normal:vec3<f32>,view:vec3<f32>,roughness
     if weight<=0.00001{return world_environment(reflected,roughness)*world.sky.w;}return color/weight;
 }
 
-fn world_ray_shadows()->bool{return world.counts.z>0u;}
+fn world_ray_shadows()->bool{return ARTFORGE_RAY_TRACING && world.counts.z>0u;}
 fn world_settings_samples()->f32{return world.quality.y;}
 fn world_shadow_strength()->f32{return world.quality.w;}

@@ -2,6 +2,8 @@
 
 3D-редактор на Rust: моделирование, процедурные модификаторы, материалы, скелеты и анимация.
 
+![Модель лисы в ArtForge](docs/screenshots/fox.jpg)
+
 ## Запуск
 
 Нужен Rust; на Windows — также C++ Build Tools (MSVC).

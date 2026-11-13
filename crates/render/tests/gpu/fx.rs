@@ -3,6 +3,33 @@ use poseforge_core::{Editor,FxKind,Node,Vec3,box_mesh};
 
 #[test]
 #[ignore = "requires a Vulkan, DX12, Metal or OpenGL adapter"]
+fn isolated_fx_render_without_ao_fog_contours_or_scene_meshes() {
+    let mut e=Editor::new(Project::default());
+    e.project.render_settings.ambient_occlusion=0.;
+    e.project.render_settings.npr_contours.width=0.;
+    e.project.render_settings.atmosphere.density=0.;
+    e.project.render_settings.shadows=false;
+    let id=e.create_fx(FxKind::Fire).unwrap();
+    let f=e.project.node_mut(id).unwrap().fx.as_mut().unwrap();
+    f.flicker=0.;f.use_fields=false;f.emission=12.;
+    let view=View {eye:Vec3::new(0.,1.,5.),target:Vec3::new(0.,1.,0.),
+        orthographic:Some(1.5),viewport:[0.,0.,96.,96.],..Default::default()};
+    let globals=e.project.global_transforms().unwrap();
+    let mut renderer=pollster::block_on(Renderer::headless(96,96)).unwrap();
+    renderer.set_effect_time(0.75);
+    let with_fx=renderer.render_rgba(&e.project,&globals,&view,96,96).unwrap();
+    e.project.node_mut(id).unwrap().fx.as_mut().unwrap().enabled=false;
+    let empty=renderer.render_rgba(&e.project,&globals,&view,96,96).unwrap();
+    let changed=with_fx.chunks_exact(4).zip(empty.chunks_exact(4))
+        .filter(|(a,b)|a[..3].iter().zip(&b[..3]).any(|(x,y)|x.abs_diff(*y)>5)).count();
+    assert!(changed>100,"An isolated FX must be visible without another depth effect: {changed} pixels");
+    // Reusing render targets after disabling the effect must not leave a ghost.
+    let cleared=renderer.render_rgba(&e.project,&globals,&view,96,96).unwrap();
+    assert_eq!(empty,cleared);
+}
+
+#[test]
+#[ignore = "requires a Vulkan, DX12, Metal or OpenGL adapter"]
 fn gas_density_uploads_rewind_exactly_and_profile_density_controls_alpha() {
     let mut e=Editor::new(Project::default());e.project.lights.clear();let id=e.create_fx(FxKind::Smoke).unwrap();
     let n=e.project.node_mut(id).unwrap();n.transform.scale=Vec3::ONE;let f=n.fx.as_mut().unwrap();f.gas=true;f.speed=1.;f.density=20.;f.quality=poseforge_core::FxQuality::Fast;

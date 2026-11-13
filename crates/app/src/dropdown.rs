@@ -456,7 +456,8 @@ impl App {
     }
 
     pub(super) fn open_dropdown(&mut self, kind: DropdownKind) {
-        if self.dropdown.as_ref().is_some_and(|d| d.kind == kind) {
+        if self.dropdown.as_ref().is_some_and(|d| d.kind == kind
+            || kind==DropdownKind::FxCreate && d.kind==DropdownKind::AssetLibrary && self.assets.category==super::asset_library::FX_CATEGORY) {
             self.close_asset_popup();
             self.close_material_dropdown();
             self.dropdown = None;
@@ -468,7 +469,7 @@ impl App {
         if self.has_modal() || self.job.is_some() || self.native_picker.is_some() {
             return;
         }
-        if kind == DropdownKind::AssetLibrary && self.editor.has_staged() { return; }
+        if matches!(kind,DropdownKind::AssetLibrary|DropdownKind::FxCreate) && self.editor.has_staged() { return; }
         if kind == DropdownKind::SkeletonCreate
             && (self.editor.has_staged() || self.editor.playing || self.scene_write_pending())
         {
@@ -495,6 +496,11 @@ impl App {
         else {
             return;
         };
+        let kind=if kind==DropdownKind::FxCreate {
+            self.assets.category=super::asset_library::FX_CATEGORY;
+            self.assets.query.clear();
+            DropdownKind::AssetLibrary
+        }else{kind};
         let target = match kind {
             DropdownKind::ModifierAdd | DropdownKind::ModifierTarget(..) => {
                 let Some(node)=self.editor.selected.and_then(|id|self.editor.project.node(id)).filter(|n|self.modifier_editable(n.id)) else {return;};

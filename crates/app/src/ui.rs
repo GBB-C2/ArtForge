@@ -531,7 +531,7 @@ pub enum CurveAction {
 pub enum HelperAction {Empty(u8),Shape(u8),Size,CreateField(u8),Kind(u8),Number(u8),Enabled,Target(u8),Play,Reset}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FxAction {Create(u8),Kind(u8),Enabled,Field(u8),Color,Play,Reset,Illuminate,Defaults,Source(Option<u64>),Fields,MeshCollision,Cloud,Burst,Loop,
+pub enum FxAction {Create(u8),CreatePreset(u8,u8),Kind(u8),Enabled,Field(u8),Color,Play,Reset,Illuminate,Defaults,Source(Option<u64>),Fields,MeshCollision,Cloud,Burst,Loop,
     Preset(u8),Quality(u8),Gas,Hollow,Evolution,Smooth,Point(u8),Channel(u8),KeyColor(u8),ClearCache,Upgrade,Emission(u8),SelfShadow,TemperatureColor,SmokeColor}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1101,7 +1101,7 @@ impl Action {
             Self::Text(TextAction::OnCurve) => Some("Изогнуть текст вдоль привязанной кривой · путь выбирается ниже"),
             Self::Helper(HelperAction::CreateField(_)) | Self::DropdownOpen(DropdownKind::ForceCreate) => Some("Создать поле · сила, ветер, вихрь или магнит · действует на симуляцию"),
             Self::Helper(HelperAction::Number(_)|HelperAction::Size) => Some("Перетащить для изменения · двойной щелчок — точное значение · Esc — отмена"),
-            Self::Fx(FxAction::Create(_)) | Self::DropdownOpen(DropdownKind::FxCreate) => Some("Добавить объёмный FX · огонь, дым, туман или пар"),
+            Self::Fx(FxAction::Create(_)|FxAction::CreatePreset(..)) | Self::DropdownOpen(DropdownKind::FxCreate) => Some("Добавить FX в сцену · библиотека огня, дыма, тумана и пара"),
             Self::Fx(FxAction::Play) => Some("Общий запуск или пауза FX · без записи ключей"),
             Self::Fx(FxAction::Reset) => Some("Общие часы FX к началу выбранного эффекта · настройки и ключи сохраняются"),
             Self::Fx(FxAction::Color) => Some("Цвет FX в формате #RRGGBB"),

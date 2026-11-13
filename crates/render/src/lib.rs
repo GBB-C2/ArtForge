@@ -2874,6 +2874,7 @@ impl Renderer {
         let needs_depth = settings.npr_contours.width > 0.
             || transmission
             || atmosphere.density > 0.
+            || fx_count > 0
             || project.render_settings.ambient_occlusion > 0.;
         let transparent_objects = visible.iter().any(|n| {
             n.mesh

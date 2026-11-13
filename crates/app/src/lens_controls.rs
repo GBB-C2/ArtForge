@@ -21,7 +21,7 @@ impl App {
     pub(super) fn lens_action(&mut self, action: C) {
         if self.camera_effect_action(action) { return; }
         match action {
-            C::AddEffect(_) | C::SelectEffect(_) | C::ToggleEffect(_) | C::RemoveEffect(_) => unreachable!(),
+            C::AddEffect(_) | C::SelectEffect(_) | C::ToggleEffect(_) | C::RemoveEffect(_) | C::MoveEffect(..) => unreachable!(),
             C::SaveView => {
                 if self.editor.project.saved_views.len() >= 64 {
                     self.status = "В проекте уже 64 ракурса.".into();

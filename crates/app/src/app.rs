@@ -2734,6 +2734,7 @@ impl App {
             | Action::SceneMaterialVisible(_)
             | Action::SceneMaterialDetach(..) => {}
             Action::CameraTool(tool) => self.lens_action(tool),
+            Action::CameraEffect(id, tool) => { self.camera_effect_node_action(id, tool); },
             Action::LightTool(tool) => self.light_tool(tool),
             Action::SceneTool(tool) => self.scene_tool_action(tool),
             Action::PanelResize(right) => self.begin_panel_resize(right),

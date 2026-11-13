@@ -207,6 +207,7 @@ fn popup_rect(anchor: [f32; 4], size: [f32; 2], count: usize) -> [f32; 4] {
 
 fn item_icon(kind: DropdownKind, index: usize) -> Option<Icon> {
     match kind {
+        DropdownKind::CameraEffectAdd => Some(Icon::Wand),
         DropdownKind::CurvePath => Some(Icon::Curve),
         DropdownKind::RigSkeleton => Some(Icon::Bone),
         DropdownKind::RigMesh => Some(Icon::Object),

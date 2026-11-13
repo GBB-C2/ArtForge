@@ -1,6 +1,6 @@
 //! Outliner interactions commit only on release; Escape never edits the document.
 use super::{destruction_controls, scene_tree::SceneEntry, App, Drag};
-use crate::ui::{self, Action, SceneTool, Ui};
+use crate::ui::{self, Action, CameraTool, SceneTool, Ui};
 use poseforge_core::{Light, SceneItem};
 use std::collections::BTreeSet;
 use winit::event::MouseButton;
@@ -10,6 +10,7 @@ pub(super) enum Source {
     Items(Vec<SceneItem>),
     Material { node: u64, mesh: u64, material: u64 },
     Modifier { node: u64, mesh: u64, modifier: poseforge_core::MeshModifier },
+    CameraEffect { node: u64, field: usize, effects: poseforge_core::CameraEffects },
 }
 #[derive(Clone)]
 pub(super) struct SceneDrag {
@@ -32,7 +33,7 @@ impl SceneEntry {
             Self::Node(n) => SceneItem::Node(n.id),
             Self::Collection(id) => SceneItem::Folder(*id),
             Self::Light(i) => SceneItem::Light(*i),
-            Self::Modifier(node,_,_) | Self::Material(node, _, _) | Self::Fluid(node, _) | Self::Cloth(node, _) | Self::Destruction(node, _) => SceneItem::Node(*node),
+            Self::CameraEffect(node,_,_) | Self::Modifier(node,_,_) | Self::Material(node, _, _) | Self::Fluid(node, _) | Self::Cloth(node, _) | Self::Destruction(node, _) => SceneItem::Node(*node),
         }
     }
 }
@@ -295,14 +296,22 @@ impl App {
     }
 
     pub(super) fn begin_scene_drag(&mut self, action: &Action) -> bool {
-        if !self.preferences.left_panel
-            || !ui::contains(self.scene_list_rect(), self.mouse)
+        let camera_row = matches!(action, Action::CameraEffect(_, CameraTool::SelectEffect(_)));
+        let in_scene = self.preferences.left_panel && ui::contains(self.scene_list_rect(), self.mouse);
+        let in_camera_panel = camera_row && self.preferences.right_panel && self.surface.tab == 0
+            && ui::contains(self.properties_content_rect(), self.mouse);
+        if (!in_scene && !in_camera_panel)
             || self.has_modal()
             || self.scene_write_pending()
         {
             return false;
         }
         let source = match action {
+            Action::CameraEffect(node, CameraTool::SelectEffect(field)) => {
+                if !self.camera_effect_node_editable(*node) { self.action(action.clone()); return true; }
+                let Some(effects) = self.editor.project.node(*node).and_then(|n| n.camera).map(|lens| lens.effects).filter(|effects| effects.contains(*field)) else { return true; };
+                Source::CameraEffect { node: *node, field: *field, effects }
+            }
             Action::Modifier(ui::ModifierAction::Select(node,id)) => {
                 if !self.modifier_editable(*node) {self.action(action.clone());return true;}
                 let Some(n)=self.editor.project.node(*node) else {return true;};
@@ -623,6 +632,15 @@ impl App {
             return;
         }
         match drag.source {
+            Source::CameraEffect { node, field, effects } => {
+                if self.editor.project.node(node).and_then(|n| n.camera).is_none_or(|lens| lens.effects != effects) { return; }
+                let Some((target, rect)) = self.camera_effect_drop_target(node) else { return; };
+                if target == field { return; }
+                let fields: Vec<_> = effects.ordered_fields().collect();
+                let Some(index) = fields.iter().position(|&f| f == target) else { return; };
+                let before = fields.get(index + usize::from(self.mouse[1] >= rect[1] + rect[3] * 0.5)).copied();
+                self.move_camera_effect_before(node, field, before);
+            }
             Source::Modifier {node,mesh,modifier} => {
                 if self.editor.project.node(node).is_none_or(|n|n.mesh!=Some(mesh)||!n.modifiers.contains(&modifier)) {return;}
                 let Some((row,y))=self.scene_row_at() else {return;};
@@ -677,7 +695,9 @@ impl App {
         if (self.mouse[0] - d.start[0]).hypot(self.mouse[1] - d.start[1]) < 6. {
             return;
         }
-        let r = self.scene_list_rect();
+        let camera_panel = matches!(d.source, Source::CameraEffect {..}) && self.preferences.right_panel
+            && self.surface.tab == 0 && self.mouse[0] >= self.properties_content_rect()[0];
+        let r = if camera_panel { self.properties_content_rect() } else { self.scene_list_rect() };
         let inside_x = self.mouse[0] >= r[0] && self.mouse[0] <= r[0] + r[2];
         let up = inside_x && self.mouse[1] >= r[1] - 10. && self.mouse[1] < r[1] + 15.;
         let down =
@@ -700,6 +720,12 @@ impl App {
             return;
         }
         self.scene_tools.last_drag_scroll = Some(std::time::Instant::now());
+        if camera_panel {
+            let previous = self.inspector_scroll;
+            self.inspector_scroll = (previous + if up { -24. } else { 24. }).clamp(0., self.inspector_max_scroll());
+            if self.inspector_scroll != previous { self.redraw(); }
+            return;
+        }
         let previous = self.scene_scroll;
         if up {
             self.scene_scroll = self.scene_scroll.saturating_sub(1);
@@ -724,6 +750,14 @@ impl App {
         }
         let r = self.scene_list_rect();
         let p = u.palette();
+        if let Source::CameraEffect { node, .. } = drag.source {
+            if self.camera_effect_node_editable(node) {
+                if let Some((_, rect)) = self.camera_effect_drop_target(node) {
+                    u.rect([rect[0] + 4., rect[1] + if self.mouse[1] >= rect[1] + rect[3] * 0.5 { rect[3] - 1. } else { 0. }, rect[2] - 8., 2.], p.accent);
+                }
+            }
+            return;
+        }
         if matches!(drag.source,Source::Modifier {..}) {
             if let Some((row,y))=self.scene_row_at() {
                 let target=match row {SceneEntry::Node(ref n)=>Some(n.id),SceneEntry::Modifier(n,_,_)|SceneEntry::Material(n,_,_)=>Some(n),_=>None};

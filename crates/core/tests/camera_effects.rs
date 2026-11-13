@@ -28,8 +28,37 @@ fn effect_rows_keep_neutral_and_muted_values_and_reject_invalid_masks() {
     for field in 4..=10 {effects.remove(field);assert!(!effects.contains(field));}
     assert_eq!(effects.effect_list().present,0);effects.validate().unwrap();
     let before=effects;assert!(effects.add(99).is_err());assert_eq!(effects,before);
-    for list in [CameraEffectList{present:128,enabled:0},CameraEffectList{present:1,enabled:2}] {
+    for list in [CameraEffectList{present:128,enabled:0,..Default::default()},CameraEffectList{present:1,enabled:2,..Default::default()}] {
         effects.list=Some(list);assert!(effects.validate().is_err());
+    }
+}
+
+#[test]
+fn camera_effect_order_appends_moves_removes_and_survives_save() {
+    let mut effects = CameraEffects::default();
+    for field in [9, 4, 8] { effects.add(field).unwrap(); }
+    assert_eq!(effects.ordered_fields().collect::<Vec<_>>(), [9, 4, 8]);
+    effects.toggle(4);
+    let values = effects.uniforms();
+    assert!(effects.move_before(8, Some(9)).unwrap());
+    assert_eq!(effects.ordered_fields().collect::<Vec<_>>(), [8, 9, 4]);
+    assert_eq!(effects.uniforms(), values);
+    assert!(!effects.move_before(8, Some(9)).unwrap());
+    let before = effects;
+    assert!(effects.move_before(7, None).is_err());
+    assert!(effects.move_before(8, Some(7)).is_err());
+    assert_eq!(effects, before);
+    effects.remove(9); effects.add(9).unwrap();
+    assert_eq!(effects.ordered_fields().collect::<Vec<_>>(), [8, 4, 9]);
+    effects.validate().unwrap();
+    let loaded: CameraEffects = serde_json::from_slice(&serde_json::to_vec(&effects).unwrap()).unwrap();
+    assert_eq!(loaded, effects);
+    let old: CameraEffects = serde_json::from_str(r#"{"list":{"present":49,"enabled":33}}"#).unwrap();
+    old.validate().unwrap();
+    assert_eq!(old.ordered_fields().collect::<Vec<_>>(), [4, 8, 9]);
+    for order in [[4,4,0,0,0,0,0], [3,0,0,0,0,0,0], [7,0,0,0,0,0,0]] {
+        let invalid = CameraEffects { list: Some(CameraEffectList { order, ..old.list.unwrap() }), ..old };
+        assert!(invalid.validate().is_err());
     }
 }
 

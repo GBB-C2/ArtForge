@@ -14,7 +14,7 @@ pub enum Icon {
     Text,
     Empty,
     Force,Wind,Vortex,Magnet,Cylinder,Cone,Torus,Capsule,Pyramid,
-    Fx,Fire,Smoke,Fog,
+    Fx,Fire,Smoke,Fog,Wand,
     Scene,
     Vertex,
     Edge,
@@ -179,6 +179,14 @@ impl Icon {
                 }
             }
             Self::Fx=>{geometry.path(&[[12.,2.],[14.5,9.5],[22.,12.],[14.5,14.5],[12.,22.],[9.5,14.5],[2.,12.],[9.5,9.5],[12.,2.]]);}
+            Self::Wand=>{
+                geometry.closed(&[[3.,19.],[15.,7.],[18.,10.],[6.,22.]]);
+                geometry.path(&[[12.,10.],[15.,13.]]);
+                for (x,y) in [(7.,5.),(19.,4.),(21.,16.)] {
+                    geometry.path(&[[x-2.,y],[x+2.,y]]);
+                    geometry.path(&[[x,y-2.],[x,y+2.]]);
+                }
+            }
             Self::Fire=>{geometry.path(&[[12.,2.],[13.,8.],[17.,5.],[20.,11.],[20.,16.],[17.,21.],[7.,21.],[4.,16.],[5.,11.],[8.,8.],[12.,2.]]);geometry.path(&[[12.,12.],[15.,17.],[12.,21.],[9.,17.],[12.,12.]]);}
             Self::Smoke=>{geometry.path(&[[6.,17.],[3.,15.],[3.,11.],[6.,8.],[9.,8.],[11.,4.],[16.,4.],[19.,8.],[19.,10.],[22.,12.],[22.,15.],[19.,17.],[6.,17.]]);geometry.path(&[[8.,20.],[17.,20.]]);}
             Self::Fog=>{for (y,a,b) in [(5.,5.,19.),(10.,2.,22.),(15.,4.,20.),(20.,7.,17.)] {geometry.path(&[[a,y],[b,y]]);}}
@@ -964,7 +972,7 @@ mod tests {
         Icon::Text,
         Icon::Empty,
         Icon::Force,Icon::Wind,Icon::Vortex,Icon::Magnet,Icon::Cylinder,Icon::Cone,Icon::Torus,Icon::Capsule,Icon::Pyramid,
-        Icon::Fx,Icon::Fire,Icon::Smoke,Icon::Fog,
+        Icon::Fx,Icon::Fire,Icon::Smoke,Icon::Fog,Icon::Wand,
         Icon::Scene,
         Icon::Vertex,
         Icon::Edge,

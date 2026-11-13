@@ -15,6 +15,7 @@ pub(super) enum SceneEntry {
     Light(usize),
     Material(u64, Option<u64>, usize),
     Modifier(u64, u64, usize),
+    CameraEffect(u64, usize, usize),
     Fluid(u64, usize),
     Cloth(u64, usize),
     Destruction(u64, usize),
@@ -133,7 +134,7 @@ impl App {
             let expanded = match &entry {
                 SceneEntry::Node(row) => by_id
                     .get(&row.id)
-                    .filter(|n| n.mesh.is_some())
+                    .filter(|n| n.mesh.is_some() || n.camera.is_some())
                     .filter(|_| {
                         self.scene_tools.material_expanded.contains(&row.id)
                             || row.has_children && !self.collapsed.contains(&row.id)
@@ -144,6 +145,10 @@ impl App {
             result.push(entry);
             if let Some((node, depth)) = expanded {
                 let id = node.id;
+                if let Some(lens) = node.camera {
+                    result.extend(lens.effects.ordered_fields().map(|field| SceneEntry::CameraEffect(id, field, depth)));
+                }
+                if node.mesh.is_none() { continue; }
                 result.extend(node.modifiers.iter().map(|m|SceneEntry::Modifier(id,m.id,depth)));
                 let materials = node.mesh.and_then(|id| meshes.get(&id))
                     .map(|mesh| self.scene_material_ids_for(node, mesh)).unwrap_or_default();
@@ -581,6 +586,19 @@ impl App {
                     u.eye_button([lw - 54., y + 1., 25., 23.], Action::SceneFluidVisible(*node), settings.visible);
                     u.scene_close_button([lw - 27., y + 1., 25., 23.], Action::SceneFluidRemove(*node));
                 }
+                SceneEntry::CameraEffect(node, field, depth) => {
+                    let Some(effects) = self.editor.project.node(*node).and_then(|n| n.camera).map(|lens| lens.effects) else { continue; };
+                    if !effects.contains(*field) { continue; }
+                    let x = 52. + (*depth).min(5) as f32 * 10. + if self.editor.project.node_collection(*node).is_some() { 14. } else { 0. };
+                    let selected = self.camera_effect_selected(*node, *field) && self.surface.tab == 0;
+                    if selected { u.surface_outline(r, p.accent); } else if ui::contains(r, self.mouse) { u.surface(r, p.hover); }
+                    let on = effects.effect_enabled(*field);
+                    let color = if on && effects.enabled { p.text } else { p.muted };
+                    Icon::Wand.draw(u, [x + 2., y + 4., 18., 18.], color);
+                    u.fitted_label([x + 28., y + 5., (lw - x - 88.).max(1.), 17.], poseforge_core::CameraEffects::LABELS[*field - 4], 11., color);
+                    u.hits.push(ui::Hit { rect: r, action: Action::CameraEffect(*node, ui::CameraTool::SelectEffect(*field)) });
+                    self.draw_camera_effect_buttons(u, [r[0], y, lw + 3. - r[0], 25.], *node, *field, on);
+                }
                 SceneEntry::Modifier(node,id,depth) => {
                     let Some(modifier)=self.editor.project.node(*node).and_then(|n|n.modifiers.iter().find(|m|m.id==*id)) else {continue;};
                     let x=52.+(*depth).min(5) as f32*10.+if self.editor.project.node_collection(*node).is_some() {14.}else{0.};
@@ -660,7 +678,7 @@ impl App {
                         u.surface(r, p.hover);
                     }
                     let x = 30. + indent;
-                    if row.has_children || node.mesh.is_some() {
+                    if row.has_children || node.mesh.is_some() || node.camera.is_some() {
                         if self.scene_query.is_empty() && !self.joints_only {
                             u.disclosure_button(
                                 [x, y + 2., 22., 21.],

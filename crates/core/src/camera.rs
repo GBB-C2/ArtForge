@@ -204,6 +204,10 @@ pub struct CameraEffects {
 pub struct CameraEffectList {
     pub present: u8,
     pub enabled: u8,
+    /// Presentation order shared by the inspector and outliner; zero slots are unused.
+    /// Older files without this field retain the original ascending field order.
+    #[serde(default)]
+    pub order: [u8; 7],
 }
 impl Default for CameraEffects {
     fn default() -> Self { Self { list: None, enabled: false, exposure: 0., contrast: 1., saturation: 1., temperature: 0., vignette: 0., grain: 0., aberration: 0. } }
@@ -212,12 +216,25 @@ impl CameraEffects {
     pub const LABELS: [&'static str; 7] = ["Экспозиция", "Контраст", "Насыщенность", "Температура", "Виньетка", "Зерно", "Хроматическая аберрация"];
     fn effect_bit(field: usize) -> u8 { if (4..=10).contains(&field) { 1 << (field - 4) } else { 0 } }
     pub fn effect_list(self) -> CameraEffectList {
-        self.list.unwrap_or_else(|| {
+        let mut list = self.list.unwrap_or_else(|| {
             let defaults=Self::default();
             let present=(4..=10).filter(|&field| self.field(field).unwrap().0!=defaults.field(field).unwrap().0)
                 .fold(0,|mask,field|mask|Self::effect_bit(field));
-            CameraEffectList {present,enabled:present}
-        })
+            CameraEffectList {present,enabled:present,..Default::default()}
+        });
+        let mut order = [0; 7];
+        let mut len = 0;
+        for field in list.order.into_iter().chain(4..=10) {
+            if list.present & Self::effect_bit(field as usize) != 0 && !order.contains(&field) {
+                order[len] = field;
+                len += 1;
+            }
+        }
+        list.order = order;
+        list
+    }
+    pub fn ordered_fields(self) -> impl Iterator<Item = usize> {
+        self.effect_list().order.into_iter().filter(|&field| field != 0).map(usize::from)
     }
     pub fn contains(self, field: usize) -> bool { self.effect_list().present & Self::effect_bit(field) != 0 }
     pub fn effect_enabled(self, field: usize) -> bool { self.effect_list().enabled & Self::effect_bit(field) != 0 }
@@ -231,11 +248,28 @@ impl CameraEffects {
         if !self.contains(field) {return;}
         let mut list=self.effect_list();let bit=Self::effect_bit(field);
         list.present&=!bit;list.enabled&=!bit;self.list=Some(list);
+        self.list=Some(self.effect_list());
         self.set_value(field,Self::default().field(field).unwrap().0);
     }
     pub fn toggle(&mut self, field: usize) {
         if !self.contains(field) {return;}
         let mut list=self.effect_list();list.enabled^=Self::effect_bit(field);self.list=Some(list);
+    }
+    pub fn move_before(&mut self, field: usize, before: Option<usize>) -> Result<bool, CoreError> {
+        if !self.contains(field) || before.is_some_and(|target| !self.contains(target)) {
+            return Err(CoreError::Invalid("Эффект отсутствует в списке камеры".into()));
+        }
+        if before == Some(field) { return Ok(false); }
+        let mut list = self.effect_list();
+        let mut fields: Vec<_> = self.ordered_fields().filter(|&f| f != field).collect();
+        let index = before.and_then(|target| fields.iter().position(|&f| f == target)).unwrap_or(fields.len());
+        fields.insert(index, field);
+        let mut order = [0; 7];
+        for (slot, field) in order.iter_mut().zip(fields) { *slot = field as u8; }
+        if list.order == order { return Ok(false); }
+        list.order = order;
+        self.list = Some(list);
+        Ok(true)
     }
     pub fn field(self, field: usize) -> Option<(f32, f32, f32, &'static str)> {
         Some(match field {
@@ -255,7 +289,10 @@ impl CameraEffects {
             return Err(CoreError::Invalid(format!("Эффект камеры: допустимый диапазон {min}…{max}")));
         }
         let mut list=self.effect_list();let bit=Self::effect_bit(field);
-        if list.present&bit==0 {list.present|=bit;list.enabled|=bit;}
+        if list.present&bit==0 {
+            list.present|=bit;list.enabled|=bit;
+            if let Some(slot)=list.order.iter_mut().find(|f|**f==0) {*slot=field as u8;}
+        }
         self.list=Some(list);self.set_value(field,value);
         Ok(())
     }
@@ -267,6 +304,16 @@ impl CameraEffects {
     pub fn validate(self) -> Result<(), CoreError> {
         if self.list.is_some_and(|list|list.present&!127!=0 || list.enabled&!list.present!=0) {
             return Err(CoreError::Invalid("Список эффектов камеры".into()));
+        }
+        if let Some(list) = self.list {
+            let mut seen = 0;
+            for field in list.order.into_iter().filter(|&field| field != 0) {
+                let bit = Self::effect_bit(field as usize);
+                if bit == 0 || list.present & bit == 0 || seen & bit != 0 {
+                    return Err(CoreError::Invalid("Порядок эффектов камеры".into()));
+                }
+                seen |= bit;
+            }
         }
         for field in 4..=10 { let (value, min, max, _) = self.field(field).unwrap();
             if !value.is_finite() || !(min..=max).contains(&value) { return Err(CoreError::Invalid("Параметры эффектов камеры".into())); }

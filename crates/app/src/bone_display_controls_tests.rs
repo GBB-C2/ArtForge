@@ -56,6 +56,7 @@ fn each_color_reset_is_independent_reversible_and_does_not_create_empty_history(
             joint_filled: false,
             follow_view: true,
             joint_follow_view: false,
+            ..Default::default()
         };
         a.editor.project.node_mut(id).unwrap().bone_display = Some(custom);
         let before = a.editor.project.clone();

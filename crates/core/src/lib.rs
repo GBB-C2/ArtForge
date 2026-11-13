@@ -11,7 +11,7 @@ mod bone_display;
 mod modifiers;
 mod modifier_geometry;
 pub use modifiers::*;
-pub use bone_display::{BoneDisplay, BoneShape, JointShape};
+pub use bone_display::{BoneDisplay, BoneDisplayPreset, BoneShape, JointShape};
 mod humanoid_template;
 pub use humanoid_template::HUMANOID_JOINT_COUNT;
 mod curve_binding;

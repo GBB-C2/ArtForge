@@ -19,6 +19,7 @@ impl App {
         let fluid = FluidSettings::default();
         let physics = PhysicsSettings::default();
         Some(match *action {
+            Action::BoneDisplay(ui::BoneDisplayAction::Size(_)) => 1.,
             Action::Fx(ui::FxAction::Field(i))=>fx_controls::number(fx_controls::defaults(self.selected_fx()?.1),i)?,
             Action::Helper(ui::HelperAction::Size)=>1.,
             Action::Helper(ui::HelperAction::Number(i))=>[10.,3.,2.,0.5].get(i as usize).copied()?,

@@ -26,7 +26,8 @@ pub(super) struct ColorSession {
     original_alpha: f32,
     original_alpha_mode: AlphaMode,
     original_absorption: Option<[f32; 3]>,
-    original_bone_display: Option<poseforge_core::BoneDisplay>,
+    original_bone_displays: Vec<(u64, Option<poseforge_core::BoneDisplay>)>,
+    pub(super) apply_to_all: bool,
     was_modified: bool,
     opened: Instant,
 }
@@ -66,6 +67,12 @@ impl App {
             && !self.material_authoring_available() { return; }
         if matches!(source, Action::SurfaceLightColor | Action::SurfaceLightVolumeColor)
             && self.surface_light_index().is_none_or(|i| self.editor.project.light_locked(i)) { return; }
+        if let Action::BoneDisplay(kind) = source {
+            let action = if kind == ui::BoneDisplayAction::JointColor { ui::BoneDisplayAction::ResetJointColor }
+                else { ui::BoneDisplayAction::ResetBodyColor };
+            self.bone_display_action(action);
+            return;
+        }
         self.open_color_picker(source);
         let Some(target) = self.color_picker.as_ref().map(|s| s.target) else { return; };
         let material = poseforge_core::Material::default();
@@ -274,10 +281,9 @@ impl App {
                 .and_then(|m| m.attenuation_color),
             _ => None,
         };
-        let original_bone_display = match target {
-            ColorTarget::Bone(id,_) => self.editor.project.node(id).and_then(|n| n.bone_display),
-            _ => None,
-        };
+        let original_bone_displays = if matches!(target, ColorTarget::Bone(..)) {
+            self.bone_display_ids().into_iter().map(|id| (id, self.editor.project.node(id).unwrap().bone_display)).collect()
+        } else { Vec::new() };
         self.editor.begin_edit(title);
         self.color_picker = Some(ColorSession {
             picker,
@@ -291,7 +297,8 @@ impl App {
             original_alpha: alpha,
             original_alpha_mode: alpha_mode,
             original_absorption,
-            original_bone_display,
+            original_bone_displays,
+            apply_to_all: false,
             was_modified: self.editor.modified,
             opened: Instant::now(),
         });
@@ -309,7 +316,8 @@ impl App {
             return false;
         };
         match session.target {
-            ColorTarget::Bone(id,_) => self.editor.selected == Some(id) && self.bone_display_editable(),
+            ColorTarget::Bone(id,_) => self.editor.selected == Some(id) && self.bone_display_editable()
+                && self.bone_display_ids() == session.original_bone_displays.iter().map(|(id,_)| *id).collect(),
             ColorTarget::Material(id, _)
             | ColorTarget::Absorption(id)
             | ColorTarget::Npr(id, _) => {
@@ -342,14 +350,17 @@ impl App {
             session.original_rgb
         };
         match session.target {
-            ColorTarget::Bone(id,joint) => {
-                let node = self.editor.project.node_mut(id).ok_or("Кость удалена.")?;
-                node.bone_display = if rgb_changed {
-                    let mut display = session.original_bone_display.unwrap_or_default();
+            ColorTarget::Bone(_,joint) => {
+                for (id, original) in &session.original_bone_displays {
+                    let node = self.editor.project.node_mut(*id).ok_or("Кость удалена.")?;
+                    let mut display = original.unwrap_or_default();
                     let color = [rgba[0],rgba[1],rgba[2]];
-                    if joint { display.joint_color = color; } else { display.color = color; }
-                    Some(display)
-                } else { session.original_bone_display };
+                    let previous = if joint { display.joint_color } else { display.color };
+                    node.bone_display = if (rgb_changed || session.apply_to_all) && color != previous {
+                        if joint { display.joint_color = color; } else { display.color = color; }
+                        Some(display)
+                    } else { *original };
+                }
             }
             ColorTarget::Npr(id, field) => {
                 let material = self
@@ -424,12 +435,10 @@ impl App {
         if let Action::BoneDisplay(kind @ (ui::BoneDisplayAction::BodyColor | ui::BoneDisplayAction::JointColor)) = action {
             if !self.bone_display_editable() { return Err("Кость недоступна для изменения".into()); }
             let color = surfaces::parse_color(value)?.map(surfaces::linear_to_srgb);
-            let node = self.bone_display_node().unwrap(); let id = node.id;
-            let mut display = node.bone_display.unwrap_or_default();
-            let target = if *kind == ui::BoneDisplayAction::JointColor { &mut display.joint_color } else { &mut display.color };
-            if target.iter().zip(color).all(|(a,b)| (*a-b).abs() < 0.00001) { return Ok(true); }
-            *target = color;
-            self.editor.transact("Цвет кости", |p| p.node_mut(id).unwrap().bone_display = Some(display)).map_err(|e| e.to_string())?;
+            self.edit_bone_displays("Цвет костей", |display| {
+                let target = if *kind == ui::BoneDisplayAction::JointColor { &mut display.joint_color } else { &mut display.color };
+                if target.iter().zip(color).any(|(a,b)| (*a-b).abs() >= 0.00001) { *target = color; }
+            })?;
             return Ok(true);
         }
         let Action::ColorPicker(control) = action else {

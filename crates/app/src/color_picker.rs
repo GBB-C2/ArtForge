@@ -149,6 +149,17 @@ impl ColorDraft {
         [self.rgb[0], self.rgb[1], self.rgb[2], self.alpha]
     }
 
+    /// Transfers a swatch without quantizing it through HEX or HSV.
+    pub fn set_rgba(&mut self, rgba: [f32; 4]) -> Result<(), String> {
+        if rgba.iter().any(|v| !v.is_finite() || !(0. ..=1.).contains(v)) {
+            return Err("Цвет должен находиться в диапазоне sRGB 0–1.".into());
+        }
+        self.rgb = [rgba[0], rgba[1], rgba[2]];
+        self.hsv = rgb_to_hsv(self.rgb, self.hsv.hue);
+        if self.alpha_enabled { self.alpha = rgba[3]; }
+        Ok(())
+    }
+
     pub fn original_rgba(&self) -> [f32; 4] {
         self.original
     }

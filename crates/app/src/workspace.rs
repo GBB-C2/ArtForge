@@ -131,6 +131,7 @@ pub struct Preferences {
     pub accent: Accent,
     pub left_width: Option<f32>,
     pub right_width: Option<f32>,
+    pub creation_panel_position: Option<[f32; 2]>,
     pub left_panel: bool,
     pub animation_visible: bool,
     pub animation_layers_open: bool,
@@ -159,6 +160,7 @@ impl Default for Preferences {
             accent: Accent::default(),
             left_width: None,
             right_width: None,
+            creation_panel_position: None,
             left_panel: true,
             animation_visible: true,
             animation_layers_open: false,
@@ -216,6 +218,11 @@ impl Preferences {
                 .as_f64()
                 .filter(|v| v.is_finite() && (280. ..=600.).contains(v))
                 .map(|v| v as f32),
+            creation_panel_position: value["creation_panel_position"].as_array().and_then(|v| {
+                if v.len() != 2 { return None; }
+                let point = [v[0].as_f64()? as f32, v[1].as_f64()? as f32];
+                point.iter().all(|v| v.is_finite()).then_some(point)
+            }),
             material_grid: value["material_grid"].as_bool().unwrap_or(false),
             material_thumbnail: match value["material_thumbnail"].as_u64() {
                 Some(52) => 52.,
@@ -261,6 +268,7 @@ impl Preferences {
             "language": self.language.as_str(), "recent_projects": self.recent_projects,
             "theme": self.theme.as_str(), "accent": self.accent.as_str(),
             "left_width":self.left_width,"right_width":self.right_width,
+            "creation_panel_position":self.creation_panel_position,
             "tools_expanded": self.tools_expanded,
             "animation_visible": self.animation_visible,
             "animation_layers_open": self.animation_layers_open,

@@ -46,7 +46,7 @@ impl Shape {
             local_side
         };
         let up = direction.cross(side).normalize_or_zero();
-        let radius = length * 0.1;
+        let radius = length * 0.1 * display.size;
         let (vertices, polygons, flat) =
             geometry(display.shape, origin, tail, side * radius, up * radius);
         let matrix = view.view_projection();

@@ -125,7 +125,7 @@ impl Solid {
         let mut mesh = Mesh {
             id: 0, name: format!("{} · осколок {:02}", source.name, index + 1),
             vertices: vertices.into(), indices: Default::default(), material: source.material,
-            topology: Some(MeshTopology { faces: faces.into(), face_materials: materials.into(),
+            topology: Some(MeshTopology { loose_edges: Vec::new(), faces: faces.into(), face_materials: materials.into(),
                 uv_seams: vec![], primitive: None, smooth_normals: source.smooth_normals_enabled() }),
             morph_targets: vec![],
         };
@@ -284,7 +284,7 @@ mod tests {
         let mut faces = vec![vec![0,1,2,3,4,5],vec![11,10,9,8,7,6]];
         for i in 0..6u32 { let j=(i+1)%6; faces.push(vec![i,i+6,j+6,j]); }
         let mut mesh = Mesh { id: 1, name: "Concave L".into(), vertices: vertices.into(), indices: Default::default(),
-            topology: Some(MeshTopology { faces: faces.into(), face_materials: Default::default(), uv_seams:vec![],primitive:None,smooth_normals:false }),
+            topology: Some(MeshTopology { loose_edges: Vec::new(), faces: faces.into(), face_materials: Default::default(), uv_seams:vec![],primitive:None,smooth_normals:false }),
             material: None,morph_targets:vec![] };
         mesh.rebuild_polygon_indices().unwrap(); let original=mesh.clone();
         for seed in [1,19,72] {
@@ -357,7 +357,7 @@ mod tests {
     fn cut_material_survives_repeated_splits_and_outer_paint_is_preserved() {
         let mut mesh=crate::box_mesh(1,"Painted",Vec3::splat(0.5),Some(41));
         let faces=mesh.face_count();let mut materials=vec![None;faces];materials[0]=Some(42);
-        mesh.topology=Some(MeshTopology {faces:mesh.indices.chunks_exact(3).map(|t|t.to_vec()).collect::<Vec<_>>().into(),
+        mesh.topology=Some(MeshTopology { loose_edges: Vec::new(),faces:mesh.indices.chunks_exact(3).map(|t|t.to_vec()).collect::<Vec<_>>().into(),
             face_materials:materials.into(),uv_seams:vec![],primitive:None,smooth_normals:false});let before=mesh.clone();
         let shards=fracture_mesh_with_material(&mesh,12,19,0.7,Some(43),&AtomicBool::new(false)).unwrap();
         let mut exterior=0;let mut cuts=0;let mut painted=0;

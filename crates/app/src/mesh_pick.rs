@@ -10,6 +10,11 @@ pub(super) struct MeshCache {
     tree: OnceLock<PickTree>,
 }
 impl MeshCache {
+    pub fn matches(&self, mesh: &Mesh) -> bool {
+        self.key == Self::key(mesh)
+            && self.mesh.topology.as_ref().map(|t| t.loose_edges.as_slice())
+                == mesh.topology.as_ref().map(|t| t.loose_edges.as_slice())
+    }
     pub fn key(mesh: &Mesh) -> (u64, u64, u64, u64) {
         (
             mesh.id,

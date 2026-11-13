@@ -35,7 +35,7 @@ impl App {
                 Action::Author(a),
                 self.authoring.bridge_segments.to_string(),
             ),
-            A::Merge | A::Weld | A::Bridge | A::Dissolve => {
+            A::Merge | A::Weld | A::Bridge | A::BridgeFaces | A::Dissolve => {
                 let Some(id) = self.authoring.editing else {
                     return true;
                 };
@@ -51,6 +51,7 @@ impl App {
                         edges: self.authoring.edges.clone(),
                         segments: self.authoring.bridge_segments,
                     },
+                    A::BridgeFaces => MeshEdit::BridgeFaces { faces:self.selected_face_region(),segments:self.authoring.bridge_segments },
                     _ => MeshEdit::DissolveEdges {
                         edges: self.authoring.edges.clone(),
                     },

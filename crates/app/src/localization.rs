@@ -20,6 +20,10 @@ impl Language {
     }
 }
 const LABELS:&[(&str,&str)]=&[
+    ("Мост из граней","Bridge faces"), ("Подразделить выделение","Subdivide selection"),
+    ("Выравнивание","Align"), ("В плоскость","Flatten"), ("В цепочку","Straighten"), ("Равномерный шаг","Even spacing"),
+    ("Завершить правку сетки","Finish mesh editing"),
+    ("Экструдирование точек","Extrude vertices"), ("Вставка вокруг точек","Inset vertices"),
     ("Оформление костей","Bone appearance"), ("Оформление выбранной кости","Selected bone appearance"),
     ("Стандартное","Default"), ("Тонкие кости","Slim bones"), ("Контроллеры","Controls"), ("Блоки","Blocks"),
     ("Своё оформление","Custom appearance"), ("Разные цвета","Mixed colors"), ("Разные формы","Mixed shapes"),

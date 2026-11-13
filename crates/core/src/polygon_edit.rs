@@ -62,6 +62,8 @@ pub(crate) fn apply(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreErro
     let smooth = mesh.smooth_normals_enabled();
     let shading_only = matches!(operation, MeshEdit::SmoothNormals | MeshEdit::FlatNormals);
     match operation {
+        MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. }
+        | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } => unreachable!(),
         MeshEdit::Normals { .. }
         | MeshEdit::Shape { .. }
         | MeshEdit::Knife { .. }
@@ -109,6 +111,7 @@ pub(crate) fn apply(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreErro
         }
         MeshEdit::Extrude { faces, distance } => {
             selected(mesh, &faces)?;
+            if distance==0. {return Ok(());}
             if !distance.is_finite() || distance.abs() < 1e-6 || distance.abs() > 1000. {
                 return Err(invalid(
                     "Расстояние экструзии: ненулевое число от −1000 до 1000",

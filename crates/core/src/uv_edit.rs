@@ -30,7 +30,7 @@ fn edge(a: usize, b: usize) -> (usize, usize) {
 }
 fn topology(mesh: &mut Mesh) {
     if mesh.topology.is_none() {
-        mesh.topology = Some(MeshTopology {
+        mesh.topology = Some(MeshTopology { loose_edges: Vec::new(),
             face_materials: Default::default(),
             faces: (0..mesh.face_count())
                 .map(|f| mesh.face_vertices(f).unwrap().to_vec())

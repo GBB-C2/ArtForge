@@ -110,7 +110,7 @@ impl TextSettings {
         let center=(min+max)*0.5;
         for v in &mut vertices {v.position=(Vec3::from_array(v.position)-center).to_array();}
         let mesh=Mesh {id,name:"Текст".into(),vertices:vertices.into(),indices:indices.into(),material,morph_targets:vec![],
-            topology:Some(MeshTopology {faces:faces.into(),face_materials:Default::default(),uv_seams:vec![],smooth_normals:false,primitive:None})};
+            topology:Some(MeshTopology { loose_edges: Vec::new(),faces:faces.into(),face_materials:Default::default(),uv_seams:vec![],smooth_normals:false,primitive:None})};
         mesh.validate_topology()?;Ok(mesh)
     }
 }

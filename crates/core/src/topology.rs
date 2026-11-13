@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MeshTopology {
+    /// Editable edges without an incident face, including vertex extrusions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub loose_edges: Vec<[u32; 2]>,
     /// Per-polygon overrides. Empty means every face uses the mesh material.
     #[serde(default)]
     pub face_materials: SharedBuffer<Option<crate::AssetId>>,
@@ -87,8 +90,14 @@ impl Mesh {
         };
         let invalid = || CoreError::Invalid("Повреждена полигональная сетка".into());
         if (!t.face_materials.is_empty() && t.face_materials.len() != t.faces.len())
-            || t.faces.is_empty()
             || t.faces.len() > self.indices.len() / 3
+        {
+            return Err(invalid());
+        }
+        if t.loose_edges.len() > crate::MAX_EDIT_VERTICES * 4
+            || t.loose_edges.iter().any(|&[a, b]| {
+                a == b || a as usize >= self.vertices.len() || b as usize >= self.vertices.len()
+            })
         {
             return Err(invalid());
         }

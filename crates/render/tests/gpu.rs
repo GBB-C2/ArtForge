@@ -3048,7 +3048,7 @@ fn polygon_materials_render_and_reassign_without_changing_authoring_mesh() {
         ..Vertex::default()
     })
     .collect();
-    m.topology = Some(MeshTopology {
+    m.topology = Some(MeshTopology { loose_edges: Vec::new(),
         faces: vec![vec![0, 1, 2, 3], vec![1, 4, 5, 2]].into(),
         face_materials: Default::default(),
         uv_seams: vec![],

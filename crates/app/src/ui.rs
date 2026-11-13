@@ -257,6 +257,7 @@ impl SliderRange {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DropdownKind {
+    Alignment,
     CameraEffectAdd,
     ModifierAdd,
     ModifierTarget(bool,u64),
@@ -434,6 +435,7 @@ pub enum PrimitiveAction {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AuthorAction {
+    BridgeFaces,
     Knife,
     KnifeAccept,
     KnifeCancel,
@@ -847,8 +849,8 @@ pub enum Action {
 pub enum ModelingTool {
     Select(u8), Move, Rotate, Scale,
     Extrude, Inset, Bevel, LoopCut, Knife, Slide,
-    Merge, Weld, Bridge, Dissolve, DeleteFaces, Subdivide,
-    Smooth, Flat, Flatten, Straighten, Space, Relax, Inspect,
+    Merge, Weld, Bridge, BridgeFaces, Dissolve, DeleteFaces, Subdivide,
+    Smooth, Flat, Align, Relax, Inspect,
     Sphere, Circle, Inflate, Twist,
 }
 
@@ -905,6 +907,7 @@ pub enum NormalAction {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShapeAction {
+    AlignmentMode(u8),
     Sphere,
     Circle,
     Inflate,

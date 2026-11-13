@@ -134,6 +134,7 @@ fn labels(kind: DropdownKind, project: &poseforge_core::Project) -> Vec<String> 
         DropdownKind::TextFont => poseforge_core::TextFont::ALL.into_iter().map(|font|font.label()).collect(),
         DropdownKind::CurveCreate => poseforge_core::CurvePreset::BASIC.into_iter().map(|p| p.label()).chain(std::iter::once("Нарисовать кривую")).collect(),
         DropdownKind::SkeletonCreate => vec!["Пустая кость", "Цепь · 3 кости", "Человек · 67 костей"],
+        DropdownKind::Alignment => vec!["В плоскость", "В цепочку", "Равномерный шаг"],
         DropdownKind::BonePreset => poseforge_core::BoneDisplayPreset::ALL.into_iter().map(|p| p.label()).collect(),
         DropdownKind::BoneShape => poseforge_core::BoneShape::ALL.into_iter().map(|s| s.label()).collect(),
         DropdownKind::JointShape => poseforge_core::JointShape::ALL.into_iter().map(|s| s.label()).collect(),
@@ -238,6 +239,7 @@ impl App {
     pub(super) fn dropdown_selected(&self, kind: DropdownKind) -> Option<usize> {
         let settings = self.editor.project.render_settings;
         match kind {
+            DropdownKind::Alignment => Some(self.mesh_tools.alignment_mode as usize),
             DropdownKind::ModifierAdd | DropdownKind::ModifierTarget(..) => None,
             DropdownKind::BonePreset => self.bone_display_preset_index(),
             DropdownKind::BoneShape => self.bone_display_shape_index(false),
@@ -646,6 +648,7 @@ impl App {
                 _=>None,
             },
             DropdownKind::BonePreset => poseforge_core::BoneDisplayPreset::ALL.get(index).map(|p| Action::BoneDisplay(crate::ui::BoneDisplayAction::Preset(*p))),
+            DropdownKind::Alignment => Some(Action::Shape(crate::ui::ShapeAction::AlignmentMode(index as u8))),
             DropdownKind::BoneShape => poseforge_core::BoneShape::ALL.get(index).map(|s| Action::BoneDisplay(crate::ui::BoneDisplayAction::BodyShape(*s))),
             DropdownKind::JointShape => poseforge_core::JointShape::ALL.get(index).map(|s| Action::BoneDisplay(crate::ui::BoneDisplayAction::JointShape(*s))),
             DropdownKind::RigSkeleton | DropdownKind::RigMesh => match &dropdown.target {

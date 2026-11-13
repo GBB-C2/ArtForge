@@ -175,7 +175,7 @@ pub(crate) fn apply(mesh: &mut Mesh, selection: &BTreeSet<usize>, amount: f32) -
         output.push(cap);
         materials.push(cap_materials[&v]);
     }
-    mesh.topology = Some(MeshTopology {
+    mesh.topology = Some(MeshTopology { loose_edges: Vec::new(),
         faces: output.clone().into(), face_materials: materials.into(), uv_seams: Vec::new(),
         primitive: None, smooth_normals: smooth,
     });

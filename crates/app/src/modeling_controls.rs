@@ -3,10 +3,23 @@ use super::*;
 use crate::ui::{AuthorAction as A, MeshSelection as S};
 
 impl App {
+    pub(super) fn selected_face_region(&self) -> BTreeSet<usize> {
+        if self.authoring.selection_mode==S::Face {return self.authoring.faces.clone();}
+        let Some(mesh)=self.authoring.editing.and_then(|id|self.editor.editable_mesh(id).ok()) else {return BTreeSet::new();};
+        let cache=self.mesh_cache(mesh);let g=&cache.graph;
+        let selected:BTreeSet<_>=self.edit_vertices().iter().filter_map(|&v|g.canonical.get(v).copied()).collect();
+        (0..mesh.face_count()).filter(|&f| {
+            let face=mesh.face_vertices(f).unwrap();
+            face.iter().all(|&v|selected.contains(&g.canonical[v as usize]))
+                && (self.authoring.selection_mode!=S::Edge || (0..face.len()).all(|i| {
+                    let a=g.canonical[face[i] as usize];let b=g.canonical[face[(i+1)%face.len()] as usize];
+                    self.authoring.edges.contains(&(a.min(b),a.max(b)))
+                }))
+        }).collect()
+    }
     pub(super) fn mesh_cache(&self, mesh: &poseforge_core::Mesh) -> Arc<mesh_pick::MeshCache> {
-        let key = mesh_pick::MeshCache::key(mesh);
         let mut slot = self.authoring.cache.borrow_mut();
-        if slot.as_ref().is_none_or(|c| c.key != key) {
+        if slot.as_ref().is_none_or(|c| !c.matches(mesh)) {
             *slot = Some(Arc::new(mesh_pick::MeshCache::new(mesh)));
         }
         slot.as_ref().unwrap().clone()

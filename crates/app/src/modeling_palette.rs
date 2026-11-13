@@ -6,11 +6,11 @@ pub(super) const TOOLS_SECTION: u16 = 740;
 pub(super) const PROPERTIES_SECTION: u16 = 741;
 const TOOL_PITCH: f32 = 48.;
 const TOOL_SIZE: f32 = 44.;
-const TOOLS: [M; 29] = [
+const TOOLS: [M; 28] = [
     M::Select(0), M::Select(1), M::Select(2), M::Move, M::Rotate, M::Scale,
     M::Extrude, M::Inset, M::Bevel, M::LoopCut, M::Knife, M::Slide,
-    M::Merge, M::Weld, M::Bridge, M::Dissolve, M::DeleteFaces, M::Subdivide,
-    M::Smooth, M::Flat, M::Flatten, M::Straighten, M::Space, M::Relax,
+    M::Merge, M::Weld, M::Bridge, M::BridgeFaces, M::Dissolve, M::DeleteFaces, M::Subdivide,
+    M::Smooth, M::Flat, M::Align, M::Relax,
     M::Sphere, M::Circle, M::Inflate, M::Twist, M::Inspect,
 ];
 
@@ -27,10 +27,10 @@ impl M {
             Self::Knife => "Нож · K", Self::Slide => "Сдвиг по поверхности · J",
             Self::Merge => "Объединить в центре", Self::Weld => "Сварка вершин",
             Self::Bridge => "Мост между границами", Self::Dissolve => "Растворить рёбра",
-            Self::DeleteFaces => "Удалить грани", Self::Subdivide => "Подразделить меш",
+            Self::BridgeFaces => "Мост из граней",
+            Self::DeleteFaces => "Удалить", Self::Subdivide => "Подразделить выделение",
             Self::Smooth => "Сгладить нормали", Self::Flat => "Плоские нормали",
-            Self::Flatten => "Выровнять в плоскость", Self::Straighten => "Выпрямить цепочку",
-            Self::Space => "Равномерный шаг", Self::Relax => "Релакс сетки",
+            Self::Align => "Выравнивание", Self::Relax => "Релакс сетки",
             Self::Sphere => "Сферизация", Self::Circle => "Окружность",
             Self::Inflate => "Смещение по нормалям", Self::Twist => "Скручивание",
             Self::Inspect => "Проверить топологию",
@@ -44,13 +44,12 @@ impl M {
             Self::Extrude => Icon::Extrude, Self::Inset => Icon::Inset,
             Self::Bevel => Icon::Bevel,
             Self::LoopCut => Icon::LoopCut, Self::Knife => Icon::Knife, Self::Slide => Icon::SlideEdge,
-            Self::Merge => Icon::Merge, Self::Weld => Icon::Weld, Self::Bridge => Icon::Bridge,
+            Self::Merge => Icon::Merge, Self::Weld => Icon::Weld, Self::Bridge | Self::BridgeFaces => Icon::Bridge,
             Self::Dissolve => Icon::Dissolve, Self::DeleteFaces => Icon::DeleteFaces,
             Self::Subdivide => Icon::Subdivide, Self::Smooth => Icon::SmoothNormals, Self::Flat => Icon::FlatNormals,
             Self::Sphere => Icon::ModelSphere, Self::Circle => Icon::ModelCircle,
             Self::Inflate => Icon::Inflate, Self::Twist => Icon::Twist,
-            Self::Flatten => Icon::Flatten, Self::Straighten => Icon::Straighten,
-            Self::Space => Icon::EqualSpace, Self::Relax => Icon::Relax, Self::Inspect => Icon::InspectMesh,
+            Self::Align => Icon::Flatten, Self::Relax => Icon::Relax, Self::Inspect => Icon::InspectMesh,
         }
     }
     fn command(self) -> Option<Action> {
@@ -62,13 +61,13 @@ impl M {
             Self::LoopCut => Action::Author(A::LoopCut), Self::Knife => Action::Author(A::Knife),
             Self::Slide => Action::Author(A::Slide), Self::Merge => Action::Author(A::Merge),
             Self::Weld => Action::Author(A::Weld), Self::Bridge => Action::Author(A::Bridge),
+            Self::BridgeFaces => Action::Author(A::BridgeFaces),
             Self::Dissolve => Action::Author(A::Dissolve), Self::DeleteFaces => Action::Author(A::DeleteFaces),
             Self::Subdivide => Action::Author(A::Subdivide), Self::Smooth => Action::Author(A::Smooth),
-            Self::Flat => Action::Author(A::Flat), Self::Straighten => Action::Shape(ShapeAction::Straighten),
-            Self::Space => Action::Shape(ShapeAction::Space), Self::Relax => Action::Shape(ShapeAction::Relax),
+            Self::Flat => Action::Author(A::Flat), Self::Relax => Action::Shape(ShapeAction::Relax),
             Self::Sphere => Action::Shape(ShapeAction::Sphere), Self::Circle => Action::Shape(ShapeAction::Circle),
             Self::Inflate => Action::Shape(ShapeAction::Inflate), Self::Twist => Action::Shape(ShapeAction::Twist),
-            Self::Inspect => Action::Author(A::Inspect), Self::Flatten => return None,
+            Self::Inspect => Action::Author(A::Inspect), Self::Align => return None,
         })
     }
     fn live(self) -> bool {
@@ -81,7 +80,9 @@ impl App {
         if self.authoring.editing.is_none() { return; }
         let tool = match action {
             Action::Author(A::EdgeBevel) => Some(M::Bevel),
-            Action::Shape(ShapeAction::Flatten(_)) => Some(M::Flatten),
+            Action::Shape(ShapeAction::Flatten(_)) => {self.mesh_tools.alignment_mode=0;Some(M::Align)},
+            Action::Shape(ShapeAction::Straighten) => {self.mesh_tools.alignment_mode=1;Some(M::Align)},
+            Action::Shape(ShapeAction::Space) => {self.mesh_tools.alignment_mode=2;Some(M::Align)},
             Action::Author(A::SelectDefects) => Some(M::Inspect),
             Action::Author(A::Proportional | A::ProportionalRadius) if !matches!(self.authoring.modeling_tool, Some(M::Move | M::Rotate | M::Scale)) => Some(M::Move),
             _ => TOOLS.into_iter().find(|tool| tool.command().as_ref() == Some(action)),
@@ -119,12 +120,13 @@ impl App {
                 S::Edge => !self.authoring.edges.is_empty(),
                 S::Face => !self.authoring.faces.is_empty(),
             },
-            M::Extrude | M::Inset | M::DeleteFaces => self.authoring.selection_mode == S::Face && !self.authoring.faces.is_empty(),
+            M::Extrude | M::Inset | M::DeleteFaces | M::Subdivide => !self.edit_vertices().is_empty(),
+            M::BridgeFaces => self.selected_face_region().len()>=2,
             M::Bridge | M::Dissolve => self.authoring.selection_mode == S::Edge && !self.authoring.edges.is_empty(),
             M::LoopCut => self.authoring.selection_mode == S::Edge && self.authoring.edges.len() == 1,
-            M::Slide => self.authoring.selection_mode != S::Face && !self.edit_vertices().is_empty(),
+            M::Slide => !self.edit_vertices().is_empty(),
             M::Sphere | M::Circle => self.edit_vertices().len()>=3,
-            M::Inflate | M::Twist | M::Merge | M::Weld | M::Flatten | M::Straighten | M::Space | M::Relax => self.edit_vertices().len() >= 2,
+            M::Inflate | M::Twist | M::Merge | M::Weld | M::Align | M::Relax => self.edit_vertices().len() >= 2,
             _ => true,
         }
     }
@@ -152,8 +154,8 @@ impl App {
                 Some(M::Bevel) => if self.authoring.selection_mode == S::Face { 160. } else { 100. },
                 Some(M::Inspect) => 198.,
                 Some(M::Knife) => 100.,
-                Some(M::Flatten) => 98.,
-                Some(M::Weld | M::Bridge) => 132.,
+                Some(M::Align) => if self.mesh_tools.alignment_mode==0 {146.} else {124.},
+                Some(M::Weld | M::Bridge | M::BridgeFaces) => 132.,
                 Some(M::Inset | M::LoopCut) => 104.,
                 _ => 98.,
             }
@@ -215,7 +217,15 @@ impl App {
                 u.checkbox([x, y, w, 26.], "Сквозное выделение · X-Ray", Action::Author(A::Xray), self.authoring.xray);
             }
             M::Move | M::Rotate | M::Scale => { self.draw_modeling_transform_properties(u, x, y, w, tool); }
-            M::Flatten => {
+            M::Align => {
+                self.draw_dropdown_button(u,[x,y,w,30.],ui::DropdownKind::Alignment,["В плоскость","В цепочку","Равномерный шаг"][self.mesh_tools.alignment_mode as usize]);
+                y+=38.;
+                if self.mesh_tools.alignment_mode!=0 {
+                    let action=Action::Shape(if self.mesh_tools.alignment_mode==1 {ShapeAction::Straighten} else {ShapeAction::Space});
+                    if self.modeling_tool_ready(tool) {u.button([x,y,w,30.],"Применить",action,false);} else {u.disabled_button([x,y,w,30.],"Выберите цепочку");}
+                    u.fitted_label([x,y+36.,w,18.],"Концы цепочки остаются на месте",10.,p.muted);
+                    return;
+                }
                 u.fitted_label([x, y, w, 18.], "Плоскость по локальной оси", 11., p.muted);
                 for (i, name) in ["X", "Y", "Z"].into_iter().enumerate() {
                     let r = [x + i as f32 * (w + 6.) / 3., y + 26., (w - 12.) / 3., 28.];
@@ -226,7 +236,7 @@ impl App {
             M::Relax => { self.draw_relax_properties(u, x, y, w); }
             M::Sphere|M::Circle|M::Inflate|M::Twist => self.draw_deform_properties(u,x,y,w,tool),
             M::Knife if self.authoring.knife.is_some() => {
-                u.fitted_label([x, y, w, 18.], "Укажите две стороны одной грани", 11., p.muted);
+                u.fitted_label([x, y, w, 18.], "Продолжайте разрез · Backspace — новая линия", 11., p.muted);
                 let half = (w - 6.) * 0.5;
                 u.button([x, y + 28., half, 30.], "Применить", Action::Author(A::KnifeAccept), true);
                 u.quiet_button([x + half + 6., y + 28., half, 30.], "Отмена", Action::Author(A::KnifeCancel), false);
@@ -234,7 +244,7 @@ impl App {
             _ => {
                 for (label, value, action) in match tool {
                     M::Weld => vec![("Расстояние, м", self.authoring.weld_distance, A::WeldDistance)],
-                    M::Bridge => vec![("Сегменты", self.authoring.bridge_segments as f32, A::BridgeSegments)],
+                    M::Bridge | M::BridgeFaces => vec![("Сегменты", self.authoring.bridge_segments as f32, A::BridgeSegments)],
                     M::Inset => vec![("Отступ, %", self.authoring.inset * 100., A::InsetAmount)],
                     M::Bevel if self.authoring.selection_mode == S::Face => vec![("Отступ, %", self.authoring.inset * 100., A::InsetAmount), ("Высота, м", self.authoring.bevel_height, A::BevelHeight)],
                     M::LoopCut => vec![("Положение, %", self.authoring.loop_position * 100., A::LoopPosition)],
@@ -255,7 +265,7 @@ impl App {
                     y += 34.;
                     self.draw_topology_report(u, x, y, w);
                 } else if !tool.live() {
-                    u.fitted_label([x, y, w, 18.], if tool == M::Subdivide { "Действует на весь меш · Undo" } else { "Изменение можно отменить · Undo" }, 10., p.muted);
+                    u.fitted_label([x, y, w, 18.], if tool == M::Subdivide { "Только выделенные компоненты · Undo" } else { "Изменение можно отменить · Undo" }, 10., p.muted);
                 }
             }
         }

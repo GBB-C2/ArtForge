@@ -106,7 +106,7 @@ impl PrimitiveSettings {
             vertices: Default::default(),
             indices: Default::default(),
             morph_targets: vec![],
-            topology: Some(MeshTopology {
+            topology: Some(MeshTopology { loose_edges: Vec::new(),
                 face_materials: Default::default(),
                 uv_seams: Vec::new(),
                 faces: Default::default(),

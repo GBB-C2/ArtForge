@@ -25,7 +25,7 @@ fn custom(points: Vec<[f32; 3]>, faces: Vec<Vec<u32>>) -> Mesh {
             })
             .collect(),
         indices: Vec::new().into(),
-        topology: Some(MeshTopology {
+        topology: Some(MeshTopology { loose_edges: Vec::new(),
             face_materials: Default::default(),
             faces: faces.into(),
             primitive: None,

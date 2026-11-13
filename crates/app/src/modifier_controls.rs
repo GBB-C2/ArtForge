@@ -444,7 +444,7 @@ impl App {
         Ok(true)
     }
     pub(super) fn modifier_panel_bottom(&self) -> f32 {
-        704. + self
+        800. + self
             .editor
             .selected
             .and_then(|n| self.editor.project.node(n))
@@ -466,6 +466,10 @@ impl App {
             return;
         };
         let enabled = self.modifier_editable(node.id);
+        if self.authoring.editing.is_some() {
+            u.quiet_button([x,y,w,30.],"Завершить правку сетки",Action::Author(ui::AuthorAction::ToggleEdit),false);
+            y+=38.;
+        }
         let button = |u: &mut Ui, r, label, action, active| {
             if enabled {
                 u.quiet_button(r, label, action, active);

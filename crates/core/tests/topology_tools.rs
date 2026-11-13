@@ -244,7 +244,7 @@ fn dissolving_concave_quad_chooses_an_interior_render_diagonal() {
             ..Default::default()
         })
         .collect();
-    m.topology = Some(MeshTopology {
+    m.topology = Some(MeshTopology { loose_edges: Vec::new(),
         face_materials: Default::default(),
         uv_seams: Vec::new(),
         faces: vec![vec![1, 2, 3], vec![1, 3, 0]].into(),

@@ -239,7 +239,7 @@ pub(crate) fn knife(
         || cuts.iter().any(|c| {
             !g.edge_faces.get(&c.edge).is_some_and(|f| f.contains(&face))
                 || !c.t.is_finite()
-                || !(0.001..=0.999).contains(&c.t)
+                || !(0.0..=1.0).contains(&c.t)
         })
     {
         return Err(error("Нож: выберите две разные стороны одной грани"));
@@ -266,9 +266,13 @@ pub(crate) fn knife(
         for j in 0..ring.len() {
             let a = ring[j];
             let b = ring[(j + 1) % ring.len()];
+            if cuts.iter().any(|c| (c.t==0. && g.canonical[a as usize]==c.edge.0)
+                || (c.t==1. && g.canonical[a as usize]==c.edge.1)) {
+                split.push(expanded.len());
+            }
             expanded.push(a);
             let e = edge(g.canonical[a as usize], g.canonical[b as usize]);
-            if let Some(cut) = cuts.iter().find(|c| c.edge == e) {
+            if let Some(cut) = cuts.iter().find(|c| c.edge == e && c.t>0. && c.t<1.) {
                 let key = (a.min(b), a.max(b));
                 let mid = if let Some(&v) = added.get(&key) {
                     v
@@ -319,6 +323,7 @@ pub(crate) fn knife(
                 .chain(&expanded[..=a])
                 .copied()
                 .collect::<Vec<_>>();
+            if one.len()<3 || two.len()<3 { return Err(error("Разрез совпадает с существующим ребром")); }
             let area = |r: &[u32]| crate::polygon_edit::face_normal(mesh, r).length();
             let original_area = area(ring);
             if (area(&one) + area(&two) - original_area).abs() > original_area.max(1e-8) * 0.001 {
@@ -334,10 +339,10 @@ pub(crate) fn knife(
     }
     let retained = seams
         .into_iter()
-        .filter(|e| !cuts.iter().any(|c| c.edge == *e))
+        .filter(|e| !cuts.iter().any(|c| c.edge == *e && c.t>0. && c.t<1.))
         .map(|(a, b)| [a as u32, b as u32]);
     new_seams.extend(retained);
-    mesh.topology = Some(MeshTopology {
+    mesh.topology = Some(MeshTopology { loose_edges: mesh.topology.as_ref().map_or_else(Vec::new, |t|t.loose_edges.clone()),
         face_materials: face_materials.into(),
         faces: output.into(),
         smooth_normals: smooth,

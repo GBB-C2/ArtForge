@@ -71,7 +71,7 @@ fn enlarged_modeling_controls_fit_the_panel_and_keep_properties_below() {
         a.action(Action::Author(ui::AuthorAction::SelectMode(ui::MeshSelection::Vertex)));
         let mut u=Ui::new(1.);let w=width-properties::RAIL_WIDTH-32.;a.draw_modeling_palette(&mut u,0.,w);
         let buttons:Vec<_>=u.hits.iter().filter(|h|matches!(h.action,Action::ModelingTool(_))).collect();
-        assert_eq!(buttons.len(),29);
+        assert_eq!(buttons.len(),28);
         for (i,b) in buttons.iter().enumerate() {
             assert_eq!(b.rect[2],44.);assert_eq!(b.rect[3],44.);
             assert!(b.rect[0]>=0. && b.rect[0]+b.rect[2]<=w+0.01);

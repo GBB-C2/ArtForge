@@ -16,7 +16,7 @@ fn edge(a: usize, b: usize) -> (usize, usize) {
     (a.min(b), a.max(b))
 }
 fn topology(mesh: &Mesh) -> MeshTopology {
-    MeshTopology {
+    MeshTopology { loose_edges: mesh.topology.as_ref().map_or_else(Vec::new,|t|t.loose_edges.clone()),
         faces: (0..mesh.face_count())
             .map(|f| mesh.face_vertices(f).unwrap().to_vec())
             .collect(),
@@ -83,7 +83,7 @@ pub(crate) fn apply(
 ) -> Result<Mesh, CoreError> {
     settings.validate()?;
     cancelled(cancel)?;
-    if source.indices.is_empty() || source.vertices.is_empty() {
+    if source.vertices.is_empty() || (source.indices.is_empty() && !matches!(settings,ModifierSettings::Mirror{..}|ModifierSettings::Array{..})) {
         return Ok(source.clone());
     }
     if !source.indices.len().is_multiple_of(3)
@@ -148,11 +148,13 @@ fn copies(
     let mut faces = Vec::with_capacity(base.faces.len() * count);
     let mut materials = Vec::with_capacity(faces.capacity());
     let mut seams = Vec::new();
+    let mut wires = Vec::new();
     for copy in 0..count {
         cancelled(cancel)?;
         let start = vertices.len() as u32;
         if let Some(t) = &source.topology {
             seams.extend(t.uv_seams.iter().map(|[a, b]| [a + start, b + start]));
+            wires.extend(t.loose_edges.iter().map(|[a,b]|[a+start,b+start]));
         }
         for (i, v) in source.vertices.iter().enumerate() {
             if i % 4096 == 0 {
@@ -177,7 +179,7 @@ fn copies(
         }
     }
     mesh.vertices = vertices.into();
-    mesh.topology = Some(MeshTopology {
+    mesh.topology = Some(MeshTopology { loose_edges: wires,
         faces: faces.into(),
         face_materials: materials.into(),
         uv_seams: seams,
@@ -320,9 +322,17 @@ fn subdivide(
             materials.push(input.face_materials[f]);
         }
     }
+    let mut lookup:BTreeMap<_,_>=vertices.iter().zip(&next_groups).enumerate()
+        .map(|(i,(v,g))|((crate::position_key(v.position),*g),i as u32)).collect();
+    let wires=input.loose_edges.iter().map(|pair|pair.map(|old| {
+        let mut v=source.vertices[old as usize];if smooth {v.position=moved[old as usize].to_array();}
+        *lookup.entry((crate::position_key(v.position),groups[old as usize])).or_insert_with(|| {
+            let id=vertices.len() as u32;vertices.push(v);next_groups.push(groups[old as usize]);id
+        })
+    })).collect();
     let mut mesh = source.clone();
     mesh.vertices = vertices.into();
-    mesh.topology = Some(MeshTopology {
+    mesh.topology = Some(MeshTopology { loose_edges: wires,
         faces: faces.into(),
         face_materials: materials.into(),
         smooth_normals: smooth,

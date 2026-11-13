@@ -17,6 +17,7 @@ pub(super) struct AssetLibrary {
     filtered_query: String,
     focus: Focus,
     dragging: Option<u8>,
+    presented: Vec<(usize, Action)>,
 }
 const CATEGORIES: [(&str, Icon); 7] = [
     ("Примитивы", Icon::Object), ("Материалы", Icon::Material), ("Кривые", Icon::Curve),
@@ -59,7 +60,7 @@ impl App {
     fn asset_entries(&self) -> Vec<Entry> {
         let mut entries = Vec::new(); let query = self.asset_query();
         let mut push = |name: String, note, icon, action, thumbnail, keywords: &str| {
-            if format!("{name} {keywords}").to_lowercase().contains(&query) { entries.push(Entry { name, note, icon, action, thumbnail }); }
+            if query.is_empty() || format!("{name} {keywords}").to_lowercase().contains(&query) { entries.push(Entry { name, note, icon, action, thumbnail }); }
         };
         match self.assets.category {
             0 => for (index, kind) in PrimitiveKind::MESH_MENU {
@@ -91,12 +92,17 @@ impl App {
             },
             _ => {}
         }
+        // Parent membership is indexed once; scanning the whole scene for each
+        // joint made large imported rigs quadratic on every redraw and hover.
+        let joints: BTreeSet<_> = if self.assets.category == 6 {
+            self.editor.project.nodes.iter().filter(|n| n.is_joint).map(|n| n.id).collect()
+        } else { BTreeSet::new() };
         for node in &self.editor.project.nodes {
             let image = match self.assets.category {
                 0 if node.mesh.is_some() && node.curve.is_none() => Some((Icon::Object, AssetImage::Object(node.id))),
                 2 if node.curve.is_some() => Some((Icon::Curve, AssetImage::Curve(node.curve.clone().unwrap()))),
                 5 if node.camera.is_some() => Some((Icon::Camera, AssetImage::Camera(node.camera.unwrap()))),
-                6 if node.is_joint && node.parent.and_then(|p| self.editor.project.node(p)).is_none_or(|n| !n.is_joint) => Some((Icon::Bone, AssetImage::Rig(node.id))),
+                6 if node.is_joint && node.parent.is_none_or(|p| !joints.contains(&p)) => Some((Icon::Bone, AssetImage::Rig(node.id))),
                 _ => None,
             };
             if let Some((icon, image)) = image { push(node.name.clone(), "Выделить в сцене", icon, Action::Select(node.id), Thumbnail::Image(image), "в сцене"); }
@@ -121,6 +127,7 @@ impl App {
     }
     pub(super) fn begin_asset_popup(&mut self, anchor: [f32; 4]) {
         self.assets.anchor = anchor; self.assets.focus = Focus::Search; self.assets.dragging = None;
+        self.assets.presented.clear();
         self.input(Action::AssetSearch, self.assets.query.clone()); self.refresh_assets();
     }
     pub(super) fn close_asset_popup(&mut self) {
@@ -128,6 +135,7 @@ impl App {
         if let Some(input) = self.input.as_ref().filter(|i| i.purpose == Action::AssetSearch) { self.assets.query = input.value.clone(); }
         if self.input.as_ref().is_some_and(|i| i.purpose == Action::AssetSearch) { self.end_input(); }
         self.assets.dragging = None; self.dropdown = None; self.dropdown_focus = Some(DropdownKind::AssetLibrary);
+        self.assets.presented.clear();
     }
     fn asset_focus(&mut self, focus: Focus) {
         if focus == Focus::Search { self.input(Action::AssetSearch, self.assets.query.clone()); }
@@ -169,7 +177,9 @@ impl App {
                 self.assets.category_offset as f32/(CATEGORIES.len()-cat_page) as f32,cat_page as f32/CATEGORIES.len() as f32,Action::ScrollPanel(3));
         }
         let entries = self.asset_entries(); let start = self.assets.offset*layout.cols;
+        self.assets.presented.clear();
         for (slot,(index,entry)) in entries.iter().enumerate().skip(start).take(layout.page()).enumerate() {
+            self.assets.presented.push((index,entry.action.clone()));
             let r = layout.card(slot); let highlighted = index == self.assets.candidate;
             u.outlined_surface(r,p.elevated,if highlighted { p.accent } else { p.border });
             u.menu_row(r,Action::DropdownChoose(index),highlighted);
@@ -209,6 +219,11 @@ impl App {
         match self.ui.hit(self.mouse) {
             Some(Action::DropdownChoose(i)) => {
                 let action = self.asset_entries().get(i).map(|entry|entry.action.clone());
+                // Search, Undo or a document update may shift indices before
+                // the next repaint. Only the action actually shown is clickable.
+                if action.as_ref().is_none_or(|action| !self.assets.presented.iter().any(|(index,shown)| *index==i && shown==action)) {
+                    self.refresh_assets(); self.redraw(); return true;
+                }
                 if let Some(action @ (Action::AssetMaterial(_) | Action::AssetPreset(_))) = action {
                     self.close_asset_popup(); self.begin_material_drag(&action);
                 } else { self.choose_asset(i); }
@@ -231,10 +246,10 @@ impl App {
         self.refresh_assets(); self.redraw(); true
     }
     pub(super) fn asset_popup_pointer_move(&mut self) {
-        let layout = self.asset_layout(); let count = self.asset_entries().len();
         if let Some(panel) = self.assets.dragging {
+            let layout = self.asset_layout();
             let (track,page,total) = if panel == 3 { (layout.sidebar,layout.category_page(),CATEGORIES.len()) }
-                else { (layout.track(),layout.rows,count.div_ceil(layout.cols)) };
+                else { (layout.track(),layout.rows,self.asset_entries().len().div_ceil(layout.cols)) };
             let thumb = (track[3]*page as f32/total.max(1) as f32).clamp(28.,track[3].max(28.));
             let ratio = ((self.mouse[1]-track[1]-thumb*0.5)/(track[3]-thumb).max(1.)).clamp(0.,1.);
             let offset = (ratio*total.saturating_sub(page) as f32).round() as usize;
@@ -371,6 +386,59 @@ mod tests {
         a.editor = Editor::new(Project::default()); a.editor.mode = EditorMode::Scene;
         a.saved_snapshot = a.editor.project.clone(); a.ui = a.build_ui();
         a.open_dropdown(DropdownKind::AssetLibrary); a.ui = a.build_ui(); a
+    }
+    #[test]
+    fn stale_asset_card_click_does_not_select_a_different_scene_object() {
+        let mut a = app();
+        a.editor.project.meshes.push(poseforge_core::box_mesh(100,"Cube",Vec3::ONE,None));
+        for id in [1,2] {
+            let mut n = Node::new(id,format!("Test asset {id}")); n.mesh=Some(100); a.editor.project.nodes.push(n);
+        }
+        a.input.as_mut().unwrap().value="Test asset".into();
+        a.ui=a.build_ui();
+        a.mouse=a.ui.action_point(&Action::DropdownChoose(0)).unwrap();
+        a.editor.project.nodes.remove(0);
+        let before=a.editor.project.clone(); let selected=a.editor.selected;
+        a.mouse_down(MouseButton::Left); a.mouse_up(MouseButton::Left);
+        assert_eq!(a.editor.project,before);
+        assert_eq!(a.editor.selected,selected,"the displayed card must never retarget another object");
+        assert!(a.dropdown_is_open(DropdownKind::AssetLibrary));
+        a.ui=a.build_ui();
+        a.mouse=a.ui.action_point(&Action::DropdownChoose(0)).unwrap();
+        a.mouse_down(MouseButton::Left);a.mouse_up(MouseButton::Left);
+        assert_eq!(a.editor.selected,Some(2));
+        assert_eq!(a.editor.project,before);
+        assert!(!a.dropdown_is_open(DropdownKind::AssetLibrary));
+    }
+    #[test]
+    fn skeleton_library_keeps_root_order_for_unsorted_and_missing_parents() {
+        let mut a=app(); a.assets.category=6;
+        for (id,parent,joint) in [(3,Some(2),true),(5,Some(999),true),(2,None,true),(4,Some(1),true),(1,None,false)] {
+            let mut n=Node::new(id,format!("Joint {id}"));n.parent=parent;n.is_joint=joint;a.editor.project.nodes.push(n);
+        }
+        let roots:Vec<_>=a.asset_entries().into_iter().filter_map(|e|if let Action::Select(id)=e.action {Some(id)} else {None}).collect();
+        assert_eq!(roots,vec![5,2,4]);
+    }
+    #[test]
+    #[ignore = "manual CPU benchmark; no wall-clock assertions"]
+    fn asset_library_large_hierarchy_cpu_benchmark() {
+        use std::hint::black_box;
+        let mut a=app();a.assets.category=6;
+        for count in [1_000u64,5_000,10_000] {
+            a.editor.project.nodes=(1..=count).map(|id| {
+                let mut n=Node::new(id,"Joint");n.is_joint=true;
+                n.parent=(id%2==0).then_some(id.saturating_sub(1));n
+            }).collect();
+            let mut times=Vec::new();
+            for _ in 0..5 {
+                let start=Instant::now();assert_eq!(black_box(a.asset_entries()).len(),2+count as usize/2);
+                times.push(start.elapsed().as_secs_f64()*1000.);
+            }
+            times.sort_by(f64::total_cmp);
+            let started=Instant::now();
+            for _ in 0..20 {a.asset_popup_pointer_move();}
+            println!("nodes={count} listing_ms={:.3} hover_20_ms={:.3}",times[2],started.elapsed().as_secs_f64()*1000.);
+        }
     }
     #[test]
     fn categories_stay_left_search_stays_above_cards_and_popup_fits_window() {

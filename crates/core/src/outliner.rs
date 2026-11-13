@@ -55,7 +55,7 @@ impl Project {
                 .collections
                 .iter()
                 .filter(|c| c.light_members.contains(&index))
-                .all(|c| if export { c.render_visible } else { c.visible })
+                .all(|c| self.collection_visible(c.id, export))
     }
 
     pub fn light_locked(&self, index: usize) -> bool {
@@ -63,7 +63,7 @@ impl Project {
             || self
                 .collections
                 .iter()
-                .any(|c| c.locked && c.light_members.contains(&index))
+                .any(|c| c.light_members.contains(&index) && self.collection_locked(c.id))
     }
 
     /// Array-backed light references must move with their light after deletion.

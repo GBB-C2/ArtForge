@@ -111,36 +111,11 @@ impl App {
                 Action::BoneDisplay(if joint { B::JointColor } else { B::BodyColor });
             let rgb = color.map(|c| (c * 255.).round() as u8);
             let hex = format!("#{:02X}{:02X}{:02X}", rgb[0], rgb[1], rgb[2]);
-            let r = [x, y, w - 38., 30.];
+            let r = [x, y, w, 30.];
             if enabled {
                 u.color_field(r, &hex, color_action, color);
             } else {
                 u.disabled_button(r, &hex);
-            }
-            let reset = [x + w - 30., y, 30., 30.];
-            let default = BoneDisplay::default();
-            let reset_action = if joint {
-                B::ResetJointColor
-            } else {
-                B::ResetBodyColor
-            };
-            if enabled
-                && color
-                    != if joint {
-                        default.joint_color
-                    } else {
-                        default.color
-                    }
-            {
-                u.quiet_icon_button(
-                    reset,
-                    "",
-                    Action::BoneDisplay(reset_action),
-                    false,
-                    Icon::Reset,
-                );
-            } else {
-                u.disabled_icon_button(reset, "", Icon::Reset);
             }
             y += 38.;
             u.fitted_label([x, y + 7., 50., 18.], "Форма", 11., p.muted);

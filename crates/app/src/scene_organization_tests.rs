@@ -372,3 +372,54 @@ fn edge_autoscroll_waits_before_scrolling_and_resets_after_leaving_edge() {
     a.action(Action::Cancel);
     assert_eq!(a.editor.undo_len(), 0);
 }
+
+#[test]
+fn folders_nest_from_scene_drag_and_cannot_form_a_cycle() {
+    for theme in [ui::Theme::Dark,ui::Theme::Light] {
+        let mut a=app();a.preferences.theme=theme;
+        a.editor.project.collections.push(Collection{id:101,name:"Inner".into(),members:vec![2],light_members:vec![0],..Default::default()});
+        let before=a.editor.project.clone();let undo=a.editor.undo_len();
+        let source=point(&mut a,Action::SceneTool(ui::SceneTool::CollectionSelect(101)));
+        let target=point(&mut a,Action::SceneTool(ui::SceneTool::CollectionSelect(100)));
+        a.mouse_move(source);a.mouse_down(MouseButton::Left);a.mouse_move(target);a.mouse_up(MouseButton::Left);
+        assert_eq!(a.editor.project.collection_chain(101),vec![101,100]);assert_eq!(a.editor.undo_len(),undo+1);
+        let rows=a.outliner_rows();let outer=rows.iter().position(|r|matches!(r,SceneEntry::Collection(100))).unwrap();
+        let inner=rows.iter().position(|r|matches!(r,SceneEntry::Collection(101))).unwrap();assert!(inner>outer);
+        a.collapsed.insert(100);assert!(!a.outliner_rows().iter().any(|r|matches!(r,SceneEntry::Collection(101))));
+        a.scene_query="Inner".into();assert!(a.outliner_rows().iter().any(|r|matches!(r,SceneEntry::Collection(100))));a.scene_query.clear();
+        let nested=a.editor.project.clone();a.move_scene_items(&[SceneItem::Folder(100)],inside(Some(101)));assert_eq!(a.editor.project,nested);
+        a.action(Action::Undo);assert_eq!(a.editor.project,before);
+        a.move_scene_items(&[SceneItem::Folder(101)],inside(Some(100)));
+        a.editor.project.collections[0].locked=true;let locked=a.editor.project.clone();
+        a.move_scene_items(&[SceneItem::Folder(101)],inside(None));assert_eq!(a.editor.project,locked);
+    }
+}
+
+#[test]
+fn folder_menu_moves_the_folder_and_object_selection_moves_only_the_object() {
+    let mut a=app();
+    a.editor.project.collections.push(Collection{id:101,name:"Inner".into(),members:vec![2],light_members:vec![0],..Default::default()});
+    let before=a.editor.project.clone();
+    click(&mut a,Action::SceneTool(ui::SceneTool::CollectionSelect(101)));
+    assert_eq!(a.editor.selected,Some(2));
+    a.action(Action::SceneTool(ui::SceneTool::AssignCollection(Some(100))));
+    assert_eq!(a.editor.project.collection_chain(101),vec![101,100]);
+    assert_eq!(a.editor.project.node_collection(2),Some(101));
+    assert_eq!(a.editor.project.light_collection(0),Some(101));
+    a.action(Action::Undo);assert_eq!(a.editor.project,before);
+    a.action(Action::Select(2));
+    a.action(Action::SceneTool(ui::SceneTool::AssignCollection(Some(100))));
+    assert_eq!(a.editor.project.collection_chain(101),vec![101]);
+    assert_eq!(a.editor.project.node_collection(2),Some(100));
+    assert_eq!(a.editor.project.light_collection(0),Some(101));
+    a.action(Action::Undo);assert_eq!(a.editor.project,before);
+}
+
+#[test]
+fn removing_the_last_material_does_not_add_a_default_outliner_row() {
+    let mut a=app();a.scene_tools.material_expanded.insert(1);
+    click(&mut a,Action::SceneMaterialDetach(1,20));
+    assert!(a.editor.project.mesh(10).unwrap().material.is_none());
+    assert!(!a.outliner_rows().iter().any(|row|matches!(row,SceneEntry::Material(1,_,_))));
+    a.action(Action::Undo);assert!(a.outliner_rows().iter().any(|row|matches!(row,SceneEntry::Material(1,Some(20),_))));
+}

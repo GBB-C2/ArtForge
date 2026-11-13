@@ -39,13 +39,11 @@ impl App {
         if self.surface.tab == 0 {
             if let Some(light) = self.surface_light_index().filter(|_| self.active_light_index().is_some())
                 .and_then(|index| self.editor.project.lights.get(index)) {
-                let mut gaps = match light.kind {
-                    poseforge_core::LightKind::Point => vec![(816., 1026.)],
-                    poseforge_core::LightKind::Directional => vec![(816., 934.)],
-                    poseforge_core::LightKind::Spot => vec![(896., 934.)],
-                    poseforge_core::LightKind::Area => vec![],
+                let gaps = match light.kind {
+                    poseforge_core::LightKind::Point | poseforge_core::LightKind::Directional => vec![(816., 1026.)],
+                    poseforge_core::LightKind::Spot => vec![(896., 1026.)],
+                    poseforge_core::LightKind::Area => vec![(936., 1026.)],
                 };
-                if light.kind != poseforge_core::LightKind::Point && light.target.is_none() { gaps.push((974., 1026.)); }
                 return gaps;
             }
         }
@@ -198,7 +196,7 @@ impl App {
         let transform = self.surface.tab==0 && self.active_light_index().is_none() && self.selected_camera_id().is_none()
             && self.editor.selected.and_then(|id|self.editor.project.node(id)).is_some();
         if transform {starts[0].1="Объект";starts.insert(1,(240.,"Положение",0.));}
-        if let Some(start) = self.path_panel_start() { starts.push((start, "Привязка к кривой", 0.)); }
+        if let Some(start) = self.path_panel_start() { starts.push((start, "Привязка", 0.)); }
         let gaps = self.property_empty_ranges();
         let mut output = 171.;
         starts

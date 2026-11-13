@@ -77,7 +77,7 @@ impl App {
                 self.editor.project.lights[index].clone(),
                 action == L::PickTrackedTarget,
             ));
-            self.status = "Выберите меш — свет направится на его центр. Esc — отмена.".into();
+            self.status = "Выберите объект или кость в сцене или списке. Esc — отмена.".into();
             return;
         }
         let Some(target) = self
@@ -157,17 +157,11 @@ impl App {
         let Ok(eval) = self.evaluated_interactive() else {
             return true;
         };
-        if let Some(hit) = crate::picking::pick_mesh(
-            &self.picking_project(),
-            &eval,
-            self.view().view_projection(),
-            self.viewport(),
-            self.mouse,
-        ) {
+        if let Some(hit) = self.pick_curve_at(self.mouse).or_else(|| self.pick_viewport_node(&eval)) {
             self.aim_light_at(index, hit, tracking);
             self.light_aim = None;
         } else {
-            self.status = "Щёлкните по поверхности меша. Esc — отмена.".into();
+            self.status = "Выберите объект или кость в сцене или списке. Esc — отмена.".into();
         }
         true
     }
@@ -199,7 +193,8 @@ impl App {
     pub(super) fn draw_area_handles(&self, u: &mut Ui) {
         for (_, _, p) in self.area_handles() {
             let c = u.palette();
-            u.outlined_surface([p[0] - 5., p[1] - 5., 10., 10.], c.panel, c.accent);
+            u.rounded_rect([p[0] - 6., p[1] - 6., 12., 12.], c.accent, 6.);
+            u.rounded_rect([p[0] - 4.5, p[1] - 4.5, 9., 9.], c.panel, 4.5);
         }
         if self.solo_light.is_some() {
             u.button(

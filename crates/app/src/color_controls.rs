@@ -28,6 +28,7 @@ pub(super) struct ColorSession {
     original_absorption: Option<[f32; 3]>,
     original_bone_display: Option<poseforge_core::BoneDisplay>,
     was_modified: bool,
+    opened: Instant,
 }
 
 #[derive(Clone)]
@@ -59,6 +60,42 @@ fn color_source(action: &Action) -> bool {
 }
 
 impl App {
+    pub(super) fn reset_color(&mut self, source: Action) {
+        if self.scene_write_pending() || self.job.is_some() || self.editor.has_staged() { return; }
+        if matches!(source, Action::SurfaceMaterialColor(_) | Action::SurfaceNprColor(_) | Action::SurfaceAttenuationColor)
+            && !self.material_authoring_available() { return; }
+        if matches!(source, Action::SurfaceLightColor | Action::SurfaceLightVolumeColor)
+            && self.surface_light_index().is_none_or(|i| self.editor.project.light_locked(i)) { return; }
+        self.open_color_picker(source);
+        let Some(target) = self.color_picker.as_ref().map(|s| s.target) else { return; };
+        let material = poseforge_core::Material::default();
+        let light = poseforge_core::Light::default();
+        let render = poseforge_core::RenderSettings::default();
+        match target {
+            ColorTarget::Material(id, emissive) => {
+                let m = self.editor.project.materials.iter_mut().find(|m| m.id == id).unwrap();
+                if emissive { m.emissive = material.emissive; }
+                else { m.base_color[..3].copy_from_slice(&material.base_color[..3]); }
+            }
+            ColorTarget::Absorption(id) => self.editor.project.materials.iter_mut().find(|m| m.id == id).unwrap().attenuation_color = None,
+            ColorTarget::Npr(id, field) => {
+                let color = npr_controls::npr_color(&material, field).unwrap();
+                npr_controls::set_npr_color(self.editor.project.materials.iter_mut().find(|m| m.id == id).unwrap(),field,color);
+            }
+            ColorTarget::Light(index) => self.editor.project.lights[index].color = light.color,
+            ColorTarget::Volume(index) => self.editor.project.lights[index].volume.tint = light.volume.tint,
+            ColorTarget::Environment(field) => match field {
+                0 => self.editor.project.render_settings.sky_color = render.sky_color,
+                1 => self.editor.project.render_settings.ground_color = render.ground_color,
+                2 => self.editor.project.render_settings.background_color = render.background_color,
+                4 => self.editor.project.render_settings.atmosphere.color = render.atmosphere.color,
+                5 => self.editor.project.render_settings.npr_contours.color = render.npr_contours.color,
+                _ => {}
+            },
+            ColorTarget::Bone(..) => { self.cancel_color_picker(); return; }
+        }
+        self.commit_color_picker(); self.ui = self.build_ui(); self.redraw();
+    }
     pub(super) fn color_layout(&self) -> Option<ColorLayout> {
         let session = self.color_picker.as_ref()?;
         Some(ColorLayout::anchored(
@@ -256,6 +293,7 @@ impl App {
             original_absorption,
             original_bone_display,
             was_modified: self.editor.modified,
+            opened: Instant::now(),
         });
         self.menu = None;
         self.surface.input_error = None;
@@ -383,6 +421,17 @@ impl App {
     }
 
     pub(super) fn color_confirm(&mut self, action: &Action, value: &str) -> Result<bool, String> {
+        if let Action::BoneDisplay(kind @ (ui::BoneDisplayAction::BodyColor | ui::BoneDisplayAction::JointColor)) = action {
+            if !self.bone_display_editable() { return Err("Кость недоступна для изменения".into()); }
+            let color = surfaces::parse_color(value)?.map(surfaces::linear_to_srgb);
+            let node = self.bone_display_node().unwrap(); let id = node.id;
+            let mut display = node.bone_display.unwrap_or_default();
+            let target = if *kind == ui::BoneDisplayAction::JointColor { &mut display.joint_color } else { &mut display.color };
+            if target.iter().zip(color).all(|(a,b)| (*a-b).abs() < 0.00001) { return Ok(true); }
+            *target = color;
+            self.editor.transact("Цвет кости", |p| p.node_mut(id).unwrap().bone_display = Some(display)).map_err(|e| e.to_string())?;
+            return Ok(true);
+        }
         let Action::ColorPicker(control) = action else {
             return Ok(false);
         };
@@ -662,6 +711,16 @@ impl App {
         let Some(layout) = self.color_layout() else {
             return false;
         };
+        let exact = self.color_picker.as_ref().filter(|session| button == MouseButton::Left
+            && session.opened.elapsed().as_millis() <= 450 && ui::contains(session.anchor, self.mouse)
+            && !session.picker.draft.rgb_changed() && !session.picker.draft.alpha_changed())
+            .map(|session| (session.source.clone(), session.picker.draft.rgba()));
+        if let Some((source, rgba)) = exact {
+            let rgb = [rgba[0],rgba[1],rgba[2]].map(|v| (v*255.).round() as u8);
+            self.cancel_color_picker(); self.ui = self.build_ui();
+            self.input(source, format!("#{:02X}{:02X}{:02X}",rgb[0],rgb[1],rgb[2]));
+            return true;
+        }
         if !ui::contains(layout.panel, self.mouse) {
             self.commit_color_picker();
             return true;

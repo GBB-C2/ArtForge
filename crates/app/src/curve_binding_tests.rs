@@ -93,7 +93,7 @@ fn stale_dropdown_locks_and_missing_curves_do_not_edit_a_different_target() {
     a.action(Action::Path(P::Bind(1))); assert!(a.path_binding().is_none());
     a.editor.project.node_mut(3).unwrap().locked = false;
     a.editor.delete_node(1).unwrap(); bottom(&mut a);
-    assert!(a.ui.action_point(&Action::DropdownOpen(DropdownKind::CurvePath)).is_none());
+    assert!(a.ui.action_point(&Action::DropdownOpen(DropdownKind::CurvePath)).is_some());
     assert!(!a.apply_field_value(Action::Path(P::Field(0)), "50").is_ok());
 }
 
@@ -126,4 +126,34 @@ fn source_selection_and_invalid_numeric_values_keep_binding_intact() {
     assert_eq!(a.editor.project, before); assert_eq!(a.editor.undo_len(), undo);
     a.action(Action::Path(P::SelectCurve)); assert_eq!(a.editor.selected, Some(1));
     assert!(a.path_target().is_none()); assert!(a.path_panel_start().is_none());
+}
+
+#[test]
+fn object_and_bone_targets_keep_offsets_and_light_aim_lives_in_binding_section() {
+    for target in [4,5,6] {
+        let mut a=app();
+        let mut root=Node::new(4,"Скелет"); root.transform.translation=Vec3::new(2.,3.,1.);
+        let mut bone=Node::new(5,"Рука"); bone.is_joint=true;bone.parent=Some(4);bone.transform.translation=Vec3::Y;
+        let mut empty=Node::new(6,"Пустышка");empty.empty=true;empty.transform.translation=Vec3::new(-2.,1.,0.);
+        a.editor.project.nodes.extend([root,bone,empty]);
+        for owner in [3,0] {
+            if owner==0 {a.select_light(0);} else {a.editor.selected=Some(owner);}
+            let before=a.editor.evaluated().unwrap(); let undo=a.editor.undo_len();
+            bottom(&mut a);click(&mut a,Action::DropdownOpen(DropdownKind::CurvePath));
+            let index=a.path_curve_choices().iter().position(|id|*id==target).unwrap();a.choose_dropdown(index);
+            assert_eq!(a.path_binding().unwrap().curve,target);assert_eq!(a.editor.undo_len(),undo+1);
+            let after=a.editor.evaluated().unwrap();
+            let (old,new)=if owner==0 {(before.lights[0].position,after.lights[0].position)} else {(before.global[&owner].w_axis.truncate(),after.global[&owner].w_axis.truncate())};
+            assert!(old.distance(new)<0.0001);
+            bottom(&mut a);assert!(a.ui.action_point(&Action::Path(P::Field(0))).is_none());
+            assert!(a.ui.action_point(&Action::Path(P::Follow)).is_some());
+            a.action(Action::Path(P::Clear));assert!(a.path_binding().is_none());
+            if owner==0 {
+                bottom(&mut a);click(&mut a,Action::LightTool(ui::LightTool::PickTrackedTarget));
+                a.action(Action::Select(target));assert_eq!(a.editor.project.lights[0].target.unwrap().node,target);
+                assert_eq!(a.active_light_index(),Some(0));
+                a.action(Action::LightTool(ui::LightTool::StopTracking)); assert!(a.editor.project.lights[0].target.is_none());
+            }
+        }
+    }
 }

@@ -117,3 +117,21 @@ fn deleted_nodes_clean_presentation_metadata_without_changing_other_selection() 
     assert_eq!(e.project, before);
     assert_eq!(e.selected, Some(1));
 }
+
+#[test]
+fn nested_folders_inherit_access_reject_cycles_and_lift_children_on_removal() {
+    let mut p = Project::default(); p.nodes.push(Node::new(1,"Object"));
+    p.collections = vec![Collection {id:10,visible:false,locked:true,..Default::default()},
+        Collection {id:11,parent:Some(10),members:vec![1],light_members:vec![0],..Default::default()},
+        Collection {id:12,parent:Some(11),..Default::default()}];
+    p.validate().unwrap();
+    assert!(!p.node_visible(1,false)); assert!(!p.visible_node_ids(false).contains(&1));
+    assert!(p.node_visible(1,true)); assert!(p.node_locked(1)); assert!(!p.node_selectable(1));
+    assert!(!p.selectable_node_ids().contains(&1)); assert!(!p.light_visible(0,false)); assert!(p.light_locked(0));
+    p.collections[0].parent=Some(12); assert!(p.validate().is_err()); p.collections[0].parent=None;
+    let restored: Project=serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap(); assert_eq!(restored,p);
+    p.remove_collection(11); p.validate().unwrap();
+    assert_eq!(p.collection_chain(12),vec![12,10]); assert_eq!(p.node_collection(1),Some(10)); assert_eq!(p.light_collection(0),Some(10));
+    p.remove_collection(10); p.validate().unwrap(); assert_eq!(p.collection_chain(12),vec![12]);
+    assert!(p.node_visible(1,false)); assert!(!p.node_locked(1)); assert!(!p.light_locked(0));
+}

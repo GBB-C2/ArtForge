@@ -99,6 +99,11 @@ fn click(app: &mut App, action: Action) {
     let rect = hit_rect(app, &action);
     app.mouse_move(center(rect));
     app.click_ui_control();
+    // The filled bar opens its picker on click and switches to HEX on a second click.
+    if matches!(action, Action::SurfaceMaterialColor(_) | Action::SurfaceAttenuationColor
+        | Action::SurfaceLightColor | Action::RenderColor(_)) {
+        click_at(app, center(rect));
+    }
 }
 
 fn show_target(app: &mut App, source: &Action) {
@@ -492,7 +497,7 @@ fn all_eight_color_triggers_keep_hex_entry_and_only_modify_their_own_target() {
         show_target(&mut app, &source);
         let field = hit_rect(&mut app, &source);
         let trigger = hit_rect(&mut app, &Action::OpenColorPicker(Box::new(source.clone())));
-        assert!(field[0] + field[2] <= trigger[0]);
+        assert_eq!(field, trigger);
         assert!(field[3] >= 22. && trigger[3] >= 22.);
         click(&mut app, source.clone());
         assert!(app.input.is_some());
@@ -927,4 +932,28 @@ fn absorption_cancel_reset_and_locked_material_keep_history_and_original_color()
     )));
     assert!(app.color_picker.is_none());
     assert_eq!(app.editor.project, locked);
+}
+
+#[test]
+fn filled_color_bar_double_click_edits_hex_and_reset_preserves_alpha_with_undo() {
+    for theme in [ui::Theme::Dark,ui::Theme::Light] {
+        let mut app=color_app();app.preferences.theme=theme;
+        let before=app.editor.project.clone(); let source=Action::SurfaceMaterialColor(false);
+        show_target(&mut app, &source);
+        rebuild(&mut app);
+        let open=Action::OpenColorPicker(Box::new(source.clone()));
+        let point=app.ui.action_point(&open).unwrap();
+        app.mouse_move(point);app.mouse_down(MouseButton::Left);app.mouse_up(MouseButton::Left);
+        assert!(app.color_picker.is_some());
+        app.mouse_move(point);app.mouse_down(MouseButton::Left);app.mouse_up(MouseButton::Left);
+        assert!(app.color_picker.is_none());assert_eq!(app.input.as_ref().unwrap().purpose,source);
+        app.input.as_mut().unwrap().insert("#2080C0");
+        assert!(app.confirm_input());assert_eq!(app.editor.undo_len(),1);
+        assert_eq!(app.editor.project.material(1).unwrap().base_color[3],before.material(1).unwrap().base_color[3]);
+        let edited=app.editor.project.clone();
+        app.action(Action::ResetColor(Box::new(source)));
+        assert_eq!(&app.editor.project.material(1).unwrap().base_color[..3],&Material::default().base_color[..3]);
+        assert_eq!(app.editor.project.material(1).unwrap().base_color[3],before.material(1).unwrap().base_color[3]);
+        assert_eq!(app.editor.undo_len(),2);app.action(Action::Undo);assert_eq!(app.editor.project,edited);
+    }
 }

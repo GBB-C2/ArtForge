@@ -7,7 +7,7 @@ thread_local! {static CACHE:RefCell<VecDeque<(Key,SharedBuffer<Vertex>)>>=const 
 impl Project {
     pub(crate) fn evaluated_text_meshes(&self,globals:&BTreeMap<NodeId,Mat4>,local:&BTreeMap<NodeId,Transform>,time:f64)->Result<BTreeMap<NodeId,Mesh>,CoreError> {
         let mut meshes=BTreeMap::new();
-        for node in self.nodes.iter().filter(|n|n.text.as_ref().is_some_and(|s|s.on_curve)&&n.curve_binding.is_some()) {
+        for node in self.nodes.iter().filter(|n|n.text.as_ref().is_some_and(|s|s.on_curve)&&n.curve_binding.is_some_and(|b| self.node(b.curve).is_some_and(|target| target.curve.is_some()))) {
             // Physics and skin operate on converted text, not on two competing deformations.
             if node.skin.is_some() || node.physics.is_some() || node.fluid.is_some() || node.destruction.is_some() {continue;}
             let binding=node.curve_binding.unwrap();

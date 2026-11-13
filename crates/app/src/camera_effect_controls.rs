@@ -4,7 +4,6 @@ use crate::ui::{CameraTool as C, DropdownKind};
 use poseforge_core::CameraEffects;
 
 const LIST_Y: f32 = 1234.;
-const ROW: f32 = 32.;
 const SETTINGS_ROW: f32 = 88.;
 
 #[derive(Default)]
@@ -179,7 +178,7 @@ mod tests {
                     a.ui = a.build_ui();
                     assert!(a.ui.action_point(&Action::CameraNumber(10)).is_some());
                     assert!(a.inspector_scroll <= a.inspector_max_scroll());
-                    assert_eq!(a.camera_panel_bottom(), 2142.);
+                    assert_eq!(a.camera_panel_bottom(), 1894.);
                 }
             }
         }
@@ -373,19 +372,13 @@ impl App {
         if index < self.scene_scroll { self.scene_scroll = index; }
         else if index >= self.scene_scroll + page { self.scene_scroll = index + 1 - page; }
     }
-    fn camera_effect_list_height(&self) -> f32 {
-        let count = self
-            .selected_camera_effects()
-            .map_or(0, |(_, effects)| effects.effect_list().present.count_ones());
-        count.max(3) as f32 * ROW + 12.
-    }
     pub(super) fn camera_panel_bottom(&self) -> f32 {
         let count = self.selected_camera_effects().map_or(0, |(_, effects)| effects.ordered_fields().count());
-        LIST_Y + self.camera_effect_list_height() + 12. + count as f32 * SETTINGS_ROW + 44.
+        LIST_Y + count.max(1) as f32 * SETTINGS_ROW + 44.
     }
     fn camera_effect_settings_y(&self, field: usize) -> f32 {
         let row = self.selected_camera_effects().and_then(|(_, effects)| effects.ordered_fields().position(|f| f == field)).unwrap_or(0);
-        LIST_Y + self.camera_effect_list_height() + 12. + row as f32 * SETTINGS_ROW
+        LIST_Y + row as f32 * SETTINGS_ROW
     }
     fn reveal_camera_effect_y(&mut self, raw_y: f32, height: f32) {
         if let Some(mapped) = self.property_y(raw_y) {
@@ -490,8 +483,7 @@ impl App {
             if matches!(action, C::AddEffect(_)) || action == C::SelectEffect(field) && self.camera_effects.in_scene {
                 self.reveal_camera_effect_y(self.camera_effect_settings_y(selected), SETTINGS_ROW);
             } else if !self.camera_effects.in_scene {
-                let row = effects.ordered_fields().position(|f| f == selected).unwrap_or(0);
-                self.reveal_camera_effect_y(LIST_Y + 6. + row as f32 * ROW, ROW);
+                self.reveal_camera_effect_y(self.camera_effect_settings_y(selected), SETTINGS_ROW);
             }
         }
         self.status = if matches!(action, C::RemoveEffect(_)) {
@@ -650,40 +642,21 @@ impl App {
             u.disabled_checkbox([x, 1154., width, 28.], "Включить эффекты", effects.enabled);
             u.disabled_button([x, 1194., width, 30.], "Добавить эффект…");
         }
-        let height = self.camera_effect_list_height();
-        u.outlined_surface([x, LIST_Y, width, height], p.panel, p.border);
-        let selected = self.selected_camera_effect();
-        for (row, field) in effects.ordered_fields().enumerate() {
-            let rect = [x + 4., LIST_Y + 6. + row as f32 * ROW, width - 8., ROW - 2.];
-            let active = selected == Some(field);
-            u.quiet_button(rect, "", Action::CameraEffect(id, C::SelectEffect(field)), active);
-            if active && self.camera_effects.focused {
-                u.surface_outline(rect, p.accent);
-            }
-            let on = effects.effect_enabled(field);
-            Icon::Wand.draw(u, [rect[0] + 6., rect[1] + 6., 18., 18.], if on { p.text } else { p.muted });
-            u.fitted_label(
-                [rect[0] + 30., rect[1] + 7., rect[2] - 90., 18.],
-                CameraEffects::LABELS[field - 4],
-                11.,
-                if on { p.text } else { p.muted },
-            );
-            self.draw_camera_effect_buttons(u, rect, id, field, on);
-        }
-        if selected.is_none() {
-            u.fitted_label(
-                [x + 10., LIST_Y + 15., width - 20., 22.],
-                "Добавьте эффект из списка выше",
-                11.,
-                p.muted,
-            );
+        if effects.ordered_fields().next().is_none() {
+            u.fitted_label([x, LIST_Y + 10., width, 22.], "Добавьте эффект из списка выше", 11., p.muted);
         }
         for field in effects.ordered_fields() {
             let (value, min, max, label) = effects.field(field).unwrap();
             let y = self.camera_effect_settings_y(field);
             let color = if effects.effect_enabled(field) { p.text } else { p.muted };
-            Icon::Wand.draw(u, [x + 2., y + 2., 18., 18.], color);
-            u.fitted_label([x + 26., y + 4., width - 28., 18.], CameraEffects::LABELS[field - 4], 12., color);
+            let header = [x, y, width, 26.];
+            u.hits.push(ui::Hit { rect: header, action: Action::CameraEffect(id, C::SelectEffect(field)) });
+            if self.camera_effects.focused && self.camera_effect_selected(id, field) {
+                u.rounded_rect([x, y + 5., 2., 16.], p.accent, 1.);
+            }
+            Icon::Wand.draw(u, [x + 4., y + 4., 18., 18.], color);
+            u.fitted_label([x + 28., y + 5., width - 88., 18.], CameraEffects::LABELS[field - 4], 12., color);
+            self.draw_camera_effect_buttons(u, header, id, field, effects.effect_enabled(field));
             let rect = [x, y + 26., width, 44.];
             if editable {
                 u.number_field(
@@ -696,7 +669,6 @@ impl App {
             } else {
                 u.disabled_button(rect, &format!("{label}: {value:.2}"));
             }
-            u.rect([x, y + SETTINGS_ROW - 8., width, 1.], p.border);
         }
         u.fitted_label(
             [x, self.camera_panel_bottom() - 32., width, 22.],

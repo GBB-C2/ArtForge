@@ -1030,35 +1030,6 @@ impl App {
                 }
             }
             use crate::ui::LightTool as L;
-            let half = (width - 6.) * 0.5;
-            if light.kind != LightKind::Point {
-                u.button(
-                    [x, 934., half, 28.],
-                    "Разово…",
-                    Action::LightTool(L::PickTarget),
-                    self.light_aim.as_ref().is_some_and(|a| !a.2),
-                );
-                u.button(
-                    [x + half + 6., 934., half, 28.],
-                    "Следить…",
-                    Action::LightTool(L::PickTrackedTarget),
-                    self.light_aim.as_ref().is_some_and(|a| a.2),
-                );
-                if let Some(target) = light.target {
-                    let name = self
-                        .editor
-                        .project
-                        .node(target.node)
-                        .map_or("—", |n| n.name.as_str());
-                    u.label(x, 970., format!("Цель: {name}"), 11., p.muted);
-                    u.outline_button(
-                        [x, 988., width, 28.],
-                        "Остановить слежение",
-                        Action::LightTool(L::StopTracking),
-                        false,
-                    );
-                }
-            }
             u.checkbox(
                 [x, 1026., width, 28.],
                 "Только этот свет · просмотр",

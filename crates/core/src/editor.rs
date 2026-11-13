@@ -188,8 +188,9 @@ impl Editor {
             }
         }
         let lost_curve = |binding: Option<crate::CurveBinding>| binding.is_some_and(|b|
-            before.project.node(b.curve).is_some_and(|n| n.curve.is_some())
-            && self.project.node(b.curve).is_none_or(|n| n.curve.is_none()));
+            before.project.node(b.curve).is_some() && (self.project.node(b.curve).is_none()
+                || before.project.node(b.curve).is_some_and(|n| n.curve.is_some())
+                    && self.project.node(b.curve).is_some_and(|n| n.curve.is_none())));
         let detached: Vec<_> = self.project.nodes.iter().filter(|n| lost_curve(n.curve_binding)).map(|n| n.id).collect();
         let detached_lights: Vec<_> = self.project.lights.iter().enumerate()
             .filter(|(_, l)| lost_curve(l.curve_binding)).map(|(i, _)| i).collect();

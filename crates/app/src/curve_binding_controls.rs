@@ -10,20 +10,20 @@ impl App {
     pub(super) fn pick_path_node(&mut self,id:u64) {
         let Some(target)=self.path_pick else{return;};
         if self.path_target()!=Some(target) || !self.path_editable() {self.path_pick=None;self.redraw();return;}
-        if !self.node_selectable(id) || self.editor.project.node(id).is_none_or(|n|n.curve.is_none()) {
-            self.status="Нужна доступная кривая · пипетка остаётся активной · Esc — отмена".into();self.redraw();return;
+        if !self.node_selectable(id) || self.editor.project.node(id).is_none() {
+            self.status="Нужен доступный объект · пипетка остаётся активной · Esc — отмена".into();self.redraw();return;
         }
         self.path_pick=None;self.path_action(P::Bind(id));self.redraw();
     }
     pub(super) fn path_pick_pointer(&mut self,button:MouseButton)->bool {
         let Some(target)=self.path_pick else{return false;};
         if self.path_target()!=Some(target) || !self.path_editable() {self.path_pick=None;self.redraw();return true;}
-        if button==MouseButton::Right {self.path_pick=None;self.status="Выбор кривой отменён".into();self.redraw();return true;}
+        if button==MouseButton::Right {self.path_pick=None;self.status="Выбор привязки отменён".into();self.redraw();return true;}
         if button!=MouseButton::Left {return false;}
         if let Some(action)=self.ui.hit(self.mouse) {
             if let Action::Select(id)=action {self.pick_path_node(id);}else{self.path_pick=None;}
         } else if self.canvas_input_at(self.mouse) {
-            if let Some(id)=self.pick_curve_at(self.mouse) {self.pick_path_node(id);}else{self.status="Здесь нет кривой · пипетка остаётся активной · Esc — отмена".into();}
+            if let Some(id)=self.pick_curve_at(self.mouse).or_else(|| self.evaluated_interactive().ok().and_then(|scene| self.pick_viewport_node(&scene))) {self.pick_path_node(id);}else{self.status="Здесь нет объекта · пипетка остаётся активной · Esc — отмена".into();}
         } else {self.path_pick=None;}
         self.redraw();true
     }
@@ -33,6 +33,7 @@ impl App {
     {
         let node = self.editor.project.node(id).ok_or(poseforge_core::CoreError::MissingNode(id))?;
         let Some(binding) = node.curve_binding else { return Ok(None); };
+        if self.editor.project.node(binding.curve).is_none_or(|n| n.curve.is_none()) { return Ok(None); }
         if self.path_offset_editing_for(BindingTarget::Node(id)) { return Ok(None); }
         let local = scene.local.get(&id).ok_or(poseforge_core::CoreError::MissingNode(id))?;
         self.editor.project.curve_translation(binding, &scene.global, self.editor.time, local.translation, node.camera.is_some())
@@ -80,7 +81,7 @@ impl App {
         }
     }
     pub(super) fn path_curve_choices(&self) -> Vec<u64> {
-        self.editor.project.nodes.iter().filter(|n| n.curve.is_some()).map(|n| n.id).collect()
+        self.editor.project.nodes.iter().map(|n| n.id).collect()
     }
     pub(super) fn path_panel_start(&self) -> Option<f32> {
         match self.path_target()? {
@@ -91,11 +92,36 @@ impl App {
             BindingTarget::Node(_) => Some(602.),
         }
     }
+    pub(super) fn path_is_curve(&self) -> bool {
+        self.path_binding().and_then(|b| self.editor.project.node(b.curve)).is_some_and(|n| n.curve.is_some())
+    }
+    fn path_controls_height(&self) -> f32 {
+        if self.path_binding().is_none() { 86. } else if self.path_is_curve() { 316. } else { 166. }
+    }
     pub(super) fn path_panel_bottom(&self) -> Option<f32> {
-        Some(self.path_panel_start()? + if self.path_binding().is_some() { 316. } else { 86. })
+        let aim = self.active_light_index().is_some_and(|index| self.editor.project.lights[index].kind != poseforge_core::LightKind::Point);
+        Some(self.path_panel_start()? + self.path_controls_height() + if aim { 128. } else { 0. })
     }
     fn set_path_binding(&mut self, target: BindingTarget, binding: CurveBinding) -> Result<(), String> {
         binding.validate().map_err(|e| e.to_string())?;
+        if self.editor.project.node(binding.curve).is_none() { return Err("Цель привязки отсутствует".into()); }
+        if self.editor.project.node(binding.curve).is_some_and(|n| n.curve.is_none()) {
+            let scene = self.evaluated_interactive().map_err(|e| e.to_string())?;
+            let mut prepared = self.editor.project.clone();
+            match target {
+                BindingTarget::Node(id) => prepared.bind_node_preserving_world(id, binding, &scene.global, self.editor.time).map_err(|e| e.to_string())?,
+                BindingTarget::Light(index) => {
+                    let frame = prepared.curve_binding_frame(binding, &scene.global, self.editor.time, true).map_err(|e| e.to_string())?;
+                    let inverse = frame.inverse();
+                    let light = &mut prepared.lights[index];
+                    light.position = inverse.transform_point3(scene.lights[index].position);
+                    light.direction = inverse.transform_vector3(scene.lights[index].direction).normalize_or_zero();
+                    light.curve_binding = Some(binding);
+                }
+            }
+            self.editor.transact("Привязка к объекту", |p| *p = prepared).map_err(|e| e.to_string())?;
+            self.update_dirty(); return Ok(());
+        }
         self.editor.transact("Привязка к кривой", |p| match target {
             BindingTarget::Node(id) => {
                 let node = p.node_mut(id).unwrap();
@@ -121,7 +147,7 @@ impl App {
         if matches!(action, P::Pick | P::Bind(_) | P::Clear | P::SelectCurve) { self.path_edit = None; }
         if action==P::Pick {
             self.cancel_drag();self.close_collision_selection();self.authoring.reference_pick=None;self.focus_pick=None;self.light_aim=None;self.dropdown=None;
-            self.editor.playing=false;self.path_pick=Some(target);self.status="Выберите кривую в сцене или списке · Esc / правая кнопка — отмена".into();self.redraw();return;
+            self.editor.playing=false;self.path_pick=Some(target);self.status="Выберите объект, скелет или кость в сцене или списке · Esc / правая кнопка — отмена".into();self.redraw();return;
         }
         if action == P::SelectCurve {
             if let Some(binding) = self.path_binding() { self.action(Action::Select(binding.curve)); }
@@ -129,7 +155,7 @@ impl App {
         }
         self.editor.playing = false;
         if let P::Field(field) = action {
-            if let Some(binding) = self.path_binding() {
+            if let Some(binding) = self.path_binding().filter(|_| self.path_is_curve()) {
                 let value = if field == 0 { binding.position } else { binding.speed };
                 self.input(Action::Path(action), ui::number_caption(value as f64 * 100.));
             }
@@ -154,7 +180,10 @@ impl App {
             let mut binding = self.path_binding().unwrap_or_default();
             match action {
                 P::Bind(curve) => {
-                    if self.editor.project.node(curve).is_none_or(|n| n.curve.is_none()) { return; }
+                    if self.editor.project.node(curve).is_none() { return; }
+                    if matches!(target, BindingTarget::Node(id) if id == curve) {
+                        self.status = "Нельзя привязать объект к самому себе.".into(); return;
+                    }
                     binding.curve = curve;
                 }
                 P::Follow if self.path_binding().is_some() => binding.follow = !binding.follow,
@@ -163,13 +192,16 @@ impl App {
             }
             self.set_path_binding(target, binding)
         };
-        if self.result(result).is_some() { self.status = "Привязка обновлена · перемещение вдоль пути · Edit — свободное смещение · Undo — отмена".into(); }
+        if self.result(result).is_some() {
+            self.status = if self.path_is_curve() { "Привязка обновлена · перемещение вдоль пути · Edit — свободное смещение · Undo — отмена" }
+                else { "Привязка обновлена · G — изменить смещение · Undo — отмена" }.into();
+        }
     }
     pub(super) fn path_confirm(&mut self, action: &Action, value: &str) -> Result<bool, String> {
         let Action::Path(P::Field(field)) = action else { return Ok(false); };
         let target = self.path_target().ok_or("Выберите меш, камеру или свет")?;
         if !self.path_editable() { return Err("Объект недоступен для изменения".into()); }
-        let mut binding = self.path_binding().ok_or("Сначала выберите кривую")?;
+        let mut binding = self.path_binding().filter(|_| self.path_is_curve()).ok_or("Для положения и скорости выберите кривую")?;
         let number: f64 = value.trim().replace(',', ".").parse().map_err(|_| "Введите число")?;
         if !number.is_finite() || (*field == 0 && !(0. ..=100.).contains(&number))
             || (*field == 1 && number.abs() > 10000.) || *field > 1
@@ -178,22 +210,47 @@ impl App {
         self.set_path_binding(target, binding)?;
         Ok(true)
     }
+    fn draw_binding_light_aim(&self, u: &mut Ui, x: f32, y: f32, width: f32) {
+        let Some(BindingTarget::Light(index)) = self.path_target() else { return; };
+        let light = &self.editor.project.lights[index];
+        if light.kind == poseforge_core::LightKind::Point { return; }
+        let start = u.hits.len(); let half = (width - 6.) * 0.5; let p = u.palette();
+        u.fitted_label([x,y,width,18.], "Направление на объект", 11., p.muted);
+        u.quiet_button([x,y+24.,half,28.], "Разово…", Action::LightTool(ui::LightTool::PickTarget), self.light_aim.as_ref().is_some_and(|a| !a.2));
+        u.quiet_button([x+half+6.,y+24.,half,28.], "Следить…", Action::LightTool(ui::LightTool::PickTrackedTarget), self.light_aim.as_ref().is_some_and(|a| a.2));
+        if let Some(target) = light.target {
+            let name = self.editor.project.node(target.node).map_or("—", |n| n.name.as_str());
+            u.fitted_label([x,y+58.,width,18.], &format!("Цель: {name}"), 11., p.muted);
+            u.quiet_button([x,y+82.,width,28.], "Остановить слежение", Action::LightTool(ui::LightTool::StopTracking), false);
+        }
+        if !self.path_editable() { u.hits.truncate(start); }
+    }
     pub(super) fn draw_path_panel(&self, u: &mut Ui, rx: f32, rw: f32) {
         let Some(start) = self.path_panel_start() else { return; };
         let x = rx + 16.; let width = rw - 32.; let y = start + 8.; let p = u.palette();
         let binding = self.path_binding();
-        let label = binding.and_then(|b| self.editor.project.node(b.curve)).map_or("Выбрать кривую…", |n| n.name.as_str());
-        if self.path_editable() && !self.path_curve_choices().is_empty() {
+        let label = binding.and_then(|b| self.editor.project.node(b.curve)).map_or("Выбрать объект…", |n| n.name.as_str());
+        if self.path_editable() && !self.editor.project.nodes.is_empty() {
             self.draw_dropdown_button(u, [x,y,width-38.,30.], ui::DropdownKind::CurvePath, label);
             u.quiet_icon_button([x+width-32.,y,32.,30.],"",Action::Path(P::Pick),self.path_pick.is_some(),Icon::Eyedropper);
         } else {
-            u.disabled_button([x,y,width-38.,30.],if self.path_curve_choices().is_empty() {"Нет кривых в сцене"} else {label});
+            u.disabled_button([x,y,width-38.,30.],if self.editor.project.nodes.is_empty() {"Нет объектов в сцене"} else {label});
             u.disabled_icon_button([x+width-32.,y,32.,30.],"",Icon::Eyedropper);
         }
+        self.draw_binding_light_aim(u, x, y + self.path_controls_height(), width);
         let Some(binding) = binding else {
-            u.fitted_label([x,y+42.,width,20.], "Создайте путь через меню «Кривые»", 11., p.muted); return;
+            u.fitted_label([x,y+42.,width,20.], "Меш, кость, скелет, камера или пустышка", 11., p.muted); return;
         };
         let start_hits = u.hits.len();
+        if !self.path_is_curve() {
+            u.checkbox([x,y+42.,width,28.], "Наследовать поворот и масштаб", Action::Path(P::Follow), binding.follow);
+            let half = (width - 6.) * 0.5;
+            u.quiet_icon_button([x,y+82.,half,30.], "Объект", Action::Path(P::SelectCurve), false, Icon::Object);
+            u.quiet_button([x+half+6.,y+82.,half,30.], "Отвязать", Action::Path(P::Clear), false);
+            u.fitted_label([x,y+124.,width,20.], "G — изменить смещение от объекта", 10., p.muted);
+            if !self.path_editable() { u.hits.truncate(start_hits); }
+            return;
+        }
         u.number_field([x,y+42.,width,32.], "Положение, %", binding.position as f64 * 100.,
             Action::Path(P::Field(0)), SliderRange::new(0.,100.,0.1));
         u.number_field([x,y+82.,width,32.], "Скорость, %/с", binding.speed as f64 * 100.,

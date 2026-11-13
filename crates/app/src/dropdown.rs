@@ -85,7 +85,7 @@ fn labels(kind: DropdownKind, project: &poseforge_core::Project) -> Vec<String> 
             } else { node.name.clone() }
         }).collect();
     }
-    if kind == DropdownKind::CurvePath { return project.nodes.iter().filter(|n| n.curve.is_some()).map(|n| n.name.clone()).collect(); }
+    if kind == DropdownKind::CurvePath { return project.nodes.iter().map(|n| format!("{} · {}", n.name, if n.is_joint { "Кость" } else if n.empty { "Пустышка" } else if n.camera.is_some() { "Камера" } else if n.curve.is_some() { "Кривая" } else if n.mesh.is_some() { "Меш" } else { "Объект" })).collect(); }
     if kind == DropdownKind::MaterialLibrary {
         return project.materials.iter().map(|m| m.name.clone()).collect();
     }
@@ -208,7 +208,7 @@ fn popup_rect(anchor: [f32; 4], size: [f32; 2], count: usize) -> [f32; 4] {
 fn item_icon(kind: DropdownKind, index: usize) -> Option<Icon> {
     match kind {
         DropdownKind::CameraEffectAdd => Some(Icon::Wand),
-        DropdownKind::CurvePath => Some(Icon::Curve),
+        DropdownKind::CurvePath => Some(Icon::Object),
         DropdownKind::RigSkeleton => Some(Icon::Bone),
         DropdownKind::RigMesh => Some(Icon::Object),
         DropdownKind::MeshCreate => poseforge_core::PrimitiveKind::MESH_MENU.get(index).map(|(_,k)|super::primitive_controls::primitive_icon(*k)),
@@ -348,12 +348,11 @@ impl App {
         kind: DropdownKind,
         fallback: &str,
     ) {
-        let items = labels(kind, &self.editor.project);
-        let label = self
-            .dropdown_selected(kind)
-            .and_then(|i| items.get(i))
-            .map(String::as_str)
-            .unwrap_or(fallback);
+        // Closed bindings do not need to allocate a label for every bone in the scene.
+        let items = if kind == DropdownKind::CurvePath { Vec::new() } else { labels(kind, &self.editor.project) };
+        let label = if kind == DropdownKind::CurvePath { fallback } else {
+            self.dropdown_selected(kind).and_then(|i| items.get(i)).map(String::as_str).unwrap_or(fallback)
+        };
         let palette = ui.palette();
         let focused = self.dropdown_focus == Some(kind) || self.dropdown_is_open(kind);
         ui.button(rect, "", Action::DropdownOpen(kind), focused);

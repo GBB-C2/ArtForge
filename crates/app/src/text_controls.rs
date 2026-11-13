@@ -44,7 +44,7 @@ impl App {
                 let result=self.editor.set_text(id,settings);
                 if self.result(result).is_some() {
                     self.invalidate_geometry();self.update_dirty();
-                    if waiting {self.status="Выберите кривую в разделе «Привязка к кривой» ниже".into();}
+                    if waiting {self.status="Выберите кривую в разделе «Привязка» ниже".into();}
                 }
             }
             T::Convert => {let r=self.editor.convert_text_to_mesh(id);if self.result(r).is_some() {self.invalidate();self.status="Текст преобразован в меш · доступны вершины, рёбра и грани · Undo возвращает надпись".into();}},

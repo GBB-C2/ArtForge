@@ -1,4 +1,4 @@
-//! Arc-length curve constraints, independent of the scene parenting hierarchy.
+//! Object and arc-length path constraints, independent of scene parenting.
 use crate::{CoreError, CurveData, Light, Mat4, NodeId, Project, Quat, Transform, Vec3};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct CurveBinding {
+    /// Target node. The legacy field name keeps existing project files compatible.
     pub curve: NodeId,
     /// Fraction of the curve's world-space length at timeline time zero.
     pub position: f32,
@@ -231,7 +232,31 @@ impl Project {
         Path::new(curve, *model)
     }
     pub fn curve_binding_frame(&self, binding: CurveBinding, globals: &BTreeMap<NodeId, Mat4>, time: f64, negative_z: bool) -> Result<Mat4, CoreError> {
-        self.binding_path(binding, globals)?.frame(binding, time, negative_z)
+        self.binding_frame_cached(binding, globals, time, negative_z, &mut BTreeMap::new())
+    }
+    fn binding_frame_cached(&self, binding: CurveBinding, globals: &BTreeMap<NodeId, Mat4>, time: f64,
+        negative_z: bool, paths: &mut BTreeMap<NodeId, Path>) -> Result<Mat4, CoreError>
+    {
+        binding.validate()?;
+        let target = self.node(binding.curve).ok_or(CoreError::MissingNode(binding.curve))?;
+        if target.curve.is_some() {
+            if !paths.contains_key(&binding.curve) { paths.insert(binding.curve, self.binding_path(binding, globals)?); }
+            paths[&binding.curve].frame(binding, time, negative_z)
+        } else {
+            let matrix = *globals.get(&binding.curve).ok_or(CoreError::MissingNode(binding.curve))?;
+            Ok(if binding.follow { matrix } else { Mat4::from_translation(matrix.w_axis.truncate()) })
+        }
+    }
+    /// Rebase offsets and animation keys so attachment does not move the object.
+    pub fn bind_node_preserving_world(&mut self, id: NodeId, binding: CurveBinding,
+        globals: &BTreeMap<NodeId, Mat4>, time: f64) -> Result<(), CoreError>
+    {
+        let node = self.node(id).ok_or(CoreError::MissingNode(id))?;
+        let old_frame = self.transform_frame(id, globals, time)?;
+        let frame = self.curve_binding_frame(binding, globals, time, node.camera.is_some())?;
+        self.rebase_constraint_offset(id, frame.inverse() * old_frame)?;
+        self.node_mut(id).unwrap().curve_binding = Some(binding);
+        Ok(())
     }
     /// Parent frame for local transform tools, including a curve constraint.
     pub fn transform_frame(&self, id: NodeId, globals: &BTreeMap<NodeId, Mat4>, time: f64) -> Result<Mat4, CoreError> {
@@ -261,8 +286,7 @@ impl Project {
                     continue;
                 }
                 let frame = if let Some(binding) = n.curve_binding {
-                    if !paths.contains_key(&binding.curve) { paths.insert(binding.curve, self.binding_path(binding, &out)?); }
-                    paths[&binding.curve].frame(binding, time, n.camera.is_some())?
+                    self.binding_frame_cached(binding, &out, time, n.camera.is_some(), &mut paths)?
                 } else if let Some(source)=n.fx.and_then(|f|f.source) {out[&source]}
                 else { n.parent.map_or(Mat4::IDENTITY, |p| out[&p]) };
                 let global = frame * overrides.get(&id).unwrap_or(&n.transform).matrix();
@@ -288,8 +312,7 @@ impl Project {
         self.lights.iter().map(|light| {
             let mut resolved = light.clone();
             if let Some(binding) = light.curve_binding {
-                if !paths.contains_key(&binding.curve) { paths.insert(binding.curve, self.binding_path(binding, globals)?); }
-                let frame = paths[&binding.curve].frame(binding, time, true)?;
+                let frame = self.binding_frame_cached(binding, globals, time, true, &mut paths)?;
                 resolved.position = frame.transform_point3(light.position);
                 resolved.direction = frame.transform_vector3(light.direction).normalize_or_zero();
                 resolved.curve_binding = None;
@@ -313,6 +336,13 @@ impl Project {
         let parent = node.parent.and_then(|p| globals.get(&p)).copied().unwrap_or(Mat4::IDENTITY);
         let world = globals.get(&id).ok_or(CoreError::MissingNode(id))?;
         let delta = parent.inverse() * *world * sampled_local.matrix().inverse();
+        self.rebase_constraint_offset(id, delta)?;
+        let node = self.node_mut(id).unwrap();
+        if fx { node.fx.as_mut().unwrap().source = None; } else { node.curve_binding = None; }
+        Ok(())
+    }
+    fn rebase_constraint_offset(&mut self, id: NodeId, delta: Mat4) -> Result<(), CoreError> {
+        let node = self.node(id).ok_or(CoreError::MissingNode(id))?;
         let local_matrix = delta * node.transform.matrix();
         let local = Transform::from_matrix(local_matrix);
         let exact = |matrix: Mat4, transform: Transform| {
@@ -320,12 +350,12 @@ impl Project {
             transform.is_valid() && matrix.to_cols_array().iter().zip(transform.matrix().to_cols_array())
                 .all(|(a,b)| (*a-b).abs() <= tolerance)
         };
-        if !exact(local_matrix, local) { return Err(CoreError::Invalid("Неравномерный масштаб родителя мешает сохранить положение при отвязке".into())); }
+        if !exact(local_matrix, local) { return Err(CoreError::Invalid("Неравномерный масштаб родителя мешает сохранить положение при изменении привязки".into())); }
         let adjustment = Transform::from_matrix(delta);
         let animated = self.clips.iter().flat_map(|c| &c.channels)
             .any(|c| c.node == id && c.property != crate::Property::Weights);
         if animated && (!exact(delta, adjustment) || adjustment.scale.max_element() - adjustment.scale.min_element() > 0.0001) {
-            return Err(CoreError::Invalid("Для отвязки анимированного объекта нужен равномерный масштаб родителя".into()));
+            return Err(CoreError::Invalid("Для привязки анимированного объекта нужен равномерный масштаб родителя".into()));
         }
         let rest = Transform::from_matrix(delta * node.rest_transform.unwrap_or(node.transform).matrix());
         if animated {
@@ -355,7 +385,6 @@ impl Project {
             }
         }
         let node = self.node_mut(id).unwrap();
-        if fx {node.fx.as_mut().unwrap().source=None;}else{node.curve_binding=None;}
         node.transform = local; node.rest_transform = Some(if rest.is_valid() { rest } else { local });
         Ok(())
     }
@@ -364,14 +393,14 @@ impl Project {
             if let Some(binding) = node.curve_binding {
                 binding.validate()?;
                 if node.curve.is_some() || node.is_joint || (node.mesh.is_none() && node.camera.is_none() && !node.empty)
-                    || self.node(binding.curve).is_none_or(|n| n.curve.is_none())
-                { return Err(CoreError::Invalid("К кривой можно привязать меш, камеру или пустышку".into())); }
+                    || self.node(binding.curve).is_none()
+                { return Err(CoreError::Invalid("Привязка доступна для меша, камеры или пустышки; цель должна существовать".into())); }
             }
         }
         for light in &self.lights {
             if let Some(binding) = light.curve_binding {
                 binding.validate()?;
-                if self.node(binding.curve).is_none_or(|n| n.curve.is_none()) { return Err(CoreError::Invalid("Кривая света отсутствует".into())); }
+                if self.node(binding.curve).is_none() { return Err(CoreError::Invalid("Цель привязки света отсутствует".into())); }
             }
         }
         Ok(())

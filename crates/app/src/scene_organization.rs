@@ -243,7 +243,7 @@ impl App {
                 .editor
                 .transact("Удалить свет", |p| p.remove_light(index)),
             SceneItem::Folder(id) => self.editor.transact("Удалить папку", |p| {
-                p.collections.retain(|c| c.id != id)
+                p.remove_collection(id)
             }),
         };
         if self.result(result).is_some() {
@@ -262,6 +262,7 @@ impl App {
             if let SceneItem::Folder(id) = item {
                 if self.scene_tools.collection == Some(id) {
                     self.scene_tools.collection = None;
+                    self.scene_tools.folder_selected = false;
                 }
             }
             self.scene_tools
@@ -287,11 +288,7 @@ impl App {
         match item {
             SceneItem::Node(id) => p.node_locked(id),
             SceneItem::Light(index) => p.light_locked(index),
-            SceneItem::Folder(id) => p
-                .collections
-                .iter()
-                .find(|c| c.id == id)
-                .is_none_or(|c| c.locked),
+            SceneItem::Folder(id) => p.collection_locked(id),
         }
     }
 
@@ -417,7 +414,7 @@ impl App {
         let folder = match item {
             SceneItem::Node(id) => self.editor.project.node_collection(id),
             SceneItem::Light(i) => self.editor.project.light_collection(i),
-            SceneItem::Folder(_) => None,
+            SceneItem::Folder(id) => self.editor.project.collections.iter().find(|c| c.id == id).and_then(|c| c.parent),
         };
         Some(Destination {
             anchor: Some(item),
@@ -442,13 +439,9 @@ impl App {
         {
             return;
         }
-        if destination.folder.is_some()
-            && items
-                .iter()
-                .any(|item| matches!(item, SceneItem::Folder(_)))
-        {
-            self.status = "Папки можно переставлять на верхнем уровне списка.".into();
-            return;
+        let folders: BTreeSet<_> = items.iter().filter_map(|item| if let SceneItem::Folder(id) = item { Some(*id) } else { None }).collect();
+        if destination.folder.is_some_and(|id| self.editor.project.collection_chain(id).iter().any(|ancestor| folders.contains(ancestor))) {
+            self.status = "Нельзя переместить папку внутрь себя или дочерней папки.".into(); return;
         }
         // Do not imply a transform/skin reparent through a presentation-only drag.
         if let Some(SceneItem::Node(target)) = destination.anchor {
@@ -543,6 +536,7 @@ impl App {
             self.editor.transact("Переместить в списке сцены", |p| {
                 p.outliner.order = order;
                 for folder in &mut p.collections {
+                    if folders.contains(&folder.id) { folder.parent = destination.folder; }
                     folder.members.retain(|id| !branches.contains(id));
                     folder.light_members.retain(|i| !lights.contains(i));
                     if Some(folder.id) == destination.folder {

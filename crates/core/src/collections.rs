@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 pub struct Collection {
     pub id: u64,
     pub name: String,
+    pub parent: Option<u64>,
     pub members: Vec<NodeId>,
     pub light_members: Vec<usize>,
     pub visible: bool,
@@ -18,6 +19,7 @@ impl Default for Collection {
         Self {
             id: 0,
             name: "Коллекция".into(),
+            parent: None,
             members: vec![],
             light_members: vec![],
             visible: true,
@@ -27,6 +29,35 @@ impl Default for Collection {
     }
 }
 impl Project {
+    pub fn collection_chain(&self, id: u64) -> Vec<u64> {
+        let mut result = Vec::new();
+        let mut cursor = Some(id);
+        while let Some(id) = cursor {
+            if result.contains(&id) { break; }
+            let Some(folder) = self.collections.iter().find(|c| c.id == id) else { break; };
+            result.push(id); cursor = folder.parent;
+        }
+        result
+    }
+    pub fn collection_visible(&self, id: u64, export: bool) -> bool {
+        self.collection_chain(id).iter().all(|id| self.collections.iter().find(|c| c.id == *id)
+            .is_some_and(|c| if export { c.render_visible } else { c.visible }))
+    }
+    pub fn collection_locked(&self, id: u64) -> bool {
+        self.collections.iter().all(|c| c.id != id) || self.collection_chain(id).iter()
+            .any(|id| self.collections.iter().find(|c| c.id == *id).is_some_and(|c| c.locked))
+    }
+    pub fn remove_collection(&mut self, id: u64) {
+        let Some(folder) = self.collections.iter().find(|c| c.id == id).cloned() else { return; };
+        self.collections.retain(|c| c.id != id);
+        for child in &mut self.collections {
+            if child.parent == Some(id) { child.parent = folder.parent; }
+            if Some(child.id) == folder.parent {
+                child.members.extend(folder.members.iter().copied());
+                child.light_members.extend(folder.light_members.iter().copied());
+            }
+        }
+    }
     pub fn node_collection(&self, id: NodeId) -> Option<u64> {
         let mut cursor = Some(id);
         let mut seen = BTreeSet::new();
@@ -70,7 +101,7 @@ impl Project {
                 .iter()
                 .filter(|c| c.members.contains(&id))
                 .any(|c| {
-                    !(if export { c.render_visible } else { c.visible }) || check_lock && c.locked
+                    !self.collection_visible(c.id, export) || check_lock && self.collection_locked(c.id)
                 })
             {
                 return false;
@@ -103,6 +134,13 @@ impl Project {
         let mut assigned = BTreeSet::new();
         let mut assigned_lights = BTreeSet::new();
         for c in &self.collections {
+            let mut seen = BTreeSet::from([c.id]);
+            let mut parent = c.parent;
+            while let Some(id) = parent {
+                if !seen.insert(id) { return Err(CoreError::Invalid("Цикл вложенных папок".into())); }
+                parent = self.collections.iter().find(|folder| folder.id == id)
+                    .ok_or_else(|| CoreError::Invalid("Родительская папка отсутствует".into()))?.parent;
+            }
             if c.light_members
                 .iter()
                 .any(|i| *i >= self.lights.len() || !assigned_lights.insert(*i))
@@ -143,7 +181,7 @@ impl Project {
         let blocked: BTreeSet<_> = self
             .collections
             .iter()
-            .filter(|c| !(if export { c.render_visible } else { c.visible }) || lock && c.locked)
+            .filter(|c| !self.collection_visible(c.id, export) || lock && self.collection_locked(c.id))
             .flat_map(|c| c.members.iter().copied())
             .collect();
         let mut result = BTreeMap::<u64, bool>::new();
@@ -272,7 +310,7 @@ impl Project {
                 || self
                     .collections
                     .iter()
-                    .any(|c| c.locked && c.members.contains(&id))
+                    .any(|c| c.members.contains(&id) && self.collection_locked(c.id))
             {
                 return true;
             }

@@ -326,7 +326,8 @@ impl App {
             let color = p.slider;
             let size = if active || hover { 14. } else { 12. };
             let rect = [point[0] - size * 0.5, point[1] - size * 0.5, size, size];
-            u.outlined_surface(rect, color, if active || hover { p.text } else { p.panel });
+            u.rounded_rect(rect, if active || hover { p.text } else { p.panel }, size * 0.5);
+            u.rounded_rect([rect[0]+1., rect[1]+1., size-2., size-2.], color, (size-2.) * 0.5);
             if grip == LightGrip::Direction {
                 Icon::Move.draw(u, [point[0] - 4., point[1] - 4., 8., 8.], p.panel);
             } else {

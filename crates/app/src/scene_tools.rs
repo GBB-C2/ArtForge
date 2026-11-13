@@ -8,6 +8,7 @@ pub(super) struct SceneTools {
     pub selected: BTreeSet<u64>,
     pub isolated: BTreeSet<u64>,
     pub collection: Option<u64>,
+    pub folder_selected: bool,
     pub material_expanded: BTreeSet<u64>,
     pub hidden_types: u8,
     pub last_drag_scroll: Option<Instant>,
@@ -32,6 +33,7 @@ impl App {
         self.path_edit = None;
         self.scene_tools.selected.clear();
         self.scene_tools.collection = None;
+        self.scene_tools.folder_selected = false;
         self.editor.selected = None;
         self.clear_light_selection();
         self.authoring = Default::default();
@@ -162,6 +164,7 @@ impl App {
         if self.editor.project.node(id).is_none() {
             return;
         }
+        self.scene_tools.folder_selected = false;
         let extend = (self.modifiers.shift_key() || self.modifiers.control_key())
             && self.editor.mode == EditorMode::Scene;
         let (id, members) = if self.editor.mode == EditorMode::Scene {
@@ -278,6 +281,7 @@ impl App {
     pub(super) fn scene_tool_action(&mut self, action: S) {
         match action {
             S::SelectAll => {
+                self.scene_tools.folder_selected = false;
                 let allowed = self.editor.project.selectable_node_ids();
                 let isolated = self
                     .editor
@@ -354,6 +358,7 @@ impl App {
                 });
                 if self.result(r).is_some() {
                     self.scene_tools.collection = Some(id);
+                    self.scene_tools.folder_selected = true;
                     self.reveal_collection(id);
                     self.input(Action::SceneTool(S::CollectionName(id)), name);
                 }
@@ -384,12 +389,15 @@ impl App {
                     .map(|n| n.id)
                     .collect();
                 self.scene_tools.collection = Some(id);
+                self.scene_tools.folder_selected = true;
                 self.scene_tools.selected = ids;
                 self.editor.selected = self.scene_tools.selected.iter().next().copied();
                 self.clear_light_selection();
             }
             S::AssignCollection(id) => {
-                let items = if let Some(light) = self.active_light_index() {
+                let items = if let Some(folder) = self.scene_tools.collection.filter(|_| self.scene_tools.folder_selected && self.active_light_index().is_none()) {
+                    vec![poseforge_core::SceneItem::Folder(folder)]
+                } else if let Some(light) = self.active_light_index() {
                     vec![poseforge_core::SceneItem::Light(light)]
                 } else {
                     self.editor
@@ -423,7 +431,7 @@ impl App {
                 }
                 let r = self.editor.transact("Настроить коллекцию", |p| {
                     if action == S::CollectionDelete(id) {
-                        p.collections.retain(|c| c.id != id);
+                        p.remove_collection(id);
                         return;
                     }
                     if let Some(c) = p.collections.iter_mut().find(|c| c.id == id) {
@@ -442,6 +450,7 @@ impl App {
         self.redraw();
     }
     fn reveal_collection(&mut self, id: u64) {
+        self.reveal_folder_chain(id);
         self.preferences.left_panel = true;
         self.scene_query.clear();
         self.joints_only = false;
@@ -709,6 +718,7 @@ impl App {
             .is_some_and(|id| !self.editor.project.collections.iter().any(|c| c.id == id))
         {
             self.scene_tools.collection = None;
+            self.scene_tools.folder_selected = false;
         }
     }
     pub(super) fn group_action(&mut self, action: &Action) -> bool {

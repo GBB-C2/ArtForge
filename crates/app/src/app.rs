@@ -2446,7 +2446,15 @@ impl App {
     fn action(&mut self, a: Action) {
         if self.path_pick.is_some() {
             if let Action::Select(id)=a {self.pick_path_node(id);return;}
-            self.path_pick=None;self.status="Выбор кривой отменён".into();self.redraw();return;
+            self.path_pick=None;self.status="Выбор привязки отменён".into();self.redraw();return;
+        }
+        if let Some((index, expected, tracking)) = self.light_aim.clone() {
+            if let Action::Select(id) = a {
+                if self.editor.project.lights.get(index) == Some(&expected) && self.node_selectable(id) {
+                    self.aim_light_at(index, id, tracking);
+                }
+                self.light_aim = None; self.redraw(); return;
+            }
         }
         if self.route_collision_action(&a) { return; }
         if self.authoring.reference_pick.is_some() {
@@ -2497,7 +2505,7 @@ impl App {
         if self.native_picker.is_some() {
             return;
         }
-        if matches!(&a, Action::ResetNumber(field) if self.input.as_ref().is_some_and(|i| i.purpose == **field)) {
+        if matches!(&a, Action::ResetNumber(field) | Action::ResetColor(field) if self.input.as_ref().is_some_and(|i| i.purpose == **field)) {
             self.end_input();
         }
         if self.action_with_color_picker(&a) {
@@ -2750,6 +2758,7 @@ impl App {
             Action::DropdownChoose(index) => self.choose_dropdown(index),
             Action::DropdownDismiss => { self.close_asset_popup(); self.close_material_dropdown(); self.dropdown = None; },
             Action::OpenColorPicker(source) => self.open_color_picker(*source),
+            Action::ResetColor(source) => self.reset_color(*source),
             Action::ColorPicker(control) => self.color_action(control),
             Action::Animation(control) => self.animation_action(control),
             Action::FluidObject(action) => self.fluid_object_action(action),
@@ -3126,6 +3135,7 @@ impl App {
                     2 => EditorMode::Animation,
                     _ => EditorMode::Render,
                 };
+                self.scene_tools.folder_selected = false;
                 self.editor.playing = false;
                 self.authoring.editing = None;
                 self.authoring.vertices.clear();

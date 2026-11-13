@@ -229,6 +229,7 @@ pub fn merge_project(destination: &mut Project, incoming: Project) -> Result<Vec
             *index += light_offset;
         }
         collection.id = collections[&collection.id];
+        collection.parent = collection.parent.map(|id| collections[&id]);
         for id in &mut collection.members {
             *id = nodes[id];
         }

@@ -185,3 +185,56 @@ fn converting_source_to_mesh_freezes_followers_and_keeps_them_in_scene() {
     same_matrix(before.global[&2], e.evaluated().unwrap().global[&2]);
     assert!(e.undo()); assert!(e.project.node(2).unwrap().curve_binding.is_some());
 }
+
+#[test]
+fn object_bone_binding_preserves_world_follows_and_survives_target_deletion() {
+    let mut p = fixture();
+    p.node_mut(1).unwrap().curve = None;
+    p.node_mut(1).unwrap().is_joint = true;
+    p.node_mut(1).unwrap().transform.translation = Vec3::new(3., 2., 1.);
+    for id in [2,3] { p.node_mut(id).unwrap().curve_binding = None; }
+    p.lights[0].curve_binding = None;
+    p.node_mut(3).unwrap().transform.translation = Vec3::new(7., 4., -2.);
+    let scene = p.evaluated(None, 0.).unwrap();
+    p.bind_node_preserving_world(3, CurveBinding { curve:1, ..Default::default() }, &scene.global, 0.).unwrap();
+    same_matrix(p.evaluated(None, 0.).unwrap().global[&3], scene.global[&3]);
+    p.node_mut(1).unwrap().transform.translation += Vec3::Y;
+    let moved = p.evaluated(None, 0.).unwrap();
+    close(moved.global[&3].w_axis.truncate(), scene.global[&3].w_axis.truncate() + Vec3::Y);
+    let mut e = Editor::new(p); let before = e.project.clone();
+    e.delete_node(1).unwrap();
+    assert!(e.project.node(3).unwrap().curve_binding.is_none());
+    same_matrix(e.evaluated().unwrap().global[&3], moved.global[&3]);
+    e.project.validate().unwrap(); assert!(e.undo()); assert_eq!(e.project, before);
+    let restored: Project = serde_json::from_str(&serde_json::to_string(&e.project).unwrap()).unwrap();
+    restored.validate().unwrap(); assert_eq!(restored, before);
+}
+
+#[test]
+fn general_bindings_reject_cycles_and_freeze_light_on_deleted_empty() {
+    let mut p = fixture();
+    p.node_mut(1).unwrap().curve = None; p.node_mut(1).unwrap().empty = true;
+    p.node_mut(1).unwrap().transform.translation = Vec3::new(2.,3.,4.);
+    let mut e = Editor::new(p); let before = e.project.clone();
+    assert!(e.transact("cycle", |p| p.node_mut(1).unwrap().curve_binding = Some(CurveBinding {curve:2,..Default::default()})).is_err());
+    assert_eq!(e.project, before); assert_eq!(e.undo_len(), 0);
+    let scene = e.evaluated().unwrap(); e.delete_node(1).unwrap();
+    assert!(e.project.lights[0].curve_binding.is_none());
+    close(e.project.lights[0].position, scene.lights[0].position);
+    close(e.project.lights[0].direction, scene.lights[0].direction);
+    e.project.validate().unwrap();
+}
+
+#[test]
+fn attaching_an_animated_camera_to_an_object_rebases_all_keys_without_a_jump() {
+    let mut p=fixture();p.node_mut(1).unwrap().curve=None;p.node_mut(1).unwrap().empty=true;
+    p.node_mut(1).unwrap().transform.translation=Vec3::new(3.,2.,1.);
+    p.node_mut(1).unwrap().transform.rotation=Quat::from_rotation_y(0.4);
+    p.node_mut(3).unwrap().curve_binding=None;
+    let mut clip=Clip::new("Camera",2.);clip.key_transform(3,0.,Transform::from_translation(Vec3::Y));
+    clip.key_transform(3,2.,Transform::from_translation(Vec3::new(1.,2.,3.)));p.clips.push(clip);
+    let frames:Vec<_>=[0.,0.5,1.,2.].into_iter().map(|t|p.evaluated(Some(0),t).unwrap().global[&3]).collect();
+    let sampled=p.evaluated(Some(0),1.).unwrap();
+    p.bind_node_preserving_world(3,CurveBinding{curve:1,..Default::default()},&sampled.global,1.).unwrap();p.validate().unwrap();
+    for (i,t) in [0.,0.5,1.,2.].into_iter().enumerate(){same_matrix(frames[i],p.evaluated(Some(0),t).unwrap().global[&3]);}
+}

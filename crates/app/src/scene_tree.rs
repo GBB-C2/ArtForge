@@ -66,6 +66,12 @@ fn draw_light_icon(u: &mut Ui, x: f32, y: f32, kind: LightKind, color: [f32; 4])
 }
 
 impl App {
+    fn folder_indent(&self, folder: Option<u64>) -> f32 {
+        folder.map_or(0., |id| (self.editor.project.collection_chain(id).len() as f32 * 14.).min(98.))
+    }
+    pub(super) fn reveal_folder_chain(&mut self, id: u64) {
+        for folder in self.editor.project.collection_chain(id) { self.collapsed.remove(&folder); }
+    }
     pub(super) fn outliner_rows(&self) -> Vec<SceneEntry> {
         use std::collections::BTreeMap;
         let p = &self.editor.project;
@@ -113,8 +119,9 @@ impl App {
         for blocks in groups.values_mut() {
             blocks.sort_by_key(rank_of);
         }
-        let mut roots = groups.remove(&None).unwrap_or_default();
-        for folder in &p.collections {
+        let mut folders: Vec<_> = p.collections.iter().collect();
+        folders.sort_by_key(|folder| std::cmp::Reverse(p.collection_chain(folder.id).len()));
+        for folder in folders {
             let members = groups.remove(&Some(folder.id)).unwrap_or_default();
             if !query.is_empty()
                 && members.is_empty()
@@ -126,8 +133,10 @@ impl App {
             if !self.collapsed.contains(&folder.id) || !query.is_empty() {
                 block.extend(members.into_iter().flatten());
             }
-            roots.push(block);
+            groups.entry(folder.parent).or_default().push(block);
+            groups.get_mut(&folder.parent).unwrap().sort_by_key(rank_of);
         }
+        let mut roots = groups.remove(&None).unwrap_or_default();
         roots.sort_by_key(rank_of);
         let mut result = vec![];
         for entry in roots.into_iter().flatten() {
@@ -152,15 +161,7 @@ impl App {
                 result.extend(node.modifiers.iter().map(|m|SceneEntry::Modifier(id,m.id,depth)));
                 let materials = node.mesh.and_then(|id| meshes.get(&id))
                     .map(|mesh| self.scene_material_ids_for(node, mesh)).unwrap_or_default();
-                if materials.is_empty() {
-                    result.push(SceneEntry::Material(id, None, depth));
-                } else {
-                    result.extend(
-                        materials
-                            .into_iter()
-                            .map(|mat| SceneEntry::Material(id, Some(mat), depth)),
-                    );
-                }
+                result.extend(materials.into_iter().map(|mat| SceneEntry::Material(id, Some(mat), depth)));
                 if node.fluid.is_some() {
                     result.push(SceneEntry::Fluid(id, depth));
                 }
@@ -185,7 +186,7 @@ impl App {
         self.joints_only = false;
         self.scene_tools.hidden_types &= !4;
         if let Some(id) = self.editor.project.light_collection(index) {
-            self.collapsed.remove(&id);
+            self.reveal_folder_chain(id);
         }
         self.scene_query.clear();
         if let Some(position) = self
@@ -208,7 +209,7 @@ impl App {
         while let Some(current) = cursor {
             self.collapsed.remove(&current);
             if let Some(folder) = self.editor.project.node_collection(current) {
-                self.collapsed.remove(&folder);
+                self.reveal_folder_chain(folder);
             }
             cursor = self.editor.project.node(current).and_then(|n| n.parent);
         }
@@ -456,19 +457,20 @@ impl App {
                     else {
                         continue;
                     };
+                    let indent = (self.editor.project.collection_chain(*id).len().saturating_sub(1) as f32 * 14.).min(84.);
                     let selected = self.scene_tools.collection == Some(*id);
                     if selected {
                         u.surface_outline(r, p.accent);
                     }
                     u.disclosure_button(
-                        [28., y + 1., 22., 23.],
+                        [28. + indent, y + 1., 22., 23.],
                         self.scene_query
                             .is_empty()
                             .then_some(Action::SceneTool(S::CollectionCollapse(*id))),
                         !self.collapsed.contains(id) || !self.scene_query.is_empty(),
                     );
                     u.quiet_icon_button(
-                        [51., y + 1., 24., 23.],
+                        [51. + indent, y + 1., 24., 23.],
                         "",
                         Action::SceneTool(S::CollectionSelect(*id)),
                         false,
@@ -479,7 +481,7 @@ impl App {
                         .input
                         .as_ref()
                         .is_some_and(|i| i.purpose == name_action);
-                    let rect = [78., y + 1., (lw - 165.).max(32.), 23.];
+                    let rect = [78. + indent, y + 1., (lw - 165. - indent).max(16.), 23.];
                     if naming {
                         u.field(rect, &collection.name, name_action);
                     } else {
@@ -513,11 +515,7 @@ impl App {
                 }
                 SceneEntry::Light(index) => {
                     let light = &self.editor.project.lights[*index];
-                    let indent = if self.editor.project.light_collection(*index).is_some() {
-                        14.
-                    } else {
-                        0.
-                    };
+                    let indent = self.folder_indent(self.editor.project.light_collection(*index));
                     let selected = self.active_light_index() == Some(*index);
                     if selected {
                         u.surface_outline(r, p.accent);
@@ -562,7 +560,7 @@ impl App {
                         let Some(settings) = owner.destruction else { continue; };
                         (settings.visible, "Разрушение", Icon::Fracture, 13, Action::SceneDestruction(*node), Action::SceneDestructionVisible(*node), Action::SceneDestructionRemove(*node))
                     };
-                    let x = 52. + (*depth).min(5) as f32 * 10. + if self.editor.project.node_collection(*node).is_some() { 14. } else { 0. };
+                    let x = 52. + (*depth).min(5) as f32 * 10. + self.folder_indent(self.editor.project.node_collection(*node));
                     if self.editor.selected == Some(*node) && self.surface.tab == tab { u.surface_outline(r, p.accent); }
                     else if ui::contains(r, self.mouse) { u.surface(r, p.hover); }
                     let color = if visible { p.text } else { p.muted };
@@ -575,7 +573,7 @@ impl App {
                 SceneEntry::Fluid(node, depth) => {
                     let Some(settings) = self.editor.project.node(*node).and_then(|n| n.fluid) else { continue; };
                     let x = 52. + (*depth).min(5) as f32 * 10.
-                        + if self.editor.project.node_collection(*node).is_some() { 14. } else { 0. };
+                        + self.folder_indent(self.editor.project.node_collection(*node));
                     let selected = self.editor.selected == Some(*node) && self.surface.tab == 4;
                     if selected { u.surface_outline(r, p.accent); }
                     else if ui::contains(r, self.mouse) { u.surface(r, p.hover); }
@@ -589,7 +587,7 @@ impl App {
                 SceneEntry::CameraEffect(node, field, depth) => {
                     let Some(effects) = self.editor.project.node(*node).and_then(|n| n.camera).map(|lens| lens.effects) else { continue; };
                     if !effects.contains(*field) { continue; }
-                    let x = 52. + (*depth).min(5) as f32 * 10. + if self.editor.project.node_collection(*node).is_some() { 14. } else { 0. };
+                    let x = 52. + (*depth).min(5) as f32 * 10. + self.folder_indent(self.editor.project.node_collection(*node));
                     let selected = self.camera_effect_selected(*node, *field) && self.surface.tab == 0;
                     if selected { u.surface_outline(r, p.accent); } else if ui::contains(r, self.mouse) { u.surface(r, p.hover); }
                     let on = effects.effect_enabled(*field);
@@ -601,7 +599,7 @@ impl App {
                 }
                 SceneEntry::Modifier(node,id,depth) => {
                     let Some(modifier)=self.editor.project.node(*node).and_then(|n|n.modifiers.iter().find(|m|m.id==*id)) else {continue;};
-                    let x=52.+(*depth).min(5) as f32*10.+if self.editor.project.node_collection(*node).is_some() {14.}else{0.};
+                    let x=52.+(*depth).min(5) as f32*10.+self.folder_indent(self.editor.project.node_collection(*node));
                     let selected=self.editor.selected==Some(*node) && self.procedural.selected==Some((*node,*id)) && self.surface.tab==8;
                     if selected {u.surface_outline(r,p.accent);}else if ui::contains(r,self.mouse) {u.surface(r,p.hover);}
                     let color=if modifier.enabled {p.text}else{p.muted};
@@ -616,11 +614,7 @@ impl App {
                 SceneEntry::Material(node, material, depth) => {
                     let x = 52.
                         + (*depth).min(5) as f32 * 10.
-                        + if self.editor.project.node_collection(*node).is_some() {
-                            14.
-                        } else {
-                            0.
-                        };
+                        + self.folder_indent(self.editor.project.node_collection(*node));
                     if let Some(mat) = material.and_then(|id| self.editor.project.material(id)) {
                         let selected = self.editor.selected == Some(*node)
                             && self.selected_material_id() == Some(mat.id)
@@ -667,11 +661,7 @@ impl App {
                     };
                     let selected = self.object_selected(node.id);
                     let indent = row.depth.min(5) as f32 * 10.
-                        + if self.editor.project.node_collection(row.id).is_some() {
-                            14.
-                        } else {
-                            0.
-                        };
+                        + self.folder_indent(self.editor.project.node_collection(row.id));
                     if selected {
                         u.surface_outline(r, p.accent);
                     } else if ui::contains(r, self.mouse) {

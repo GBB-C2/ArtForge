@@ -758,6 +758,7 @@ pub enum Action {
     SurfaceArtisticReset,
     SurfaceNprColor(usize),
     OpenColorPicker(Box<Action>),
+    ResetColor(Box<Action>),
     ColorPicker(crate::color_picker::ColorControl),
     SurfaceMaterialNumber(usize),
     SurfaceDoubleSided,
@@ -923,6 +924,7 @@ impl Action {
     }
 
     pub fn is_field(&self) -> bool {
+        if matches!(self, Self::BoneDisplay(BoneDisplayAction::BodyColor | BoneDisplayAction::JointColor)) { return true; }
         if matches!(self,Self::Modifier(ModifierAction::Field(..))) {return true;}
         if matches!(self,Self::Fx(FxAction::Field(_)|FxAction::Color|FxAction::KeyColor(_)|FxAction::SmokeColor)) {return true;}
         if matches!(self,Self::Helper(HelperAction::Size|HelperAction::Number(_))) {return true;}
@@ -1076,7 +1078,8 @@ impl Action {
             Self::DropdownOpen(DropdownKind::MaterialLibrary) => Some("Библиотека материалов · выбор и перетаскивание · Alt+↓"),
             Self::DropdownOpen(DropdownKind::AssetLibrary) => Some("Библиотека · категории, поиск и миниатюры"),
             Self::DropdownOpen(DropdownKind::TextFont) => Some("Шрифт текста · встроенные начертания с кириллицей"),
-            Self::OpenColorPicker(_) => Some("Выбрать цвет на круге · точное значение остаётся в HEX-поле · Alt+↓"),
+            Self::OpenColorPicker(_) => Some("Выбрать цвет · двойной щелчок — ввод HEX · Alt+↓ — палитра"),
+            Self::ResetColor(_) => Some("Сбросить только цвет · Ctrl+Z — отменить"),
             Self::ColorPicker(control) => Some(control.hint()),
             Self::CopyReport => Some("Скопировать весь открытый отчёт в буфер обмена · Ctrl+C"),
             Self::Animation(control) => Some(control.hint()),
@@ -1174,12 +1177,12 @@ impl Action {
             Self::Curve(CurveAction::Draw) => Some("Нарисовать кривую мышью в плоскости текущего вида"),
             Self::Path(PathAction::Field(0)) => Some("Положение вдоль длины кривой · 0–100 % · двойной щелчок — точный ввод"),
             Self::Path(PathAction::Field(_)) => Some("Скорость по времени сцены · 0 — без движения · отрицательное значение — назад"),
-            Self::Path(PathAction::Pick) => Some("Выбрать кривую пипеткой в сцене или списке объектов · Esc / правая кнопка — отмена"),
+            Self::Path(PathAction::Pick) => Some("Выбрать объект, скелет или кость в сцене или списке · Esc / правая кнопка — отмена"),
             Self::Path(PathAction::Edit) => Some("Edit · свободное перемещение гизмо без разрыва привязки · повторное нажатие — вдоль кривой"),
             Self::Path(PathAction::ResetOffset) => Some("Сбросить смещение и вернуть объект на кривую · положение на пути, поворот и масштаб сохраняются"),
-            Self::Path(PathAction::SelectCurve) => Some("Выделить привязанную кривую для изменения её формы"),
-            Self::Path(PathAction::Clear) => Some("Убрать связь с кривой, сохранив текущее положение объекта"),
-            Self::Path(PathAction::Follow) => Some("Ориентировать по касательной · камера и свет направлены вдоль пути"),
+            Self::Path(PathAction::SelectCurve) => Some("Выделить объект привязки"),
+            Self::Path(PathAction::Clear) => Some("Убрать привязку, сохранив текущее положение объекта"),
+            Self::Path(PathAction::Follow) => Some("Наследовать ориентацию цели; для кривой — направление по касательной"),
             Self::Path(PathAction::Repeat) => Some("Повторять проход · на открытой кривой возврат в начало будет скачком"),
             Self::MaterialUsers(_) => Some("Раскрыть объекты, которым назначен материал"),
             Self::MaterialUserSelect(..) => Some("Выделить полигоны меша, назначенные этому материалу"),
@@ -1631,34 +1634,25 @@ impl Ui {
         if !field_rect_valid(r) {
             return;
         }
-        if r[2] < 100. || r[3] < 24. {
-            self.field(r, value, action);
-            return;
-        }
         let p = self.palette();
-        let button = [r[0] + r[2] - 38., r[1], 38., r[3]];
-        self.field([r[0], r[1], r[2] - 42., r[3]], value, action.clone());
-        self.button_surface(button, false, true);
-        let swatch = [button[0] + 4., button[1] + 5., 18., button[3] - 10.];
+        let height = r[3].min(26.); let top = r[1] + (r[3] - height) * 0.5;
+        let field = [r[0], top, (r[2]-28.).max(16.), height];
         let rgb = srgb.map(|v| if v.is_finite() { v.clamp(0., 1.) } else { 0. });
-        self.outlined_surface(swatch, [rgb[0], rgb[1], rgb[2], 1.], p.muted);
-        let center = [button[0] + 29., button[1] + button[3] * 0.5];
-        self.smooth_segment(
-            [center[0] - 3., center[1] - 1.5],
-            [center[0], center[1] + 1.5],
-            1.4,
-            p.text,
-        );
-        self.smooth_segment(
-            [center[0], center[1] + 1.5],
-            [center[0] + 3., center[1] - 1.5],
-            1.4,
-            p.text,
-        );
-        self.hits.push(Hit {
-            rect: button,
-            action: Action::OpenColorPicker(Box::new(action)),
-        });
+        self.field(field, "", action.clone());
+        self.rounded_rect(field, [rgb[0],rgb[1],rgb[2],1.], 4.);
+        if self.cursor.is_some_and(|cursor| contains(field, cursor)) { self.surface_outline(field, p.accent); }
+        let linear = rgb.map(|v| if v <= 0.04045 {v/12.92} else {((v+0.055)/1.055).powf(2.4)});
+        let luminance = linear[0]*0.2126 + linear[1]*0.7152 + linear[2]*0.0722;
+        let ink = if luminance > 0.179 { [0.,0.,0.,1.] } else { [1.,1.,1.,1.] };
+        self.fitted_label([field[0]+8.,top+(height-16.)*0.5,field[2]-16.,16.], value, 11., ink);
+        self.hits.push(Hit { rect: field, action: Action::OpenColorPicker(Box::new(action.clone())) });
+        let reset = match action {
+            Action::BoneDisplay(BoneDisplayAction::BodyColor) => Action::BoneDisplay(BoneDisplayAction::ResetBodyColor),
+            Action::BoneDisplay(BoneDisplayAction::JointColor) => Action::BoneDisplay(BoneDisplayAction::ResetJointColor),
+            _ => Action::ResetColor(Box::new(action)),
+        };
+        self.hits.push(Hit { rect: [r[0]+r[2]-24.,top,24.,height], action: reset });
+        Icon::Reset.draw(self,[r[0]+r[2]-20.,top+(height-16.)*0.5,16.,16.],p.muted);
     }
 
     /// One filled bar contains its label and right-aligned value. The underlying

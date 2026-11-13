@@ -282,6 +282,7 @@ impl App {
         self.uv_action(ui::UvAction::Close);
         self.authoring.editing = None;
         self.scene_tools.selected.clear();
+        self.scene_tools.folder_selected = false;
         self.editor.selected = None;
         self.editor.playing = false;
         self.animation.focused = false;
@@ -353,7 +354,7 @@ impl App {
             self.axis = axis;
         }
         let curve = if gesture.gizmo.mode == Mode::Move && !self.path_offset_editing_for(super::curve_binding_controls::BindingTarget::Light(index)) {
-            if let Some(binding) = original.curve_binding {
+            if let Some(binding) = original.curve_binding.filter(|b| self.editor.project.node(b.curve).is_some_and(|n| n.curve.is_some())) {
                 let prepared = self.evaluated_interactive().and_then(|scene| self.editor.project.curve_translation(
                     binding, &scene.global, self.editor.time, original.position, true));
                 match prepared {

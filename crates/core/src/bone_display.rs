@@ -72,6 +72,10 @@ pub struct BoneDisplay {
     pub joint_color: [f32; 3],
     pub shape: BoneShape,
     pub joint_shape: JointShape,
+    /// Display-only width multiplier; the bone endpoints and bind pose stay fixed.
+    pub size: f32,
+    /// Display-only joint marker multiplier, shared by drawing and picking.
+    pub joint_size: f32,
     pub filled: bool,
     pub joint_filled: bool,
     pub follow_view: bool,
@@ -85,6 +89,8 @@ impl Default for BoneDisplay {
             joint_color: [0.58, 0.62, 0.64],
             shape: BoneShape::Octahedron,
             joint_shape: JointShape::Circle,
+            size: 1.,
+            joint_size: 1.,
             filled: true,
             joint_filled: true,
             follow_view: false,
@@ -99,6 +105,67 @@ impl BoneDisplay {
             .iter()
             .chain(&self.joint_color)
             .all(|v| v.is_finite() && (0. ..=1.).contains(v))
+            && [self.size, self.joint_size]
+                .iter()
+                .all(|v| v.is_finite() && (0.1..=5.).contains(v))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoneDisplayPreset {
+    Classic,
+    Outline,
+    Blocks,
+    Slim,
+    Controls,
+}
+
+impl BoneDisplayPreset {
+    pub const ALL: [Self; 5] = [
+        Self::Classic,
+        Self::Outline,
+        Self::Blocks,
+        Self::Slim,
+        Self::Controls,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Classic => "Стандартное",
+            Self::Outline => "Контур",
+            Self::Blocks => "Блоки",
+            Self::Slim => "Тонкие кости",
+            Self::Controls => "Контроллеры",
+        }
+    }
+
+    pub fn display(self) -> BoneDisplay {
+        let mut d = BoneDisplay::default();
+        match self {
+            Self::Classic => {}
+            Self::Outline => {
+                d.filled = false;
+                d.joint_filled = false;
+            }
+            Self::Blocks => {
+                d.shape = BoneShape::Box;
+                d.joint_shape = JointShape::Rectangle;
+            }
+            Self::Slim => {
+                d.shape = BoneShape::Cylinder;
+                d.size = 0.35;
+                d.joint_size = 0.65;
+            }
+            Self::Controls => {
+                d.shape = BoneShape::Rectangle;
+                d.joint_shape = JointShape::Diamond;
+                d.follow_view = true;
+                d.filled = false;
+                d.joint_filled = false;
+                d.joint_size = 1.5;
+            }
+        }
+        d
     }
 }
 
@@ -122,6 +189,23 @@ mod tests {
     }
 
     #[test]
+    fn size_defaults_keep_old_files_valid_and_reject_invalid_scales() {
+        let old: BoneDisplay = serde_json::from_str(r#"{"color":[0.2,0.4,0.8]}"#).unwrap();
+        assert_eq!((old.size, old.joint_size), (1., 1.));
+        for value in [0., -1., 5.01, f32::NAN, f32::INFINITY] {
+            assert!(!BoneDisplay { size: value, ..old }.is_valid());
+            assert!(!BoneDisplay {
+                joint_size: value,
+                ..old
+            }
+            .is_valid());
+        }
+        for preset in BoneDisplayPreset::ALL {
+            assert!(preset.display().is_valid());
+        }
+    }
+
+    #[test]
     fn appearance_roundtrips_and_invalid_colors_are_rejected() {
         let mut joint = crate::Node::new(1, "Joint");
         joint.is_joint = true;
@@ -134,6 +218,7 @@ mod tests {
             joint_filled: false,
             follow_view: true,
             joint_follow_view: false,
+            ..Default::default()
         });
         let mut project = crate::Project {
             nodes: vec![joint],

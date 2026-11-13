@@ -70,7 +70,7 @@ impl JointControl {
                 }).collect()
             }
         };
-        points.into_iter().map(|p| self.center+(self.basis[0]*p.x+self.basis[1]*p.y)*radius).collect()
+        points.into_iter().map(|p| self.center+(self.basis[0]*p.x+self.basis[1]*p.y)*radius*d.joint_size).collect()
     }
 
     fn hit(&self, point: Vec2) -> Option<f32> {

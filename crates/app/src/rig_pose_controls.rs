@@ -212,15 +212,16 @@ mod tests {
         }
     }
     #[test]
-    fn body_contours_select_fk_without_rewriting_skin_or_pose() {
+    fn body_rings_are_hidden_and_fk_commands_preserve_skin_and_pose() {
         let mut a = app(); let original = a.editor.project.clone();
         for role in [BoneRole::Pelvis,BoneRole::Spine,BoneRole::Chest,BoneRole::Head] {
             let mut u = Ui::with_theme(1.,ui::Theme::Dark,[0.;2]);
             a.draw_rig_handles(&mut u);
             let action = Action::Rig(R::Controller(role_index(role)));
-            let pointer = u.action_point(&action).expect("selectable controller contour");
-            assert_eq!(u.hit(pointer),Some(action.clone()));
+            assert!(u.action_point(&action).is_none(), "body rings must not cover the skeleton");
+            a.scene_tools.selected = a.pose_profile().unwrap().assignments.values().copied().collect();
             a.action(action);
+            assert_eq!(a.object_selection(), a.editor.selected.into_iter().collect());
             assert_eq!(a.editor.selected,a.pose_profile().unwrap().assignments.get(&role).copied());
             assert!(!a.ik);
             assert_eq!(a.editor.project,original);
@@ -523,7 +524,6 @@ impl App {
         };
         let p = u.palette();
         let start = (u.rects.len(), u.texts.len(), u.hits.len());
-        self.draw_body_controllers(u, &eval);
         for role in ENDS {
             let Some(chain) = self.rig_chain_enabled(role) else {
                 continue;
@@ -578,46 +578,6 @@ impl App {
         clip_scrolled(u, start, self.viewport(), 0.);
     }
 
-    fn draw_body_controllers(&self, u: &mut Ui, evaluated: &poseforge_core::EvaluatedScene) {
-        let Some(profile) = self.pose_profile() else { return; };
-        let points: Vec<_> = profile.assignments.values().filter_map(|id| evaluated.global.get(id)).map(|m| m.w_axis.truncate()).collect();
-        if points.is_empty() { return; }
-        let lo = points.iter().copied().fold(Vec3::splat(f32::INFINITY), Vec3::min);
-        let hi = points.iter().copied().fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
-        let scale = (hi-lo).length().max(0.01);
-        let p = u.palette();
-        let area = self.viewport();
-        // Resolve the camera once; project_point() would evaluate a bound camera
-        // again for every segment of every controller.
-        let matrix = self.view().view_projection();
-        for role in [BoneRole::Pelvis, BoneRole::Spine, BoneRole::Chest, BoneRole::Head] {
-            let Some(id) = profile.assignments.get(&role).copied().filter(|id| self.node_selectable(*id)) else { continue; };
-            let Some(model) = evaluated.global.get(&id) else { continue; };
-            let axis_x = model.x_axis.truncate().normalize_or_zero();
-            let axis_y = model.y_axis.truncate().normalize_or_zero();
-            let axis_z = model.z_axis.truncate().normalize_or_zero();
-            let head = role == BoneRole::Head;
-            let center = model.w_axis.truncate() + if head { axis_y*scale*0.04 } else { Vec3::ZERO };
-            let radius = scale * match role { BoneRole::Pelvis => 0.095, BoneRole::Chest => 0.11, BoneRole::Head => 0.06, _ => 0.075 };
-            let point = |i: usize| {
-                let angle = i as f32 * std::f32::consts::TAU/64.;
-                authoring_controls::project(matrix, area, center + axis_x*angle.cos()*radius
-                    + if head { axis_y*angle.sin()*radius*1.15 } else { axis_z*angle.sin()*radius*0.7 })
-            };
-            let points: Vec<_> = (0..=64).map(point).collect();
-            let strokes: Vec<_> = (0..64).filter_map(|i| {
-                let (a,b) = (glam::Vec2::from_array(points[i]?), glam::Vec2::from_array(points[i+1]?));
-                let (lo,hi) = crate::gizmo::clip_range(a,b,[area[0]+5.,area[1]+5.,(area[2]-10.).max(0.),(area[3]-10.).max(0.)])?;
-                Some((a.lerp(b,lo).to_array(),a.lerp(b,hi).to_array()))
-            }).collect();
-            let action = Action::Rig(R::Controller(role_index(role)));
-            u.path_hit(action.clone(), strokes.clone(), 5.);
-            let active = self.editor.selected == Some(id) || (self.drag.is_none() && u.hit(self.mouse) == Some(action));
-            let color = if active { p.accent } else { crate::bones::role_color(Some(role), &p) };
-            u.smooth_segments(&strokes, if active { 5.5 } else { 4.5 }, [0.02,0.025,0.035,0.8]);
-            u.smooth_segments(&strokes, if active { 2.8 } else { 1.8 }, color);
-        }
-    }
     pub(super) fn draw_rig_pose_panel(&self, u: &mut Ui, x: f32, mut y: f32, w: f32) {
         let p = u.palette();
         u.fitted_label([x, y, w, 18.], "Выбор части тела", 12., p.text);

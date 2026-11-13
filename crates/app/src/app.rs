@@ -219,6 +219,8 @@ mod primitive_controls;
 mod program_settings;
 #[path = "bone_display_controls.rs"]
 mod bone_display_controls;
+#[path = "color_swatches.rs"]
+mod color_swatches;
 #[path = "modifier_controls.rs"]
 mod modifier_controls;
 #[cfg(test)]
@@ -230,6 +232,9 @@ mod object_selection_tests;
 #[cfg(test)]
 #[path = "bone_display_controls_tests.rs"]
 mod bone_display_controls_tests;
+#[cfg(test)]
+#[path = "appearance_workflow_tests.rs"]
+mod appearance_workflow_tests;
 #[path = "properties.rs"]
 mod properties;
 #[cfg(test)]
@@ -284,7 +289,6 @@ pub fn run(initial: Option<PathBuf>) -> Result<(), String> {
     if app.initial.is_none() {
         app.action(Action::New);
         app.status.clear();
-        app.welcome.open=true;
     }
     app.material_previews.set_waker(event_loop.create_proxy());
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
@@ -300,6 +304,8 @@ enum Tool {
 }
 #[derive(Clone)]
 enum Drag {
+    Swatch(color_swatches::SwatchDrag),
+    CreationPanel { start: [f32; 2], origin: [f32; 2], original: Option<[f32; 2]>, moved: bool },
     Curve(curve_controls::CurveDrag),
     RigPole(rig_pose_controls::PoleDrag),
     Uv(uv_editor::UvDrag),
@@ -569,6 +575,7 @@ struct App {
     morphs: morph_controls::MorphState,
     assets: asset_library::AssetLibrary,
     primitive_collapsed: bool,
+    bone_display_collapsed: bool,
     weights: weight_paint::WeightPaint,
     window: Option<Arc<Window>>,
     // Stop the thumbnail renderer before dropping the window renderer.
@@ -622,6 +629,7 @@ struct App {
     view_axis_press: Option<(u8, [f32; 2])>,
     input: Option<TextEdit>,
     color_picker: Option<color_controls::ColorSession>,
+    swatches: color_swatches::Swatches,
     text_selecting: bool,
     native_picker: Option<controls::NativePicker>,
     clipboard: Option<arboard::Clipboard>,
@@ -748,6 +756,7 @@ impl App {
             morphs: Default::default(),
             assets: Default::default(),
             primitive_collapsed: false,
+            bone_display_collapsed: false,
             weights: weight_paint::WeightPaint::default(),
             window: None,
             renderer: None,
@@ -800,6 +809,7 @@ impl App {
             view_axis_press: None,
             input: None,
             color_picker: None,
+            swatches: Default::default(),
             text_selecting: false,
             native_picker: None,
             clipboard: arboard::Clipboard::new().ok(),
@@ -990,7 +1000,7 @@ impl App {
             0 if self.selected_text().is_some() => text_controls::PANEL_BOTTOM,
             0 if self.selected_helper().is_some() => self.helper_panel_bottom(),
             0 if self.rig_context() => self.rig_object_bottom(),
-            9 => 590.,
+            9 => 430.,
             10 => self.normals_panel_bottom(),
             1 if !self.surface.material_library && self.surface_mesh_id().is_none()
                 || self.material_locked() =>
@@ -1199,6 +1209,7 @@ impl App {
                 return;
             }
         }
+        self.scene_tools.selected.clear();
         self.editor.selected = Some(id);
         self.active_rig_root = profile.root;
         self.reveal_scene_node(id);
@@ -1263,7 +1274,7 @@ impl App {
     }
     fn selected_gizmo(&self) -> Option<crate::gizmo::Gizmo> {
         if self.object_selection().iter().any(|id| self.preview_shard_or_child(*id)) { return None; }
-        if self.object_selection().len() > 1 && self.editor.mode == EditorMode::Scene {
+        if self.object_selection().len() > 1 && self.group_transform_mode() {
             return self.group_gizmo();
         }
         if self.authoring.editing.is_some() {
@@ -1408,6 +1419,9 @@ impl App {
             }
             if let Drag::LiveParameter(ref parameter) = drag {
                 self.restore_live_parameter(parameter);
+            }
+            if let Drag::CreationPanel { original, .. } = &drag {
+                self.preferences.creation_panel_position = *original;
             }
             if let Drag::Panel(ref panel) = drag {
                 if panel.right {
@@ -2464,6 +2478,7 @@ impl App {
         }
     }
     fn action(&mut self, a: Action) {
+        if self.swatch_menu_action(&a) { return; }
         if self.welcome_action(&a) {return;}
         if self.path_pick.is_some() {
             if let Action::Select(id)=a {self.pick_path_node(id);return;}
@@ -2670,6 +2685,7 @@ impl App {
             Action::Rig(action) => self.rig_action(action),
             Action::RigStage(stage) => self.rig_stage_action(stage),
             Action::BoneDisplay(action) => self.bone_display_action(action),
+            Action::SwatchCommand(_) | Action::SwatchDismiss => {},
             Action::RigReferencePick(reference) => self.begin_rig_reference_pick(reference),
             Action::RigReferenceSet(reference, id) => self.set_rig_reference(reference, id),
             Action::Normal(action) => self.normals_action(action),
@@ -3726,6 +3742,7 @@ impl App {
         self.set_time(frame / self.editor.project.fps as f64);
     }
     fn mouse_down(&mut self, button: MouseButton) {
+        if self.swatch_menu_pointer(button) { return; }
         if self.welcome_active() {
             if button==MouseButton::Left {if let Some(action)=self.ui.hit(self.mouse) {self.welcome.focus=Some(action.clone());self.action(action);}}
             return;
@@ -3762,11 +3779,13 @@ impl App {
         if self.dropdown_pointer_down(button) {
             return;
         }
+        if self.begin_swatch_pointer(button) { return; }
         if self.color_pointer_down(button) {
             self.redraw();
             return;
         }
         if button == MouseButton::Left {
+            if self.extend_bone_selection_at_pointer() { return; }
             if !self.has_modal() {
                 self.animation.focused = self.animation_panel_visible()
                     && ui::contains(self.timeline.dock_rect(self.width, self.height), self.mouse);
@@ -3800,6 +3819,7 @@ impl App {
                     }
                     return;
                 }
+                if self.begin_creation_panel_drag(&action) { return; }
                 if self.begin_scene_drag(&action) {
                     return;
                 }
@@ -3998,6 +4018,8 @@ impl App {
             return;
         }
         match self.drag.clone() {
+            Some(Drag::Swatch(drag)) => self.update_swatch_drag(drag),
+            Some(Drag::CreationPanel { start, origin, original, moved }) => self.update_creation_panel_drag(start, origin, original, moved),
             Some(Drag::Material(_)) => {}
             Some(Drag::Scene(_)) => self.scroll_scene_drag(),
             Some(Drag::CameraNavigate(drag)) => self.update_camera_navigation(drag, p),
@@ -4148,12 +4170,7 @@ impl App {
                 || (!self.modifiers.shift_key() && !self.modifiers.control_key()))
         {
             if let Ok(eval) = self.evaluated_viewport() {
-                let hit = if self.editor.mode == EditorMode::Scene {
-                    self.pick_viewport_node(&eval)
-                } else {
-                    crate::picking::pick_mesh(&self.picking_project(), &eval,
-                        self.view().view_projection(), self.viewport(), self.mouse)
-                };
+                let hit = self.pick_viewport_node(&eval);
                 if let Some(id) = hit { self.select_in_viewport(id); }
                 else if !self.modifiers.shift_key() && !self.modifiers.control_key() {
                     self.clear_scene_selection();
@@ -4161,6 +4178,11 @@ impl App {
             }
         }
         match drag {
+            Some(Drag::Swatch(drag)) => self.finish_swatch_drag(drag),
+            Some(Drag::CreationPanel { moved, .. }) => {
+                if moved { self.persist_preferences(); }
+                else { self.primitive_action(ui::PrimitiveAction::Collapse); }
+            }
             Some(Drag::Curve(drag)) => self.finish_curve_drag(drag),
             Some(Drag::ComponentSelection(drag)) => self.finish_component_selection(drag),
             Some(Drag::LiveParameter(_)) => {}
@@ -4319,11 +4341,7 @@ impl App {
                 } else {
                     None
                 };
-                let selected = if self.editor.mode == EditorMode::Scene {
-                    self.object_selection()
-                } else {
-                    self.editor.selected.into_iter().collect()
-                };
+                let selected = self.object_selection();
                 bones.draw_selected(&mut u, &selected, hovered);
             }
         }
@@ -5098,6 +5116,8 @@ impl App {
         self.draw_dropdown(&mut u);
         self.draw_collision_popup(&mut u);
         self.draw_color_picker(&mut u);
+        self.draw_swatch_drag(&mut u);
+        self.draw_swatch_menu(&mut u);
         self.draw_environment_library(&mut u);
         if let Some(input) = &mut self.input {
             if let Some(rect) = u
@@ -5138,7 +5158,7 @@ impl App {
         u
     }
     fn scroll(&mut self, delta: f32) {
-        if self.welcome_active() {return;}
+        if self.welcome_active() || self.swatch_menu_open() {return;}
         if self.collision_scroll(delta) { return; }
         if self.dropdown_is_open(ui::DropdownKind::AssetLibrary) {
             self.asset_popup_scroll(delta);
@@ -5276,6 +5296,7 @@ impl App {
         if event.state != ElementState::Pressed || self.native_picker.is_some() {
             return;
         }
+        if self.swatch_menu_key(&event.logical_key) || self.swatch_open_key(&event.logical_key) { return; }
         if self.welcome_key(&event.logical_key,event.repeat) {return;}
         if self.environment_key(&event.logical_key) {
             return;
@@ -5532,7 +5553,6 @@ impl App {
                     window.set_title("ArtForge Studio · 3D Artwork");
                 }
                 eprintln!("GPU готов: {} · {:.1} с",renderer.adapter_name,elapsed.as_secs_f64());
-                if let Some(image)=welcome::artwork() {if let Err(error)=renderer.set_ui_image(image) {self.status=error;}}
                 self.renderer=Some(renderer);
                 // Loading time must not advance the animation or physics clock.
                 self.last_tick=Instant::now();
@@ -5828,6 +5848,7 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::DroppedFile(path) => {
+                self.dismiss_swatch_menu();
                 self.close_asset_popup();
                 self.close_material_dropdown();
                 self.dropdown = None;
@@ -5842,6 +5863,7 @@ impl ApplicationHandler for App {
                 self.redraw();
             }
             WindowEvent::Focused(false) => {
+                self.dismiss_swatch_menu();
                 self.path_pick=None;
                 self.path_edit=None;
                 self.close_collision_selection();

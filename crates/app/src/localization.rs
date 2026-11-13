@@ -20,8 +20,15 @@ impl Language {
     }
 }
 const LABELS:&[(&str,&str)]=&[
+    ("Оформление костей","Bone appearance"), ("Оформление выбранной кости","Selected bone appearance"),
+    ("Стандартное","Default"), ("Тонкие кости","Slim bones"), ("Контроллеры","Controls"), ("Блоки","Blocks"),
+    ("Своё оформление","Custom appearance"), ("Разные цвета","Mixed colors"), ("Разные формы","Mixed shapes"),
+    ("Размер · разные","Size · mixed"), ("Shift / Ctrl + клик — несколько костей","Shift / Ctrl + click — select multiple bones"),
+    ("Отменить","Undo"), ("Вернуть","Redo"), ("Копировать","Copy"),
+    ("Цвет скопирован","Color copied"),
+
     ("Выберите объект в сцене","Select an object in the scene"),("Выберите объект или сустав","Select an object or joint"),
-    ("Объект и трансформация","Object and transform"),("Интерфейс","Interface"),("Просмотр","Viewport"),("Отображение","Display"),
+    ("Объект и трансформация","Object and transform"),("Интерфейс","Interface"),("Просмотр","Viewport"),("Отображение","Display"),("Тема, акцент и язык","Theme, accent and language"),
     ("Источник света","Light source"),("Положение и форма","Position and shape"),("Среда","Medium"),
     ("Камера и трансформация","Camera and transform"),("Объектив и кадр","Lens and framing"),
     ("Фокус и композиция","Focus and composition"),("Сохранённые ракурсы","Saved views"),("Силовое поле","Force field"),

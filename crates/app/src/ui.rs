@@ -272,6 +272,7 @@ pub enum DropdownKind {
     SkeletonCreate,
     BoneShape,
     JointShape,
+    BonePreset,
     RigSkeleton,
     RigMesh,
     PhysicsType,
@@ -580,6 +581,8 @@ pub enum Action {
     ResetNumber(Box<Action>),
     RigStage(u8),
     BoneDisplay(BoneDisplayAction),
+    SwatchCommand(usize),
+    SwatchDismiss,
     RigReferencePick(RigReference),
     RigReferenceSet(RigReference, u64),
     Normal(NormalAction),
@@ -851,6 +854,11 @@ pub enum ModelingTool {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BoneDisplayAction {
+    Collapse,
+    Preset(poseforge_core::BoneDisplayPreset),
+    Size(bool),
+    ResetBodyShape,
+    ResetJointShape,
     BodyColor,
     JointColor,
     ResetBodyColor,
@@ -928,7 +936,7 @@ impl Action {
     }
 
     pub fn is_field(&self) -> bool {
-        if matches!(self, Self::BoneDisplay(BoneDisplayAction::BodyColor | BoneDisplayAction::JointColor)) { return true; }
+        if matches!(self, Self::BoneDisplay(BoneDisplayAction::BodyColor | BoneDisplayAction::JointColor | BoneDisplayAction::Size(_))) { return true; }
         if matches!(self,Self::Modifier(ModifierAction::Field(..))) {return true;}
         if matches!(self,Self::Fx(FxAction::Field(_)|FxAction::Color|FxAction::KeyColor(_)|FxAction::SmokeColor)) {return true;}
         if matches!(self,Self::Helper(HelperAction::Size|HelperAction::Number(_))) {return true;}
@@ -1215,7 +1223,11 @@ impl Action {
             Self::SurfaceTab(6) => Some("Физика выбранного меша: ткань, столкновения, трение и изгиб"),
             Self::SurfaceTab(7) => Some("Геометрия: редактирование вершин и граней · F2"),
             Self::RigStage(0) => Some("Скелет и IK: создание костей, положение и проверка цепи"),
-            Self::BoneDisplay(BoneDisplayAction::BodyColor) => Some("Цвет выбранной кости · предпросмотр, HEX, Enter — применить, Esc — отменить"),
+            Self::BoneDisplay(BoneDisplayAction::Collapse) => Some("Свернуть или развернуть оформление выбранных костей"),
+            Self::BoneDisplay(BoneDisplayAction::Size(_)) => Some("Размер оформления · ползунок или двойной клик для числа · сброс справа"),
+            Self::BoneDisplay(BoneDisplayAction::ResetBodyShape | BoneDisplayAction::ResetJointShape) => Some("Сбросить только форму · размеры и цвета сохраняются"),
+            Self::BoneDisplay(BoneDisplayAction::Preset(_)) => Some("Применить оформление ко всем выбранным костям · Undo"),
+            Self::BoneDisplay(BoneDisplayAction::BodyColor) => Some("Цвет выбранных костей · ПКМ — меню · потяните для копирования цвета"),
             Self::BoneDisplay(BoneDisplayAction::JointColor) => Some("Отдельный цвет сустава выбранной кости"),
             Self::BoneDisplay(BoneDisplayAction::ResetBodyColor) => Some("Сбросить только цвет кости · форму и цвет сустава сохранить · Undo"),
             Self::BoneDisplay(BoneDisplayAction::ResetJointColor) => Some("Сбросить только цвет сустава · форму и цвет кости сохранить · Undo"),
@@ -1257,7 +1269,7 @@ impl Action {
             Self::Mode(0) => Some("Объект · завершить редактирование сетки и выбирать объекты целиком"),
             Self::Primitive(PrimitiveAction::CurvePoint(_)) => Some("Выбрать контрольную точку Безье для редактирования X/Y/Z"),
             Self::Primitive(PrimitiveAction::Open) => Some("Открыть полупрозрачную панель параметров меша или кривой"),
-            Self::Primitive(PrimitiveAction::Collapse) => Some("Свернуть или развернуть параметры фигуры"),
+            Self::Primitive(PrimitiveAction::Collapse) => Some("Потяните заголовок для переноса · клик — свернуть или развернуть"),
             Self::Primitive(PrimitiveAction::Close) => Some("Закрыть панель, сохранив фигуру · Esc"),
             Self::Primitive(PrimitiveAction::Reset) => Some("Вернуть исходные размеры и подразделения · можно отменить"),
             Self::Author(AuthorAction::SelectMode(MeshSelection::Vertex)) => Some("Вершина · 1 в режиме сетки · Shift: добавить или снять выбор · потяните выделение"),

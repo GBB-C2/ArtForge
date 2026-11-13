@@ -52,7 +52,7 @@ impl App {
     }
     pub(super) fn rig_object_bottom(&self) -> f32 {
         RIG_OBJECT_START + match self.authoring.rig_stage {
-            0 => 200. + if self.bone_display_node().is_some() { bone_display_controls::HEIGHT } else { 0. },
+            0 => 200. + self.bone_display_height(),
             1 => 512., _ => 534.
         }
     }

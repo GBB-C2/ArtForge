@@ -372,3 +372,22 @@ fn the_full_human_has_one_visible_body_per_authored_bone_including_finger_tips()
         export(name, &detail_view, &ui);
     }
 }
+
+#[test]
+fn display_sizes_change_visible_and_pickable_geometry_without_moving_endpoints() {
+    let view = view();
+    let mut small = fixture(BoneDisplay { shape: BoneShape::Rectangle, size: 0.25, joint_size: 0.5, ..Default::default() }, &view);
+    let mut large = fixture(BoneDisplay { shape: BoneShape::Rectangle, size: 3., joint_size: 3., ..Default::default() }, &view);
+    let center = small.joints.iter().find(|j|j.id==1).unwrap().center;
+    assert_eq!(center,large.joints.iter().find(|j|j.id==1).unwrap().center);
+    // A point inside the large marker is outside the small marker and body.
+    let point=(center+Vec2::new(-13.,0.)).to_array();
+    assert_eq!(small.hit(point),None);assert_eq!(large.hit(point),Some(1));
+    small.joints.clear();large.joints.clear();
+    let mid=project_point(view.view_projection(),view.viewport,Vec3::Y*0.5).unwrap().0;
+    let point=(mid+Vec2::new(20.,0.)).to_array();
+    assert_eq!(small.hit(point),None);assert_eq!(large.hit(point),Some(1));
+    let before:Vec<_>=small.bones[0].shape.faces.iter().flat_map(|f|f.points.iter()).map(|p|p.x).collect();
+    let after:Vec<_>=large.bones[0].shape.faces.iter().flat_map(|f|f.points.iter()).map(|p|p.x).collect();
+    assert!(after.iter().copied().fold(f32::NEG_INFINITY,f32::max)>before.iter().copied().fold(f32::NEG_INFINITY,f32::max));
+}

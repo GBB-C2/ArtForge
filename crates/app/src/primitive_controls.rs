@@ -103,12 +103,35 @@ impl App {
         let sidebar = self.left_panel_rect();
         let width = 268_f32.min((right - 24.).max(180.));
         let x = (sidebar[0] + sidebar[2] + 12.).min(right - width).max(12.);
-        Some([
-            x,
-            (viewport[1] + viewport[3] - height - 12.).max(76.),
-            width,
-            height,
-        ])
+        let [x, y] = self.preferences.creation_panel_position.unwrap_or([
+            x, (viewport[1] + viewport[3] - height - 12.).max(76.),
+        ]);
+        Some([x.clamp(12., (self.width - width - 12.).max(12.)),
+            y.clamp(viewport[1] + 12., (viewport[1] + viewport[3] - height - 12.).max(viewport[1] + 12.)),
+            width, height])
+    }
+    pub(super) fn begin_creation_panel_drag(&mut self, action: &Action) -> bool {
+        if *action != Action::Primitive(P::Collapse) { return false; }
+        if !self.resolve_input() { return true; }
+        let Some(rect) = self.primitive_panel_rect() else { return true; };
+        self.drag = Some(Drag::CreationPanel {
+            start: self.mouse, origin: [rect[0], rect[1]],
+            original: self.preferences.creation_panel_position, moved: false,
+        });
+        self.drag_button = Some(MouseButton::Left);
+        true
+    }
+    pub(super) fn update_creation_panel_drag(&mut self, start: [f32;2], origin: [f32;2], original: Option<[f32;2]>, moved: bool) {
+        let moved = moved || (self.mouse[0]-start[0]).hypot(self.mouse[1]-start[1]) > 3.;
+        if moved {
+            self.preferences.creation_panel_position = Some([
+                origin[0] + self.mouse[0]-start[0], origin[1] + self.mouse[1]-start[1],
+            ]);
+            if let Some(rect) = self.primitive_panel_rect() {
+                self.preferences.creation_panel_position = Some([rect[0],rect[1]]);
+            }
+        }
+        self.drag = Some(Drag::CreationPanel { start, origin, original, moved });
     }
     pub(super) fn prune_primitive_panel(&mut self) {
         if self.primitive_panel.is_some_and(|id| {
@@ -334,7 +357,6 @@ impl App {
         };
         let p = u.palette();
         u.floating_surface([x, y, w, h], 0.90, true);
-        u.rect([x + 1., y + 5., 3., h - 10.], p.accent);
         u.hits.push(ui::Hit {
             rect: [x, y, w, h],
             action: Action::Primitive(P::Backdrop),

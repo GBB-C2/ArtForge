@@ -159,14 +159,28 @@ impl App {
             }
         })
     }
+    pub(super) fn extend_bone_selection_at_pointer(&mut self) -> bool {
+        if !(self.modifiers.shift_key() || self.modifiers.control_key())
+            || !matches!(self.editor.mode, EditorMode::Pose | EditorMode::Animation)
+            || self.has_modal() || self.input.is_some() || self.job.is_some() || self.scene_write_pending()
+            || !(self.canvas_input_at(self.mouse) || matches!(self.ui.hit(self.mouse),
+                Some(Action::Rig(ui::RigAction::Endpoint(_) | ui::RigAction::Controller(_))))) { return false; }
+        let Ok(eval) = self.evaluated_viewport() else { return false; };
+        let Some(id) = self.pick_viewport_node(&eval).filter(|id| self.editor.project.node(*id).is_some_and(|n|n.is_joint)) else { return false; };
+        self.select_in_viewport(id);
+        self.redraw();
+        true
+    }
     pub(super) fn select_object(&mut self, id: u64) {
         self.path_edit = None;
         if self.editor.project.node(id).is_none() {
             return;
         }
         self.scene_tools.folder_selected = false;
+        let bone_selection = matches!(self.editor.mode, EditorMode::Pose | EditorMode::Animation)
+            && self.editor.project.node(id).is_some_and(|n| n.is_joint);
         let extend = (self.modifiers.shift_key() || self.modifiers.control_key())
-            && self.editor.mode == EditorMode::Scene;
+            && (self.editor.mode == EditorMode::Scene || bone_selection);
         let (id, members) = if self.editor.mode == EditorMode::Scene {
             self.skeleton_object_selection(id)
         } else {
@@ -177,6 +191,9 @@ impl App {
         } else {
             BTreeSet::new()
         };
+        if bone_selection {
+            selected.retain(|id| self.editor.project.node(*id).is_some_and(|n| n.is_joint));
+        }
         if extend && selected.contains(&id) {
             selected.retain(|id| !members.contains(id));
             self.editor.selected = selected.iter().next_back().copied();
@@ -483,8 +500,12 @@ impl App {
         self.update_dirty();
         Ok(true)
     }
+    pub(super) fn group_transform_mode(&self) -> bool {
+        self.editor.mode == EditorMode::Scene || (matches!(self.editor.mode, EditorMode::Pose | EditorMode::Animation)
+            && self.object_selection().iter().all(|id| self.editor.project.node(*id).is_some_and(|n| n.is_joint)))
+    }
     pub(super) fn group_gizmo(&self) -> Option<Gizmo> {
-        if self.editor.mode != EditorMode::Scene
+        if !self.group_transform_mode()
             || self.has_modal()
             || self.authoring.editing.is_some()
             || self.tool == Tool::Orbit
@@ -531,7 +552,7 @@ impl App {
     }
     pub(super) fn begin_group_drag(&mut self, handle: Handle) -> bool {
         let selected = self.object_selection();
-        if selected.len() < 2 || self.editor.mode != EditorMode::Scene {
+        if selected.len() < 2 || !self.group_transform_mode() {
             return false;
         }
         let Some(gizmo) = self.group_gizmo() else {

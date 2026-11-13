@@ -309,7 +309,7 @@ impl App {
             false,
         );
         let context = if self.surface.tab == 9 {
-            "Интерфейс и просмотр"
+            "Тема, акцент и язык"
         } else if matches!(self.surface.tab, 3 | 5) {
             self.editor.project.title.as_str()
         } else if let Some(index) = self.active_light_index() {

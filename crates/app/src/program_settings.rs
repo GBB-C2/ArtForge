@@ -26,34 +26,11 @@ impl App {
             ui::DropdownKind::Accent,
             "Выбрать цвет",
         );
-        for (i, (label, action, checked)) in [
-            ("Сетка", Action::ToggleGrid, self.preferences.grid),
-            (
-                "Показывать скелеты",
-                Action::ToggleSkeleton,
-                self.preferences.skeleton,
-            ),
-            (
-                "Адаптивное качество",
-                Action::AdaptivePreview,
-                self.preferences.adaptive_preview,
-            ),
-            (
-                "Статистика просмотра",
-                Action::PerformanceOverlay,
-                self.preferences.performance_overlay,
-            ),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            u.checkbox([x, 318. + i as f32 * 40., w, 30.], label, action, checked);
-        }
-        u.fitted_label([x,484.,w,18.],"Язык",12.,p.muted);
+        u.fitted_label([x,324.,w,18.],"Язык",12.,p.muted);
         for (i,(label,language)) in [("Русский",crate::localization::Language::Russian),("English β",crate::localization::Language::English)].into_iter().enumerate() {
-            u.quiet_button([x+i as f32*(half+6.),510.,half,30.],label,Action::Language(language),self.preferences.language==language);
+            u.quiet_button([x+i as f32*(half+6.),350.,half,30.],label,Action::Language(language),self.preferences.language==language);
         }
-        u.fitted_label([x,554.,w,18.],"Настройки сохраняются автоматически",11.,p.muted);
+        u.fitted_label([x,394.,w,18.],"Настройки сохраняются автоматически",11.,p.muted);
     }
 }
 

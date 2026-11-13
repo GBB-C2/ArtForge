@@ -15,7 +15,7 @@ use winit::{
 enum Target {
     CameraEffects { node: u64, effects: poseforge_core::CameraEffects },
     Scene,
-    Bone(poseforge_core::Node),
+    Bone(Vec<poseforge_core::Node>),
     Modifiers {node:poseforge_core::Node, modifier:Option<u64>, choices:Vec<u64>},
     Helper(poseforge_core::Node),
     Text {node:u64,settings:poseforge_core::TextSettings},
@@ -134,6 +134,7 @@ fn labels(kind: DropdownKind, project: &poseforge_core::Project) -> Vec<String> 
         DropdownKind::TextFont => poseforge_core::TextFont::ALL.into_iter().map(|font|font.label()).collect(),
         DropdownKind::CurveCreate => poseforge_core::CurvePreset::BASIC.into_iter().map(|p| p.label()).chain(std::iter::once("Нарисовать кривую")).collect(),
         DropdownKind::SkeletonCreate => vec!["Пустая кость", "Цепь · 3 кости", "Человек · 67 костей"],
+        DropdownKind::BonePreset => poseforge_core::BoneDisplayPreset::ALL.into_iter().map(|p| p.label()).collect(),
         DropdownKind::BoneShape => poseforge_core::BoneShape::ALL.into_iter().map(|s| s.label()).collect(),
         DropdownKind::JointShape => poseforge_core::JointShape::ALL.into_iter().map(|s| s.label()).collect(),
         DropdownKind::PhysicsType => vec!["Без физики", "Коллайдер · объём меша", "Ткань · XPBD", "Жидкость · контейнер", "Разрушение · осколки"],
@@ -238,8 +239,9 @@ impl App {
         let settings = self.editor.project.render_settings;
         match kind {
             DropdownKind::ModifierAdd | DropdownKind::ModifierTarget(..) => None,
-            DropdownKind::BoneShape => self.bone_display_node().and_then(|n| poseforge_core::BoneShape::ALL.iter().position(|s| *s == n.bone_display.unwrap_or_default().shape)),
-            DropdownKind::JointShape => self.bone_display_node().and_then(|n| poseforge_core::JointShape::ALL.iter().position(|s| *s == n.bone_display.unwrap_or_default().joint_shape)),
+            DropdownKind::BonePreset => self.bone_display_preset_index(),
+            DropdownKind::BoneShape => self.bone_display_shape_index(false),
+            DropdownKind::JointShape => self.bone_display_shape_index(true),
             DropdownKind::EmptyShape=>self.selected_helper().and_then(|n|poseforge_core::EmptyShape::ALL.iter().position(|s|*s==n.empty_shape)),
             DropdownKind::FxKind=>self.selected_fx().map(|(_,f)|f.kind.index() as usize),
             DropdownKind::FxQuality=>self.selected_fx().and_then(|(_,f)|poseforge_core::FxQuality::ALL.iter().position(|q|*q==f.quality)),
@@ -407,7 +409,9 @@ impl App {
                 && self.modifier_editable(node.id) && self.editor.project.node(node.id)==Some(node)
                 && (modifier.is_none() || self.selected_modifier().is_some_and(|(id,m)|id==node.id && Some(m.id)==*modifier)
                     && modifier_targets(&self.editor.project,node.id)==*choices),
-            Target::Bone(node) => self.surface.tab == 0 && self.bone_display_editable() && self.bone_display_node() == Some(node),
+            Target::Bone(nodes) => self.surface.tab == 0 && self.bone_display_editable()
+                && self.bone_display_ids() == nodes.iter().map(|n|n.id).collect()
+                && nodes.iter().all(|n| self.editor.project.node(n.id) == Some(n)),
             Target::Helper(node)=>self.selected_helper()==Some(node) && self.helper_editable(node.id),
             Target::Text {node,settings} => self.surface.tab==0 && self.selected_text()==Some((*node,settings)) && self.text_editable(*node),
             Target::RigReference { reference, choices, selection, skeleton, mesh } => self.rig_reference_editable()
@@ -517,9 +521,9 @@ impl App {
                 if modifier.is_some() && choices.is_empty() {return;}
                 Target::Modifiers {node:node.clone(),modifier,choices}
             },
-            DropdownKind::BoneShape | DropdownKind::JointShape => {
+            DropdownKind::BoneShape | DropdownKind::JointShape | DropdownKind::BonePreset => {
                 if !self.bone_display_editable() || self.surface.tab != 0 { return; }
-                Target::Bone(self.bone_display_node().unwrap().clone())
+                Target::Bone(self.bone_display_ids().into_iter().filter_map(|id|self.editor.project.node(id).cloned()).collect())
             }
             DropdownKind::EmptyShape|DropdownKind::ForceKind|DropdownKind::FxKind|DropdownKind::FxPreset(_)|DropdownKind::FxQuality|DropdownKind::FxEmission=>{let Some(n)=self.selected_helper().filter(|n|self.helper_editable(n.id)) else{return;};Target::Helper(n.clone())},
             DropdownKind::TextFont => {
@@ -641,6 +645,7 @@ impl App {
                 Target::Modifiers {node,modifier:Some(id),choices} => choices.get(index).map(|target|Action::Modifier(crate::ui::ModifierAction::Transfer(node.id,*id,*target,copy))),
                 _=>None,
             },
+            DropdownKind::BonePreset => poseforge_core::BoneDisplayPreset::ALL.get(index).map(|p| Action::BoneDisplay(crate::ui::BoneDisplayAction::Preset(*p))),
             DropdownKind::BoneShape => poseforge_core::BoneShape::ALL.get(index).map(|s| Action::BoneDisplay(crate::ui::BoneDisplayAction::BodyShape(*s))),
             DropdownKind::JointShape => poseforge_core::JointShape::ALL.get(index).map(|s| Action::BoneDisplay(crate::ui::BoneDisplayAction::JointShape(*s))),
             DropdownKind::RigSkeleton | DropdownKind::RigMesh => match &dropdown.target {

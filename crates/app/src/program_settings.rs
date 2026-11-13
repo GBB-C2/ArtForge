@@ -49,26 +49,11 @@ impl App {
         {
             u.checkbox([x, 318. + i as f32 * 40., w, 30.], label, action, checked);
         }
-        u.fitted_label([x, 508., w, 18.], "Путь к Blender", 12., p.muted);
-        let path = self
-            .preferences
-            .blender_path
-            .as_ref()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "Автоматически".into());
-        u.field([x, 534., w, 30.], &path, Action::EditBlenderPath);
-        u.checkbox(
-            [x, 580., w, 30.],
-            "Импортировать анимации .blend",
-            Action::ToggleBlendImportAnimations,
-            self.preferences.blend_import_animations,
-        );
-        u.fitted_label(
-            [x, 630., w, 18.],
-            "Настройки сохраняются автоматически",
-            11.,
-            p.muted,
-        );
+        u.fitted_label([x,484.,w,18.],"Язык",12.,p.muted);
+        for (i,(label,language)) in [("Русский",crate::localization::Language::Russian),("English β",crate::localization::Language::English)].into_iter().enumerate() {
+            u.quiet_button([x+i as f32*(half+6.),510.,half,30.],label,Action::Language(language),self.preferences.language==language);
+        }
+        u.fitted_label([x,554.,w,18.],"Настройки сохраняются автоматически",11.,p.muted);
     }
 }
 

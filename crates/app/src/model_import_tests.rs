@@ -9,11 +9,11 @@ fn import_app() -> App {
     app.height = 760.;
     app.dialog = Some(FileDialog {
         purpose: FilePurpose::Import,
-        path: "/__poseforge_qa__/Модели/Персонаж.blend".into(),
+        path: "/__poseforge_qa__/Модели/Персонаж.glb".into(),
         entries: (0..9)
             .map(|i| {
                 (
-                    PathBuf::from(format!("/__poseforge_qa__/Модели/Персонаж {i}.blend")),
+                    PathBuf::from(format!("/__poseforge_qa__/Модели/Персонаж {i}.glb")),
                     false,
                 )
             })
@@ -23,180 +23,33 @@ fn import_app() -> App {
     app
 }
 
-fn checkbox_rect(ui: &Ui) -> [f32; 4] {
-    let hits: Vec<_> = ui
-        .hits
-        .iter()
-        .filter(|hit| hit.action == Action::ToggleBlendImportAnimations)
-        .collect();
-    assert_eq!(hits.len(), 1);
-    hits[0].rect
-}
-
 #[test]
-fn blend_checkbox_fits_small_window_themes_and_dpi_with_a_shared_caption_hit() {
-    for theme in [ui::Theme::Dark, ui::Theme::Light] {
-        for scale in [1., 1.5, 2.] {
-            let mut app = import_app();
-            app.preferences.theme = theme;
-            app.scale = scale;
-            let ui = app.build_ui();
-            let row = checkbox_rect(&ui);
-            for x in [row[0] + 12., row[0] + 220., row[0] + row[2] - 8.] {
-                assert_eq!(
-                    ui.hit([x, row[1] + row[3] * 0.5]),
-                    Some(Action::ToggleBlendImportAnimations)
-                );
-            }
-            assert!(ui.texts.iter().any(|text| {
-                text.text == "Импортировать готовую анимацию (.blend)"
-                    && text.y >= row[1] * scale
-                    && text.y + text.size <= (row[1] + row[3]) * scale
-            }));
-            for hit in &ui.hits {
-                assert!(hit.rect[0] >= 160. && hit.rect[1] >= 50.);
-                assert!(hit.rect[0] + hit.rect[2] <= 940.);
-                assert!(hit.rect[1] + hit.rect[3] <= 710.);
-                if hit.action != Action::ToggleBlendImportAnimations {
-                    assert!(
-                        intersect_rect(row, hit.rect).is_none(),
-                        "overlap with {:?}",
-                        hit.action
-                    );
-                }
-            }
-            assert_eq!(
-                ui.hits
-                    .iter()
-                    .filter(|hit| matches!(hit.action, Action::FileEntry(_)))
-                    .count(),
-                9
-            );
-        }
-    }
+fn import_dialog_has_no_blender_controls_and_keeps_file_navigation() {
+    for theme in [ui::Theme::Dark,ui::Theme::Light] {for scale in [1.,1.5,2.] {
+        let mut app=import_app();app.preferences.theme=theme;app.scale=scale;
+        let ui=app.build_ui();
+        assert!(!ui.hits.iter().any(|h|matches!(h.action,Action::EditBlenderPath|Action::BrowseBlenderPath|Action::PasteBlenderPath|Action::DetectBlender|Action::ToggleBlendImportAnimations)));
+        assert!(!ui.texts.iter().any(|t|t.text.contains("Blender") || t.text.contains(".blend")));
+        assert_eq!(ui.hits.iter().filter(|h|matches!(h.action,Action::FileEntry(_))).count(),9);
+        for hit in &ui.hits {assert!(hit.rect[0]>=160. && hit.rect[1]>=110.);assert!(hit.rect[0]+hit.rect[2]<=940. && hit.rect[1]+hit.rect[3]<=650.);}
+    }}
 }
-
 #[test]
-fn clicking_checkbox_and_caption_changes_only_workspace_preference() {
-    let mut app = import_app();
-    let project = app.editor.project.clone();
-    let selected = app.editor.selected;
-    for (offset, checked) in [(12., true), (260., false)] {
-        app.ui = app.build_ui();
-        let row = checkbox_rect(&app.ui);
-        app.mouse_move([row[0] + offset, row[1] + row[3] * 0.5]);
-        app.mouse_down(MouseButton::Left);
-        app.mouse_up(MouseButton::Left);
-        assert_eq!(app.preferences.blend_import_animations, checked);
-        assert_eq!(app.editor.project, project);
-        assert_eq!(app.editor.selected, selected);
-        assert_eq!(app.editor.undo_len(), 0);
-        assert!(!app.dirty);
-    }
-}
-
-#[test]
-fn import_keyboard_reaches_checkbox_and_preserves_text_input_and_ime() {
-    let mut app = import_app();
-    for _ in 0..12 {
-        assert!(app.import_dialog_key(&Key::Named(NamedKey::Tab), false, false));
-        if app.import_focus == Some(Action::ToggleBlendImportAnimations) {
-            break;
-        }
-    }
-    assert_eq!(app.import_focus, Some(Action::ToggleBlendImportAnimations));
-    assert!(app.input.is_none());
-    let ui = app.build_ui();
-    let row = checkbox_rect(&ui);
-    // The focused control has a complete rounded ring. Check the visible
-    // result on all four sides instead of requiring a square top-edge quad.
-    for point in [
-        [row[0] + row[2] * 0.5, row[1] + 0.5],
-        [row[0] + row[2] * 0.5, row[1] + row[3] - 0.5],
-        [row[0] + 0.5, row[1] + row[3] * 0.5],
-        [row[0] + row[2] - 0.5, row[1] + row[3] * 0.5],
-    ] {
-        let point = point.map(|value| value * ui.scale);
-        let visible = ui
-            .rects
-            .iter()
-            .rev()
-            .find(|rect| crate::ui::contains(rect.rect, point));
-        assert_eq!(
-            visible.map(|rect| rect.color),
-            Some(app.preferences.palette().accent),
-            "keyboard focus must be visible around the entire control"
-        );
-    }
-    assert!(app.import_dialog_key(&Key::Named(NamedKey::Space), false, false));
-    assert!(app.preferences.blend_import_animations);
-    assert!(app.import_dialog_key(&Key::Named(NamedKey::Space), false, true));
-    assert!(
-        app.preferences.blend_import_animations,
-        "held space must not toggle repeatedly"
-    );
-    assert!(app.import_dialog_key(&Key::Named(NamedKey::Enter), false, false));
-    assert!(!app.preferences.blend_import_animations);
-    assert!(app.import_dialog_key(&Key::Named(NamedKey::Tab), true, false));
-    assert_eq!(app.import_focus, Some(Action::DetectBlender));
-
+fn import_keyboard_traverses_current_controls_and_preserves_ime() {
+    let mut app=import_app();
     app.action(Action::EditPath);
-    assert!(!app.import_dialog_key(&Key::Named(NamedKey::Space), false, false));
-    assert!(!app.import_dialog_key(&Key::Named(NamedKey::Enter), false, false));
-    app.input.as_mut().unwrap().preedit = "Персонаж".into();
-    assert!(app.import_dialog_key(&Key::Named(NamedKey::Tab), false, false));
-    assert_eq!(app.input.as_ref().unwrap().purpose, Action::EditPath);
-    assert_eq!(app.input.as_ref().unwrap().preedit, "Персонаж");
-    assert_eq!(app.editor.undo_len(), 0);
-    assert!(!app.dirty);
-}
-
-#[test]
-fn blend_checkbox_obeys_modal_and_busy_boundaries() {
-    let mut app = import_app();
-    app.import_focus = Some(Action::ToggleBlendImportAnimations);
-    app.help = true;
-    assert!(!app.import_dialog_key(&Key::Named(NamedKey::Space), false, false));
-    app.action(Action::ToggleBlendImportAnimations);
-    assert!(!app.preferences.blend_import_animations);
-    app.help = false;
-
-    let (_tx, receiver) = mpsc::channel();
-    app.job = Some(Job {
-        receiver,
-        cancel: Arc::new(AtomicBool::new(false)),
-        label: "Импорт".into(),
-    });
-    assert!(!app
-        .build_ui()
-        .hits
-        .iter()
-        .any(|hit| hit.action == Action::ToggleBlendImportAnimations));
-    assert!(!app.import_dialog_key(&Key::Named(NamedKey::Space), false, false));
-    app.action(Action::ToggleBlendImportAnimations);
-    assert!(!app.preferences.blend_import_animations);
-    app.job = None;
-
-    for purpose in [
-        FilePurpose::Open,
-        FilePurpose::Texture,
-        FilePurpose::Save,
-        FilePurpose::Rig,
-        FilePurpose::Export,
-        FilePurpose::Sequence,
-    ] {
-        app.dialog.as_mut().unwrap().purpose = purpose;
-        assert!(!app
-            .build_ui()
-            .hits
-            .iter()
-            .any(|hit| hit.action == Action::ToggleBlendImportAnimations));
-        assert!(!app.import_dialog_key(&Key::Named(NamedKey::Space), false, false));
-        app.action(Action::ToggleBlendImportAnimations);
-        assert!(!app.preferences.blend_import_animations);
+    app.input.as_mut().unwrap().preedit="Персонаж".into();
+    assert!(app.import_dialog_key(&Key::Named(NamedKey::Tab),false,false));
+    assert_eq!(app.input.as_ref().unwrap().purpose,Action::EditPath);
+    app.input.as_mut().unwrap().preedit.clear();
+    let mut reached=false;
+    for _ in 0..24 {
+        assert!(app.import_dialog_key(&Key::Named(NamedKey::Tab),false,false));
+        if app.import_focus==Some(Action::FileSubmit) {reached=true;break;}
     }
-    app.dialog = None;
-    assert!(!app.import_dialog_key(&Key::Named(NamedKey::Tab), false, false));
+    assert!(reached);assert!(app.input.is_none());
+    app.help=true;assert!(!app.import_dialog_key(&Key::Named(NamedKey::Tab),false,false));
+    app.help=false;app.dialog=None;assert!(!app.import_dialog_key(&Key::Named(NamedKey::Tab),false,false));
 }
 
 #[test]
@@ -402,4 +255,11 @@ fn progress_queue_is_bounded_per_ui_turn_and_does_not_hide_cancellation() {
     drop(tx);
     app.poll_jobs();
     assert!(app.status.contains("без результата"));
+}
+
+#[test]
+fn blender_import_is_removed_from_gui_filters_and_explicit_paths() {
+    let mut a=App::new(None);let before=a.editor.project.clone();
+    assert!(!file_extension_allowed(FilePurpose::Import,Path::new("character.BLEND")));
+    a.start_load(PathBuf::from("character.blend"),true);assert!(a.job.is_none());assert_eq!(a.editor.project,before);
 }

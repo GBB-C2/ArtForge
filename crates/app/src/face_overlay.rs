@@ -3,7 +3,7 @@ use crate::ui::Ui;
 use poseforge_core::{Mat4, Mesh, Vec3, Vec4};
 use std::collections::BTreeSet;
 
-fn clip_triangle(vertices: [Vec4; 3]) -> Vec<Vec4> {
+pub(super) fn clip_triangle(vertices: [Vec4; 3]) -> Vec<Vec4> {
     if vertices.iter().any(|v| !v.is_finite()) {
         return vec![];
     }

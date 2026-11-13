@@ -2588,6 +2588,7 @@ fn instanced_ui_preserves_alpha_order_and_reuses_label_and_vertex_storage() {
     };
     let rects = [
         UiRect {
+            image_uv: None,
             triangle: None,
             segment: None,
             depth: None,
@@ -2595,6 +2596,7 @@ fn instanced_ui_preserves_alpha_order_and_reuses_label_and_vertex_storage() {
             color: [1., 0., 0., 1.],
         },
         UiRect {
+            image_uv: None,
             triangle: None,
             segment: None,
             depth: None,
@@ -2629,7 +2631,7 @@ fn instanced_ui_preserves_alpha_order_and_reuses_label_and_vertex_storage() {
     let first_stats = renderer.frame_stats();
     assert_eq!(first_stats.ui_text_layouts, 1);
     assert_eq!(first_stats.ui_buffer_allocations, 1);
-    assert_eq!(first_stats.ui_upload_bytes, 160);
+    assert_eq!(first_stats.ui_upload_bytes, 192);
     assert_eq!(first_stats.ui_rectangles, 2);
     let red = first.get_pixel(15, 15);
     assert!(red[0] > 250 && red[1] < 3 && red[2] < 3);
@@ -2886,6 +2888,7 @@ fn edit_components_hide_behind_surfaces_and_xray_restores_them() {
                 let back = depth(-0.2);
                 let mut rects = vec![
                     UiRect {
+                        image_uv: None,
                         triangle: None,
                         rect: [77., 77., 6., 6.].map(|v| v * scale),
                         color: [0., 1., 0., 1.],
@@ -2893,6 +2896,7 @@ fn edit_components_hide_behind_surfaces_and_xray_restores_them() {
                         depth: Some([front; 2]),
                     },
                     UiRect {
+                        image_uv: None,
                         triangle: None,
                         rect: [77., 77., 6., 6.].map(|v| v * scale),
                         color: [1., 0., 0., 1.],
@@ -2900,6 +2904,7 @@ fn edit_components_hide_behind_surfaces_and_xray_restores_them() {
                         depth: Some([back; 2]),
                     },
                     UiRect {
+                        image_uv: None,
                         triangle: None,
                         rect: [19., 78., 122., 4.].map(|v| v * scale),
                         color: [0., 0., 1., 1.],
@@ -2968,6 +2973,7 @@ fn selected_face_fill_blends_only_triangle_interior_and_respects_scene_depth() {
             p.z / p.w
         };
         let triangle = |z: f32, test: bool| UiRect {
+            image_uv: None,
             rect: [32., 32., 96., 96.].map(|v| v * scale),
             color: [1., 0., 0., 0.25],
             segment: None,
@@ -3250,4 +3256,32 @@ fn changed_video_pixels_reach_existing_material_bindings_and_restore_exactly() {
         let restored = material_picture(&mut renderer,&p,&view,"4726-video-restored");
         assert_images_equal(&red,&restored,"restoring a video frame restores its pixels without new bindings");
     }).unwrap().join().unwrap();
+}
+
+#[test]
+#[ignore = "requires a Vulkan, DX12, Metal or OpenGL adapter"]
+fn welcome_image_crop_and_destruction_dust_are_rendered_without_document_assets() {
+    use poseforge_core::{Texture,Node,DestructionSettings,Vec3};
+    use poseforge_render::UiRect;
+    let mut renderer=pollster::block_on(Renderer::headless(64,64)).unwrap();
+    let directory=std::env::var_os("POSEFORGE_RENDER_QA_OUTPUT").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    std::fs::create_dir_all(&directory).unwrap();let path=directory.join("welcome-image.png");
+    renderer.set_ui_image(&Texture {id:1,name:"Interface".into(),width:2,height:1,rgba8:vec![255,0,0,255,0,255,0,255].into()}).unwrap();
+    let mut project=Project::default();project.render_settings.antialiasing=1;project.render_settings.shadows=false;
+    let view=View {viewport:[0.,0.,64.,64.],eye:Vec3::new(0.,0.5,4.),target:Vec3::ZERO,..View::default()};
+    let image=UiRect {image_uv:Some([0.75,0.,0.25,1.]),rect:[8.,8.,48.,48.],color:[1.;4],triangle:None,segment:None,depth:None};
+    renderer.capture_viewport_png(&project,&Default::default(),&view,&[image],&[],&[],&path,64,64).unwrap();
+    let pixels=image::open(&path).unwrap().into_rgba8();let center=pixels.get_pixel(32,32);
+    assert!(center[1]>250 && center[0]<5 && center[2]<5,"{center:?}");
+    assert_eq!(renderer.frame_stats().ui_rectangles,1);assert!(project.textures.is_empty());
+    let mut source=Node::new(1,"Source");source.visible=false;source.render_visible=false;
+    source.destruction=Some(DestructionSettings {result:Some(2),dust_enabled:false,dust_density:5.,dust_size:4.,dust_lifetime:3.,..Default::default()});
+    project.nodes=vec![source,Node::new(2,"Shards")];let global=project.global_transforms().unwrap();
+    renderer.set_effect_time(0.25);let clear=renderer.render_rgba(&project,&global,&view,64,64).unwrap();
+    project.node_mut(1).unwrap().destruction.as_mut().unwrap().dust_enabled=true;
+    let before=project.clone();let dusty=renderer.render_rgba(&project,&global,&view,64,64).unwrap();
+    let changed=clear.chunks_exact(4).zip(dusty.chunks_exact(4)).filter(|(a,b)|(0..3).any(|i|a[i].abs_diff(b[i])>3)).count();
+    assert!(changed>64,"Dust must change visible output, changed={changed}");
+    renderer.set_effect_time(4.);assert_eq!(renderer.render_rgba(&project,&global,&view,64,64).unwrap(),clear);
+    assert_eq!(project,before);
 }

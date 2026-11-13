@@ -4,7 +4,7 @@ use crate::ui::DestructionAction as D;
 use poseforge_core::{Channel, Clip, Interpolation, Keyframe, Node, Property};
 use poseforge_simulation::{mesh_contact::Triangle, shard_contact::{solve_shard_contacts, ShardContact, ShardForces, ShardMotion, ShardShape}};
 
-pub(super) const PANEL_BOTTOM: f32 = 1026.;
+pub(super) const PANEL_BOTTOM: f32 = 1240.;
 
 #[derive(Clone, Copy)]
 pub(super) struct Settings {
@@ -13,6 +13,7 @@ pub(super) struct Settings {
     cut_contrast: f64,
     mesh_collision: bool,
     shard_collision: bool,
+    options: poseforge_core::DestructionSettings,
 }
 impl Default for Settings {
     fn default() -> Self { Self::from(poseforge_core::DestructionSettings::default()) }
@@ -20,26 +21,31 @@ impl Default for Settings {
 impl From<poseforge_core::DestructionSettings> for Settings {
     fn from(s: poseforge_core::DestructionSettings) -> Self {
         Self { values: s.values, seam_percent: s.seam_percent, cut_contrast: s.cut_contrast,
-            mesh_collision: s.mesh_collision, shard_collision: s.shard_collision }
+            mesh_collision: s.mesh_collision, shard_collision: s.shard_collision, options: s }
     }
 }
-const FIELDS: [(&str, f64, f64, f64); 10] = [
+const FIELDS: [(&str, f64, f64, f64); 13] = [
     ("Осколки", 2., 64., 1.), ("Случайность", 0., 999999., 1.),
     ("Раздвинуть, м", 0., 10., 0.01), ("Импульс, м/с", 0., 30., 0.1),
     ("Гравитация, м/с²", 0., 30., 0.01), ("Пол · Y, м", -100., 100., 0.01),
     ("Отскок", 0., 0.95, 0.01), ("Кадры записи · 24 кадр/с", 2., 240., 1.),
     ("Ширина швов, %", 0., 5., 0.05), ("Контраст разрезов", 0., 1., 0.01),
+    ("Плотность пыли", 0., 5., 0.01), ("Размер облака", 0.1, 5., 0.05), ("Время пыли, с", 0.2, 20., 0.1),
 ];
 impl Settings {
     pub(super) fn value(self, field: u8) -> Option<f64> {
-        match field { 8 => Some(self.seam_percent), 9 => Some(self.cut_contrast), _ => self.values.get(field as usize).copied() }
+        match field { 8 => Some(self.seam_percent), 9 => Some(self.cut_contrast),
+            10 => Some(self.options.dust_density), 11 => Some(self.options.dust_size), 12 => Some(self.options.dust_lifetime),
+            _ => self.values.get(field as usize).copied() }
     }
     fn set(&mut self, field: u8, value: f64) -> Result<(), String> {
         let Some((_, min, max, _)) = FIELDS.get(field as usize) else { return Err("Неизвестный параметр разрушения".into()); };
         if !value.is_finite() || value < *min || value > *max || (matches!(field, 0 | 1 | 7) && value.fract() != 0.) {
             return Err(format!("Допустимо {min}–{max}{}", if matches!(field, 0 | 1 | 7) { ", целое число" } else { "" }));
         }
-        match field { 8 => self.seam_percent = value, 9 => self.cut_contrast = value, _ => self.values[field as usize] = value };
+        match field { 8 => self.seam_percent = value, 9 => self.cut_contrast = value,
+            10 => self.options.dust_density = value, 11 => self.options.dust_size = value, 12 => self.options.dust_lifetime = value,
+            _ => self.values[field as usize] = value };
         Ok(())
     }
 }
@@ -85,7 +91,7 @@ fn build_evaluated(project: &Project, source: u64, previous: Option<u64>, settin
     cancel: &AtomicBool, evaluated: Option<&poseforge_core::EvaluatedScene>) -> Result<(Project, u64), String> {
     for (i, v) in settings.values.iter().enumerate() { let mut check = settings; check.set(i as u8, *v)?; }
     poseforge_core::DestructionSettings { values: settings.values, seam_percent: settings.seam_percent,
-        cut_contrast: settings.cut_contrast, ..Default::default() }.validate().map_err(|e| e.to_string())?;
+        cut_contrast: settings.cut_contrast, ..settings.options }.validate().map_err(|e| e.to_string())?;
     let node = project.node(source).ok_or("Выберите меш")?;
     if project.node_locked(source) || node.fluid.is_some() || node.physics.is_some()
         || node.camera.is_some() || node.is_joint || project.nodes.iter().any(|n| n.parent == Some(source)) {
@@ -135,7 +141,7 @@ fn build_evaluated(project: &Project, source: u64, previous: Option<u64>, settin
     let center = global.transform_point3((lo + hi) * 0.5);
     let normals = global.inverse().transpose();
     let root_id = result.next_id().max(project.next_id());
-    let mut group = Node::new(root_id, format!("{} · разрушение", node.name));
+    let mut group = Node::new(root_id, format!("Осколки · {}", node.name));
     group.transform.translation = center;
     result.nodes.push(group);
     let mut bodies = Vec::new();
@@ -180,6 +186,9 @@ fn build_evaluated(project: &Project, source: u64, previous: Option<u64>, settin
     let original = result.node_mut(source).ok_or("Исходник удалён")?;
     original.destruction = Some(poseforge_core::DestructionSettings { values: settings.values, seam_percent: settings.seam_percent, cut_contrast: settings.cut_contrast,
         mesh_collision: settings.mesh_collision, shard_collision: settings.shard_collision,
+        randomize: settings.options.randomize, floor_enabled: settings.options.floor_enabled, show_floor: settings.options.show_floor,
+        dust_enabled: settings.options.dust_enabled, dust_density: settings.options.dust_density,
+        dust_size: settings.options.dust_size, dust_lifetime: settings.options.dust_lifetime,
         interior_material: Some(interior), result: Some(root_id), visible: true, ..component });
     original.visible = false; original.render_visible = false;
     if bake {
@@ -196,7 +205,7 @@ fn build_evaluated(project: &Project, source: u64, previous: Option<u64>, settin
 fn bake_motion(bodies:&mut[(u64,ShardShape,ShardMotion)],settings:Settings,
     fields:&poseforge_simulation::fields::Fields,collider:Option<&poseforge_simulation::mesh_contact::MeshCollider>,
     center:Vec3,cancel:&AtomicBool)->Result<Vec<Channel>,String> {
-    let forces=ShardForces {gravity:settings.values[4] as f32,floor:settings.values[5] as f32,restitution:settings.values[6] as f32};
+    let forces=ShardForces {gravity:settings.values[4] as f32,floor:if settings.options.floor_enabled {settings.values[5] as f32}else{f32::NEG_INFINITY},restitution:settings.values[6] as f32};
     let mut keys=vec![(Vec::new(),Vec::new());bodies.len()];
     for frame in 0..settings.values[7] as usize {
         if cancel.load(Ordering::Relaxed) {return Err("Разрушение отменено".into());}
@@ -254,6 +263,8 @@ impl App {
         let value = text.trim().replace(',', ".").parse::<f64>().map_err(|_| "Введите число")?;
         settings.set(*field, value)?; component.values = settings.values;
         component.seam_percent = settings.seam_percent; component.cut_contrast = settings.cut_contrast;
+        component.dust_density = settings.options.dust_density; component.dust_size = settings.options.dust_size;
+        component.dust_lifetime = settings.options.dust_lifetime;
         self.editor.transact("Параметр разрушения", |p| p.node_mut(source).unwrap().destruction = Some(component)).map_err(|e| e.to_string())?;
         self.update_dirty(); Ok(true)
     }
@@ -270,25 +281,29 @@ impl App {
         }
         match action {
             D::Reset => {}
-            D::MeshCollision | D::ShardCollision => {
-                let result = self.editor.transact("Столкновения осколков", |p| {
+            D::MeshCollision | D::ShardCollision | D::Reseed | D::Floor | D::ShowFloor | D::Dust => {
+                let result = self.editor.transact("Настройки разрушения", |p| {
                     if let Some(component) = p.node_mut(source).and_then(|n| n.destruction.as_mut()) {
-                        if action == D::ShardCollision { component.shard_collision = !component.shard_collision; }
-                        else { component.mesh_collision = !component.mesh_collision; }
+                        match action {
+                            D::ShardCollision => component.shard_collision = !component.shard_collision,
+                            D::MeshCollision => component.mesh_collision = !component.mesh_collision,
+                            D::Reseed => component.randomize = !component.randomize,
+                            D::Floor => component.floor_enabled = !component.floor_enabled,
+                            D::ShowFloor => component.show_floor = !component.show_floor,
+                            D::Dust => component.dust_enabled = !component.dust_enabled,
+                            _ => {}
+                        }
                     }
                 });
                 if self.result(result).is_some() {
-                    self.status = "Столкновения изменены. Запустите предпросмотр или перезапишите анимацию.".into();
+                    if matches!(action,D::Floor | D::MeshCollision | D::ShardCollision) {self.destruction.preview.reset();}
+                    self.status = "Настройки разрушения обновлены.".into();
                 }
             }
             D::Field(field) => {
                 if let Some(value) = self.destruction_settings().value(field) { self.input(Action::Destruction(action), value.to_string()); }
             }
             D::Material => { self.action(Action::Select(source)); self.surface.material_library = false; self.action(Action::SurfaceTab(1)); }
-            D::Reseed => {
-                let next = (self.destruction_settings().values[1] + 1.) % 1000000.;
-                if let Err(error) = self.destruction_confirm(&Action::Destruction(D::Field(1)), &next.to_string()) { self.status = error; }
-            }
             D::Restore | D::Remove => {
                 let after = match without_destruction(&self.editor.project, source, action == D::Remove) {
                     Ok(after) => after, Err(error) => { self.status = error; return; }
@@ -305,7 +320,8 @@ impl App {
                 let evaluated = match self.evaluated_interactive() { Ok(scene) => scene, Err(error) => { self.status = error.to_string(); return; } };
                 self.editor.playing = false;
                 let previous = self.editor.project.node(source).and_then(|n| n.destruction).and_then(|d| d.result);
-                let before = self.editor.project.clone(); let settings = self.destruction_settings();
+                let before = self.editor.project.clone(); let mut settings = self.destruction_settings();
+                if settings.options.randomize && action != D::Attach { settings.values[1] = (settings.values[1] + 1.) % 1000000.; }
                 let bake = action == D::Bake; let preview = action == D::Play;
                 let cancel = Arc::new(AtomicBool::new(false)); let c = cancel.clone();
                 let (tx, receiver) = mpsc::channel();
@@ -366,7 +382,6 @@ impl App {
         };
         let caption = source.and_then(|id|self.destruction.preview.time(id)).map_or_else(||"Разрушение примитива".into(),|t|format!("Предпросмотр · {t:.2} с · без ключей"));
         u.fitted_label([x, 174., w, 20.], &caption, 12., p.text);
-        let shift = self.collision_layout_shift(poseforge_core::CollisionKind::Destruction) + 34.;
         u.icon_button([x, 202., w, 28.], "Материалы осколков", Action::Destruction(D::Material), false, Icon::Material);
         let playing = source.is_some_and(|id| self.destruction.preview.running_for(id));
         let half = (w - 8.) * 0.5;
@@ -377,23 +392,35 @@ impl App {
             u.disabled_icon_button([x,244.,half,32.],"Запустить",Icon::Play);
             u.disabled_icon_button([x+half+8.,244.,half,32.],"В начало",Icon::Start);
         }
-        for (i, (label, min, max, step)) in FIELDS.iter().enumerate() {
-            u.number_field([x, 288. + i as f32 * 36., w, 30.], label, Settings::from(component).value(i as u8).unwrap(),
-                Action::Destruction(D::Field(i as u8)), SliderRange::new(*min, *max, *step));
+        let ys = [288., 324., 396., 432., 468., 574., 610., 646., 682., 718.];
+        for (i, (&y, &(label,min,max,step))) in ys.iter().zip(FIELDS.iter()).enumerate() {
+            let draw=if matches!(i,5|6) && !component.floor_enabled {Ui::disabled_number_field}else{Ui::number_field};
+            draw(u,[x,y,w,30.],label,Settings::from(component).value(i as u8).unwrap(),
+                Action::Destruction(D::Field(i as u8)),SliderRange::new(min,max,step));
         }
-        u.checkbox([x, 654., w, 30.], "Столкновения с мешами", Action::Destruction(D::MeshCollision), component.mesh_collision);
-        u.checkbox([x, 688., w, 30.], "Столкновения осколков между собой", Action::Destruction(D::ShardCollision), component.shard_collision);
-        self.draw_collision_list(u, poseforge_core::CollisionKind::Destruction, x, 722., w);
-        u.button([x, 720. + shift, w, 28.], "Новый вариант случайности", Action::Destruction(D::Reseed), false);
-        for (i, (label, action, icon)) in [("Пересоздать осколки", D::Create, Icon::Fracture), ("Записать ключи анимации", D::Bake, Icon::Sequence)].into_iter().enumerate() {
-            let r = [x, 760. + shift + i as f32 * 40., w, 32.];
-            if self.job.is_none() { u.icon_button(r, label, Action::Destruction(action), false, icon); }
-            else { u.disabled_icon_button(r, label, icon); }
+        u.checkbox([x,360.,w,28.],"Новый вариант при пересоздании",Action::Destruction(D::Reseed),component.randomize);
+        u.checkbox([x,504.,w,28.],"Пол · столкновения",Action::Destruction(D::Floor),component.floor_enabled);
+        if component.floor_enabled {u.checkbox([x,538.,w,28.],"Показать пол",Action::Destruction(D::ShowFloor),component.show_floor);}
+        else {u.disabled_checkbox([x,538.,w,28.],"Показать пол",component.show_floor);}
+        u.checkbox([x,758.,w,28.],"Столкновения с мешами",Action::Destruction(D::MeshCollision),component.mesh_collision);
+        u.checkbox([x,792.,w,28.],"Столкновения осколков между собой",Action::Destruction(D::ShardCollision),component.shard_collision);
+        self.draw_collision_list(u,poseforge_core::CollisionKind::Destruction,x,826.,w);
+        let shift=self.collision_layout_shift(poseforge_core::CollisionKind::Destruction);
+        u.checkbox([x,888.+shift,w,28.],"Показывать пыль",Action::Destruction(D::Dust),component.dust_enabled);
+        for i in 10..13 {
+            let (label,min,max,step)=FIELDS[i];
+            let draw=if component.dust_enabled {Ui::number_field}else{Ui::disabled_number_field};
+            draw(u,[x,928.+(i-10) as f32*36.+shift,w,30.],label,Settings::from(component).value(i as u8).unwrap(),
+                Action::Destruction(D::Field(i as u8)),SliderRange::new(min,max,step));
         }
-        if component.result.is_some() { u.button([x, 842. + shift, w, 28.], "Очистить осколки · оставить настройки", Action::Destruction(D::Restore), false); }
-        u.button([x, 882. + shift, w, 28.], "Убрать разрушение с примитива", Action::Destruction(D::Remove), false);
-        u.fitted_label([x, 926. + shift, w, 18.], "Запуск и пауза не создают ключей.", 10., p.muted);
-        u.fitted_label([x, 946. + shift, w, 18.], "Внешний материал и материал срезов — отдельно.", 10., p.muted);
+        for (i,(label,action,icon)) in [("Пересоздать осколки",D::Create,Icon::Fracture),("Записать ключи анимации",D::Bake,Icon::Sequence)].into_iter().enumerate() {
+            let r=[x,1044.+shift+i as f32*40.,w,32.];
+            if self.job.is_none(){u.icon_button(r,label,Action::Destruction(action),false,icon);}
+            else {u.disabled_icon_button(r,label,icon);}
+        }
+        if component.result.is_some(){u.button([x,1124.+shift,w,28.],"Очистить осколки · оставить настройки",Action::Destruction(D::Restore),false);}
+        u.button([x,1164.+shift,w,28.],"Убрать разрушение с примитива",Action::Destruction(D::Remove),false);
+        u.fitted_label([x,1204.+shift,w,18.],"Запуск и пауза не создают ключей.",10.,p.muted);
     }
 }
 
@@ -404,6 +431,63 @@ mod tests {
         let mut p = Project::default();
         let mut n = Node::new(1, "Source"); n.mesh = Some(2); n.transform.translation.y = 2.;
         p.nodes.push(n); p.meshes.push(poseforge_core::box_mesh(2, "Cube", Vec3::splat(0.5), None)); Editor::new(p).project
+    }
+    #[test]
+    #[ignore = "writes an explicit native QA fixture"]
+    fn write_startup_destruction_fixture() {
+        let directory=std::env::var_os("ARTFORGE_QA_DIR").expect("ARTFORGE_QA_DIR");
+        let directory=std::path::PathBuf::from(directory);std::fs::create_dir_all(&directory).unwrap();
+        let mut settings=Settings {values:[4.,3.,0.04,1.5,9.81,0.,0.2,48.],..Default::default()};
+        settings.options.show_floor=true;settings.options.dust_enabled=true;settings.options.dust_size=2.;settings.options.dust_density=2.;
+        let (mut project,_)=build(&scene(),1,None,settings,true,&AtomicBool::new(false)).unwrap();
+        project.title="Разрушение".into();project.camera.eye=Vec3::new(5.,4.,6.);project.camera.target=Vec3::new(0.,1.,0.);
+        std::fs::write(directory.join("Разрушение.artforge"),serde_json::to_vec_pretty(&project).unwrap()).unwrap();
+    }
+    #[test]
+    fn variation_checkbox_changes_seed_on_rebuild_only_when_checked() {
+        let (p,_)=build(&scene(),1,None,Settings {values:[2.,1.,0.,0.,9.81,0.,0.,4.],..Default::default()},false,&AtomicBool::new(false)).unwrap();
+        let mut a=App::new(None);a.editor=Editor::new(p);a.reset_workflow_selection();a.editor.selected=Some(1);
+        for (toggle,expected) in [(false,1.),(true,2.),(false,3.),(true,3.)] {
+            if toggle {a.destruction_action(D::Reseed);}
+            a.destruction_action(D::Create);
+            let deadline=Instant::now()+std::time::Duration::from_secs(5);
+            while a.job.is_some() {a.poll_jobs();assert!(Instant::now()<deadline);std::thread::yield_now();}
+            assert_eq!(a.editor.project.node(1).unwrap().destruction.unwrap().values[1],expected,"{}",a.status);
+        }
+    }
+    #[test]
+    fn floor_can_be_disabled_in_bake_without_disabling_gravity() {
+        for enabled in [false,true] {
+            let mut settings=Settings {values:[2.,1.,0.,0.,9.81,0.,0.,48.],mesh_collision:false,..Default::default()};
+            settings.options.floor_enabled=enabled;
+            let (p,root)=build(&scene(),1,None,settings,true,&AtomicBool::new(false)).unwrap();
+            let evaluated=p.evaluated(Some(0),47./24.).unwrap();
+            let bottom=p.nodes.iter().filter(|n|n.parent==Some(root)).flat_map(|n|{
+                let model=evaluated.global[&n.id];p.mesh(n.mesh.unwrap()).unwrap().vertices.iter().map(move |v|model.transform_point3(Vec3::from_array(v.position)).y)
+            }).fold(f32::INFINITY,f32::min);
+            assert!(bottom.is_finite());if enabled {assert!(bottom>= -0.001);} else {assert!(bottom< -5.);}
+        }
+    }
+    #[test]
+    fn fracture_checkboxes_and_dust_values_are_undoable_and_shards_collapse() {
+        let (project,root)=build(&scene(),1,None,Settings {values:[2.,1.,0.,0.,9.81,0.,0.,4.],..Default::default()},false,&AtomicBool::new(false)).unwrap();
+        let mut a=App::new(None);a.editor=Editor::new(project);a.reset_workflow_selection();a.editor.selected=Some(1);
+        assert!(a.editor.project.node(root).unwrap().name.starts_with("Осколки · "));
+        let children:Vec<_>=a.editor.project.nodes.iter().filter(|n|n.parent==Some(root)).map(|n|n.id).collect();
+        a.collapsed.insert(root);
+        let rows=workspace::scene_rows(&a.editor.project,"",false,&a.collapsed);
+        assert!(rows.iter().any(|r|r.id==root && r.has_children));assert!(!rows.iter().any(|r|children.contains(&r.id)));
+        for action in [D::Reseed,D::Floor,D::ShowFloor,D::Dust] {
+            let before=a.editor.project.clone();let history=a.editor.undo_len();a.destruction_action(action);
+            assert_eq!(a.editor.undo_len(),history+1);assert_eq!(a.editor.project.meshes,before.meshes);
+            a.editor.undo();assert_eq!(a.editor.project,before);
+        }
+        a.destruction_action(D::Dust);
+        for (field,value) in [(10,"1.75"),(11,"2.5"),(12,"5")] {a.destruction_confirm(&Action::Destruction(D::Field(field)),value).unwrap();}
+        let d=a.editor.project.node(1).unwrap().destruction.unwrap();assert_eq!((d.dust_density,d.dust_size,d.dust_lifetime),(1.75,2.5,5.));
+        let mut ui=Ui::new(1.);a.draw_destruction(&mut ui,0.,340.);
+        assert!(ui.hits.iter().any(|h|h.action==Action::Destruction(D::Dust)));
+        assert!(ui.hits.iter().any(|h|matches!(h.action,Action::Slide(ref action,_,_) if **action==Action::Destruction(D::Field(12)))));
     }
     #[test]
     fn fracture_and_bake_keep_source_and_serialize_as_normal_scene_data() {

@@ -8,6 +8,7 @@ mod color_picker;
 mod file_picker;
 mod gizmo;
 mod icons;
+mod localization;
 mod picking;
 mod ui;
 mod workflows;

@@ -714,6 +714,7 @@ fn wheel_quads(diameter: f32, scale: f32) -> Vec<UiRect> {
                 value: 1.,
             });
             quads.push(UiRect {
+                image_uv: None,
                 triangle: None,
                 segment: None,
                 depth: None,
@@ -738,6 +739,7 @@ fn sv_quads(diameter: f32, scale: f32, h: f32) -> Vec<UiRect> {
                 value: 1. - (row as f32 + 0.5) / steps as f32,
             });
             quads.push(UiRect {
+                image_uv: None,
                 triangle: None,
                 segment: None,
                 depth: None,
@@ -753,6 +755,7 @@ fn append_cached(ui: &mut Ui, quads: &[UiRect], origin: [f32; 2]) {
     let x = origin[0] * ui.scale;
     let y = origin[1] * ui.scale;
     ui.rects.extend(quads.iter().map(|quad| UiRect {
+        image_uv: None,
         triangle: None,
         segment: None,
         depth: None,
@@ -812,6 +815,7 @@ fn draw_swatch(ui: &mut Ui, rect: [f32; 4], rgba: [f32; 4]) {
                 if right > left && bottom > top {
                     let value = if (row + col) % 2 == 0 { 0.93 } else { 0.68 };
                     ui.rects.push(UiRect {
+                        image_uv: None,
                         triangle: None,
                         segment: None,
                         depth: None,

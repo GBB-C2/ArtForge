@@ -29,6 +29,10 @@ pub fn load_texture(path: impl AsRef<Path>) -> Result<Texture> {
         MAX_DECODED,
     )
 }
+/// Decode a bundled image using the same limits as imported textures.
+pub fn load_texture_bytes(bytes: &[u8], name: &str) -> Result<Texture> {
+    decode_texture(bytes, name, MAX_DECODED)
+}
 
 pub(crate) fn read_image(path: &Path) -> Result<Vec<u8>> {
     let file = fs::File::open(path)?;

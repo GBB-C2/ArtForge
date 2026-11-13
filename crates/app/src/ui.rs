@@ -526,7 +526,7 @@ pub enum DestructionAction {
     Remove,
     MeshCollision,
     ShardCollision,
-    Material, Field(u8), Reseed, Create, Bake, Restore, Play, Reset }
+    Material, Field(u8), Reseed, Floor, ShowFloor, Dust, Create, Bake, Restore, Play, Reset }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CurveAction {
     Create(u8), Draw, EditPoints, Point(i8), Field(u8), AddGeometry, RemoveGeometry,
@@ -626,6 +626,10 @@ pub enum Action {
     DropdownChoose(usize),
     DropdownDismiss,
     ToggleProjectMenu,
+    ShowWelcome,
+    CloseWelcome,
+    Language(crate::localization::Language),
+    OpenRecent(usize),
     ToggleViewMenu,
     ViewShading(u8),
     ViewPan,
@@ -1170,7 +1174,10 @@ impl Action {
             Self::Collision(CollisionAction::Toggle(..)) => Some("Включить или выключить столкновения с этим мешем"),
             Self::Collision(CollisionAction::Remove(..)) => Some("Убрать меш из списка столкновений · объект остаётся в сцене"),
             Self::Destruction(DestructionAction::Restore) => Some("Убрать созданные осколки и вернуть исходный меш · действие можно отменить"),
-            Self::Destruction(DestructionAction::Reseed) => Some("Изменить случайность; затем пересоздайте осколки"),
+            Self::Destruction(DestructionAction::Reseed) => Some("При пересоздании менять вариант разрезов; выключите для повторяемого результата"),
+            Self::Destruction(DestructionAction::Floor) => Some("Столкновения осколков с полом при предпросмотре и записи анимации"),
+            Self::Destruction(DestructionAction::ShowFloor) => Some("Показать прозрачную плоскость пола только в редакторе"),
+            Self::Destruction(DestructionAction::Dust) => Some("Пылевое облако в предпросмотре и рендере · размер, плотность и время ниже"),
             Self::SurfaceTab(14) => Some("Библиотека · примитивы, материалы, кривые, свет, сцены, камеры и скелеты"),
             Self::Curve(CurveAction::Point(-1)) => Some("Предыдущая точка кривой"),
             Self::Curve(CurveAction::Point(_)) => Some("Следующая точка кривой"),
@@ -1327,7 +1334,7 @@ impl Action {
             Self::Open => Some("Открыть проект · Ctrl+O"),
             Self::Save => Some("Сохранить проект · Ctrl+S"),
             Self::SaveAs => Some("Сохранить проект в новый файл · Ctrl+Shift+S"),
-            Self::Import => Some("Добавить модель Blender, GLB/glTF или OBJ · Ctrl+I"),
+            Self::Import => Some("Добавить модель GLB/glTF или OBJ · Ctrl+I"),
             Self::ImportReport => Some("Ресурсы и предупреждения последнего импорта"),
             Self::Undo => Some("Отменить последнее изменение · Ctrl+Z"),
             Self::Redo => Some("Повторить изменение · Ctrl+Shift+Z / Ctrl+Y"),
@@ -1417,6 +1424,7 @@ struct PathHit {
 }
 #[derive(Default)]
 pub struct Ui {
+    pub language: crate::localization::Language,
     pub rects: Vec<UiRect>,
     pub texts: Vec<UiText>,
     pub hits: Vec<Hit>,
@@ -1460,8 +1468,13 @@ impl Ui {
     pub fn set_slider_range(&mut self, action: Action, range: SliderRange) {
         self.slider_range = Some((action, range));
     }
+    pub fn image(&mut self,rect:[f32;4],uv:[f32;4]) {
+        self.rect(rect,[1.;4]);
+        if let Some(paint)=self.rects.last_mut() {paint.image_uv=Some(uv);}
+    }
     pub fn rect(&mut self, r: [f32; 4], c: [f32; 4]) {
         self.rects.push(UiRect {
+            image_uv: None,
             triangle: None,
             segment: None,
             depth: None,
@@ -1568,6 +1581,10 @@ impl Ui {
         self.rounded_corners(r, color, radius, Some(stroke));
     }
     pub fn label(&mut self, x: f32, y: f32, text: impl Into<String>, size: f32, color: [f32; 4]) {
+        let text=text.into();
+        self.raw_label(x,y,self.language.text(&text).into_owned(),size,color);
+    }
+    pub fn raw_label(&mut self, x:f32, y:f32, text:impl Into<String>, size:f32, color:[f32;4]) {
         self.texts.push(UiText {
             weight: 400,
             x: x * self.scale,
@@ -1585,7 +1602,10 @@ impl Ui {
         }
     }
     pub fn fitted_label(&mut self, r: [f32; 4], text: &str, size: f32, color: [f32; 4]) {
-        self.label(r[0], r[1], fit_button_label(text, r[2], size), size, color);
+        self.raw_label(r[0], r[1], fit_button_label(&self.language.text(text), r[2], size), size, color);
+    }
+    pub fn raw_fitted_label(&mut self,r:[f32;4],text:&str,size:f32,color:[f32;4]) {
+        self.raw_label(r[0],r[1],fit_button_label(text,r[2],size),size,color);
     }
     /// Direct text entry uses the same hit list as all other controls, so panel
     /// clipping and modal layers also apply to a focused field.
@@ -1602,7 +1622,7 @@ impl Ui {
                 self.rounded_rect([r[0] + 3., r[1] + 3., 3., r[3] - 6.], crate::gizmo::axis_color(self.theme, axis as usize), 1.);
             }
         }
-        self.label(
+        self.raw_label(
             r[0] + padding,
             r[1] + (r[3] - FIELD_LINE_HEIGHT) * 0.5,
             fit_button_label(
@@ -1618,6 +1638,14 @@ impl Ui {
         if let Some(clear) = clear {
             self.search_clear_button(r, clear);
         }
+    }
+    pub fn disabled_number_field(&mut self,r:[f32;4],label:&str,value:f64,action:Action,range:SliderRange) {
+        let (rects,texts,hits,values)=(self.rects.len(),self.texts.len(),self.hits.len(),self.number_values.len());
+        self.number_field(r,label,value,action,range);
+        let disabled=self.palette().disabled;
+        for text in &mut self.texts[texts..] {text.color=disabled;}
+        for rect in &mut self.rects[rects..] {rect.color[3]*=0.4;}
+        self.hits.truncate(hits);self.number_values.truncate(values);
     }
 
     fn search_clear_button(&mut self, r: [f32; 4], action: Action) {
@@ -1847,7 +1875,7 @@ impl Ui {
         }
         let text: String = layout.chars[layout.start..layout.end].iter().collect();
         if !text.is_empty() {
-            self.label(
+            self.raw_label(
                 layout.origin[0],
                 layout.origin[1],
                 text,
@@ -1952,7 +1980,7 @@ impl Ui {
             self.surface(r, p.hover);
         }
         let padding = if r[2] <= 36. { 4. } else { 8. };
-        let caption = fit_button_label(text, r[2] - padding * 2., 13.);
+        let caption = fit_button_label(&self.language.text(text), r[2] - padding * 2., 13.);
         let width: f32 = caption.chars().map(|c| character_advance(c, 13.)).sum();
         self.label(
             r[0] + if r[2] <= 36. {
@@ -2268,7 +2296,7 @@ impl Ui {
         let p = self.palette();
         let compact = r[2] <= 40.;
         let padding = if compact { 4. } else { 10. };
-        let caption = fit_button_label(text, (r[2] - padding * 2.).max(0.), 13.);
+        let caption = fit_button_label(&self.language.text(text), (r[2] - padding * 2.).max(0.), 13.);
         let text_x = r[0]
             + if compact {
                 ((r[2]
@@ -2346,6 +2374,7 @@ impl Ui {
         let stroke = width * self.scale;
         let pad = stroke * 0.5 + 1.;
         self.rects.push(UiRect {
+            image_uv: None,
             triangle: None,
             rect: [
                 a[0].min(b[0]) - pad,
@@ -2378,6 +2407,7 @@ impl Ui {
             return;
         }
         self.rects.push(UiRect {
+            image_uv: None,
             triangle: Some(points),
             rect: [min_x, min_y, max_x - min_x, max_y - min_y],
             color,
@@ -2448,6 +2478,7 @@ impl Ui {
                 let mut tint = color;
                 tint[3] *= r.color[3];
                 self.rects.push(UiRect {
+                    image_uv: None,
                     triangle: None,
                     segment: None,
                     depth: None,
@@ -2483,6 +2514,7 @@ impl Ui {
                 let mut tint = color;
                 tint[3] *= alpha;
                 self.rects.push(UiRect {
+                    image_uv: None,
                     triangle: None,
                     segment: None,
                     depth: None,
@@ -2596,6 +2628,7 @@ impl Ui {
                 let mut covered = color;
                 covered[3] *= coverage;
                 self.rects.push(UiRect {
+                    image_uv: None,
                     triangle: None,
                     segment: None,
                     depth: None,

@@ -153,7 +153,6 @@ impl App {
                 vec![
                     (171., "Интерфейс", 0.),
                     (310., "Просмотр", 0.),
-                    (500., "Импорт Blender", 0.),
                 ],
             ),
             0 if self.active_light_index().is_some() => (

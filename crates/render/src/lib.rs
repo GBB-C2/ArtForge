@@ -45,6 +45,8 @@ use winit::window::Window;
 
 #[derive(Clone, Debug)]
 pub struct UiRect {
+    /// UV crop in the cached interface image: origin U/V, width/height.
+    pub image_uv: Option<[f32;4]>,
     /// Projected triangle vertices (physical x/y and NDC depth).
     pub triangle: Option<[[f32; 3]; 3]>,
     pub rect: [f32; 4],
@@ -245,6 +247,7 @@ struct DrawUniform {
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct UiVertex {
+    image: [f32;4],
     rect: [f32; 4],
     basis: [f32; 4],
     color: [f32; 4],
@@ -275,6 +278,7 @@ impl UiVertex {
             ([x, y], [w, 0.], [0., h], 0.)
         };
         Self {
+            image: r.image_uv.unwrap_or([0.;4]),
             rect: [
                 origin[0] / width * 2. - 1.,
                 1. - origin[1] / height * 2.,
@@ -304,6 +308,7 @@ mod ui_geometry_tests {
     fn segment_instances_preserve_physical_endpoints_width_and_clip() {
         for (width, height) in [(800., 600.), (1600., 1200.)] {
             let r = UiRect {
+                image_uv: None,
                 triangle: None,
                 rect: [18., 28., 84., 44.],
                 color: [1.; 4],
@@ -323,7 +328,7 @@ mod ui_geometry_tests {
             assert_eq!(v.clip, [18., 28., 102., 72.]);
             assert_eq!(v.basis[2], 4.);
         }
-        assert_eq!(std::mem::size_of::<UiVertex>(), 80);
+        assert_eq!(std::mem::size_of::<UiVertex>(), 96);
     }
 }
 #[repr(C)]
@@ -633,6 +638,7 @@ pub struct Renderer {
     interactive_preview: bool,
     surface_failures: u8,
     effect_time: f64,
+    destruction_times: std::collections::BTreeMap<u64,f64>,
     fx_state: fx_interactions::State,
     fx_masks: fx_mask::Atlas,
     fx_gas: fx_gas::State,
@@ -652,6 +658,8 @@ pub struct Renderer {
     post_layout: wgpu::BindGroupLayout,
     post_uniform: wgpu::Buffer,
     ui_pipeline: wgpu::RenderPipeline,
+    ui_image: wgpu::TextureView,
+    ui_image_sampler: wgpu::Sampler,
     ui_buffer: Option<(wgpu::Buffer, usize)>,
     text_cache: text_cache::TextCache,
     particle_pipelines: Vec<wgpu::RenderPipeline>,
@@ -1314,7 +1322,7 @@ impl Renderer {
                 buffers: &[wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<UiVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4],
+                    attributes: &wgpu::vertex_attr_array![5=>Float32x4,0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4],
                 }],
             },
             fragment: Some(wgpu::FragmentState {
@@ -1492,6 +1500,9 @@ impl Renderer {
         if let Some(error) = device.pop_error_scope().await {
             return Err(format!("Графика · шрифты и завершение подготовки · {adapter_name}: {error}"));
         }
+        let ui_image_sampler=device.create_sampler(&wgpu::SamplerDescriptor {
+            label:Some("interface image sampling"),mag_filter:wgpu::FilterMode::Linear,min_filter:wgpu::FilterMode::Linear,..Default::default()
+        });
         eprintln!("GPU: подготовка завершена");
         Ok(Self {
             gpu_timer,
@@ -1508,6 +1519,7 @@ impl Renderer {
             interactive_preview: false,
             surface_failures: 0,
             effect_time: 0.,
+            destruction_times: Default::default(),
             fx_state: Default::default(),
             fx_masks,
             fx_gas:Default::default(),
@@ -1526,6 +1538,8 @@ impl Renderer {
             post_pipeline,
             post_layout,
             post_uniform,
+            ui_image: white.clone(),
+            ui_image_sampler,
             ui_pipeline,
             ui_buffer: None,
             text_cache: text_cache::TextCache::default(),
@@ -1563,8 +1577,17 @@ impl Renderer {
     /// Authored scene meshes retain their visibility and physical shadows.
     pub fn set_editor_shading(&mut self, mode: u8) { self.editor_shading = mode.min(3); }
     pub fn set_interactive_preview(&mut self, active: bool) { self.interactive_preview = active; }
+    /// Upload once; interface redraws use a single textured quad, not pixel geometry.
+    pub fn set_ui_image(&mut self,image:&poseforge_core::Texture)->Result<(),String> {
+        let max=self.device.limits().max_texture_dimension_2d.min(4096);
+        if image.width==0 || image.height==0 || image.width>max || image.height>max
+            || image.rgba8.len()!=image.width as usize*image.height as usize*4 {return Err("Invalid interface image".into());}
+        self.ui_image=Self::make_texture(&self.device,&self.queue,image.width,image.height,&image.rgba8,MipSemantic::ColorSrgb);
+        self.targets=None;Ok(())
+    }
     /// Transient animation clock: advancing volumes never invalidates scene geometry.
     pub fn set_effect_time(&mut self, time: f64) { self.effect_time = if time.is_finite() {time.max(0.)}else{0.}; }
+    pub fn set_destruction_times(&mut self, times: std::collections::BTreeMap<u64,f64>) { self.destruction_times=times; }
     pub fn set_editor_appearance(&mut self, background: [f32; 4], show_grid: bool) {
         self.editor_appearance = EditorAppearance::new(background, show_grid);
     }
@@ -2602,10 +2625,11 @@ impl Renderer {
             let ui_bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("edit components scene depth"),
                 layout: &self.ui_pipeline.get_bind_group_layout(0),
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&dof_color),
-                }],
+                entries: &[
+                    wgpu::BindGroupEntry {binding:0,resource:wgpu::BindingResource::TextureView(&dof_color)},
+                    wgpu::BindGroupEntry {binding:1,resource:wgpu::BindingResource::TextureView(&self.ui_image)},
+                    wgpu::BindGroupEntry {binding:2,resource:wgpu::BindingResource::Sampler(&self.ui_image_sampler)},
+                ],
             });
             let refraction_bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("scene refraction"),
@@ -2687,7 +2711,8 @@ impl Renderer {
         let settings = project.render_settings;
         let mut atmosphere = settings.atmosphere;
         let volume_lights = pack_volume_lights(project, export);
-        let (fx_volumes,fx_count)=fx::pack_scene(project,globals,export,self.effect_time,&self.fx_state,&self.fx_gas);
+        let (mut fx_volumes,mut fx_count)=fx::pack_scene(project,globals,export,self.effect_time,&self.fx_state,&self.fx_gas);
+        fx::append_destruction_dust(project,globals,export,self.effect_time,&self.destruction_times,&mut fx_volumes,&mut fx_count);
         if !volume_lights.iter().any(|v| v[3] > 0.) && !self.world.has_emissive_volume() { atmosphere.density = 0.; }
         let (mut lights, mut light_count) = pack_lights(project, export)?;
         fx::append_scene_lights(project,globals,export,self.effect_time,&mut lights,&mut light_count,&self.fx_state,&self.fx_gas);

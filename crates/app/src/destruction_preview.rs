@@ -22,8 +22,12 @@ struct Input {
 impl Input {
     fn collect(project: &Project, scene: &EvaluatedScene, source: u64) -> Result<Self, String> {
         let node = project.node(source).ok_or("Исходный меш удалён")?;
-        let settings = node.destruction.ok_or("Добавьте разрушение мешу")?;
+        let mut settings = node.destruction.ok_or("Добавьте разрушение мешу")?;
         settings.validate().map_err(|e| e.to_string())?;
+        // Display and generation options must not restart an active physics preview.
+        settings.randomize=false;settings.show_floor=false;settings.dust_enabled=false;
+        let defaults=DestructionSettings::default();settings.dust_density=defaults.dust_density;
+        settings.dust_size=defaults.dust_size;settings.dust_lifetime=defaults.dust_lifetime;
         let root = settings.result.ok_or("Сначала создайте осколки")?;
         if !settings.visible || !project.node_visible(root, false) || project.node_locked(source)
             || project.node_locked(root) { return Err("Включите осколки и снимите блокировку для запуска".into()); }
@@ -81,7 +85,7 @@ impl World {
             bodies.push(Body { id: shard.id, basis, shape: ShardShape::new(triangles)?, motion, previous: motion });
         }
         Ok(Self { bodies, collider, fields: input.fields.clone(), shard_collision: input.settings.shard_collision, time: 0., backlog: 0.,
-            forces: ShardForces { gravity: input.settings.values[4] as f32, floor: input.settings.values[5] as f32,
+            forces: ShardForces { gravity: input.settings.values[4] as f32, floor: input.settings.collision_floor(),
                 restitution: input.settings.values[6] as f32 } })
     }
     #[cfg(test)]
@@ -156,6 +160,9 @@ impl Preview {
     pub fn affects(&self, id: u64) -> bool { self.input.as_ref().is_some_and(|inputs| inputs.iter().any(|i| i.root == id || i.shards.iter().any(|s| s.id == id))) }
     pub fn time(&self, source: u64) -> Option<f64> {
         self.input.as_ref().filter(|inputs| inputs.iter().any(|i| i.source == source)).map(|_| self.snapshot.as_ref().map_or(0., |s| s.time))
+    }
+    pub fn times(&self) -> BTreeMap<u64,f64> {
+        self.input.iter().flatten().map(|input|(input.source,self.snapshot.as_ref().map_or(0.,|s|s.time))).collect()
     }
     fn start(&mut self) -> Result<(), String> {
         let (sender, requests) = mpsc::sync_channel::<Request>(1);
@@ -317,6 +324,19 @@ mod tests {
         a.preferences = Default::default(); a.width = 1440.; a.height = 900.;
         a.editor.selected = Some(1); a.editor.active_clip = Some(0); a.editor.time = 1.25;
         a
+    }
+    #[test]
+    fn disabled_floor_allows_live_fall_and_dust_edits_keep_the_simulation_input() {
+        let mut p=scene();let d=p.node_mut(1).unwrap().destruction.as_mut().unwrap();d.floor_enabled=false;d.mesh_collision=false;
+        let eval=p.evaluated(None,0.).unwrap();let input=Input::collect(&p,&eval,1).unwrap();
+        let cancel=AtomicBool::new(false);let mut world=World::new(&input,&cancel,&mut Vec::new()).unwrap();
+        let mut snapshot=world.advance(0.,&cancel).unwrap();
+        for _ in 0..180 {snapshot=world.advance(1./120.,&cancel).unwrap();}
+        assert!(snapshot.matrices[&4].w_axis.y< -3.);assert!(snapshot.matrices[&4].is_finite());
+        let d=p.node_mut(1).unwrap().destruction.as_mut().unwrap();d.dust_enabled=true;d.dust_density=4.;d.dust_size=2.;d.show_floor=true;d.randomize=true;
+        assert!(input==Input::collect(&p,&eval,1).unwrap());
+        let mut preview=Preview::default();preview.input=Some(vec![input]);preview.snapshot=Some(snapshot);preview.pause();
+        assert!(preview.times()[&1]>1.);preview.reset();assert!(preview.times().is_empty());
     }
     #[test]
     fn live_shards_fall_onto_selected_mesh_and_move_children_without_keys() {

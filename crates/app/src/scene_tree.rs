@@ -443,6 +443,8 @@ impl App {
         u.hits.push(ui::Hit { rect: [r[0] + 8., r[1] + 74., r[2] - 24., (r[3] - 82.).max(1.)],
             action: Action::SceneTool(crate::ui::SceneTool::Clear) });
         let rows = self.outliner_rows();
+        let shard_groups: std::collections::BTreeSet<_> = self.editor.project.nodes.iter()
+            .filter_map(|node| node.destruction.and_then(|d| d.result)).collect();
         let cap = self.scene_capacity();
         self.scene_scroll = self.scene_scroll.min(rows.len().saturating_sub(cap));
         let offset = self.scene_scroll;
@@ -485,7 +487,7 @@ impl App {
                     if naming {
                         u.field(rect, &collection.name, name_action);
                     } else {
-                        u.fitted_label(
+                        u.raw_fitted_label(
                             [rect[0], y + 5., rect[2], 17.],
                             &collection.name,
                             12.,
@@ -530,7 +532,7 @@ impl App {
                         p.text
                     };
                     draw_light_icon(u, 30. + indent, y + 3., light.kind, color);
-                    u.fitted_label(
+                    u.raw_fitted_label(
                         [54. + indent, y + 5., lw - 113. - indent, 17.],
                         &light.name,
                         12.,
@@ -604,7 +606,7 @@ impl App {
                     if selected {u.surface_outline(r,p.accent);}else if ui::contains(r,self.mouse) {u.surface(r,p.hover);}
                     let color=if modifier.enabled {p.text}else{p.muted};
                     Icon::Modifiers.draw(u,[x+2.,y+4.,18.,18.],color);
-                    u.fitted_label([x+28.,y+5.,(lw-x-88.).max(1.),17.],&modifier.name,11.,color);
+                    u.raw_fitted_label([x+28.,y+5.,(lw-x-88.).max(1.),17.],&modifier.name,11.,color);
                     u.hits.push(ui::Hit {rect:r,action:Action::Modifier(ui::ModifierAction::Select(*node,*id))});
                     if self.modifier_editable(*node) {
                         u.eye_button([lw-54.,y+1.,25.,23.],Action::Modifier(ui::ModifierAction::Toggle(*node,*id)),modifier.enabled);
@@ -631,7 +633,7 @@ impl App {
                             mat,
                             &self.editor.project.textures,
                         );
-                        u.fitted_label(
+                        u.raw_fitted_label(
                             [x + 28., y + 5., (lw - x - 88.).max(1.), 17.],
                             &mat.name,
                             11.,
@@ -690,7 +692,9 @@ impl App {
                     } else {
                         p.text
                     };
-                    let icon = if node.camera.is_some() {
+                    let icon = if shard_groups.contains(&node.id) {
+                        Icon::Fracture
+                    } else if node.camera.is_some() {
                         Icon::Camera
                     } else if node.is_joint || (row.has_children && self.is_skeleton_object(node.id)) {
                         Icon::Bone
@@ -706,7 +710,7 @@ impl App {
                         Icon::Folder
                     };
                     icon.draw(u, [x + 25., y + 4., 16., 16.], color);
-                    u.fitted_label(
+                    u.raw_fitted_label(
                         [x + 46., y + 5., lw - indent - 132., 17.],
                         &node.name,
                         12.,

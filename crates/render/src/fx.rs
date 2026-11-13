@@ -51,6 +51,31 @@ fn pack_internal(project:&Project,globals:&BTreeMap<u64,Mat4>,export:bool,time:f
     (packed,count)
 }
 
+/// Fracture dust uses spare volume slots, with the physics preview's own clock.
+/// It never creates document objects or overwrites authored effects.
+pub(super) fn append_destruction_dust(project:&Project,globals:&BTreeMap<u64,Mat4>,export:bool,time:f64,
+    preview_times:&BTreeMap<u64,f64>,packed:&mut[GpuFx;MAX_FX],count:&mut usize) {
+    let visible=project.visible_node_ids(export);
+    for node in &project.nodes {
+        if *count>=MAX_FX {break;}
+        let Some(d)=node.destruction.filter(|d|d.dust_enabled && d.visible && d.dust_density>0. && d.validate().is_ok()) else {continue;};
+        let Some(root)=d.result.filter(|root|visible.contains(root)) else {continue;};
+        let t=if export {time}else{preview_times.get(&node.id).copied().unwrap_or(time)};
+        if !t.is_finite() || t<=0. || t>=d.dust_lifetime {continue;}
+        let Some(root_model)=globals.get(&root).filter(|m|m.is_finite()) else {continue;};
+        let age=(t/d.dust_lifetime) as f32;
+        let size=d.dust_size as f32*(0.6+age*1.4);
+        let center=root_model.w_axis.truncate()+Vec3::Y*(age*size*0.25-size*0.4);
+        let model=Mat4::from_scale_rotation_translation(Vec3::splat(size),poseforge_core::Quat::IDENTITY,center);
+        let fade=((t/0.12).min(1.) as f32)*(1.-age).powi(2);
+        packed[*count]=GpuFx {inverse_model:model.inverse().to_cols_array_2d(),
+            params:[FxKind::Smoke.index() as f32,d.dust_density as f32*fade,0.,t as f32],
+            color:[0.55,0.50,0.43,1.],motion:[4.,0.6,d.values[1] as f32,1.],
+            shape:[1.,1.,0.7,1.],flow:[0.,0.,d.dust_lifetime as f32,1.],..GpuFx::zeroed()};
+        *count+=1;
+    }
+}
+
 /// Authored lights retain their slots. FX use spare slots without modifying the document.
 #[cfg(test)]
 pub(crate) fn append_lights(project:&Project,globals:&BTreeMap<u64,Mat4>,export:bool,time:f64,
@@ -117,6 +142,27 @@ pub(super) fn ray_steps(project:&Project,export:bool,interactive:bool,time:f64)-
 mod tests {
     use super::*;
     use poseforge_core::{Editor,FxKind,Vec3};
+    #[test]
+    fn dust_uses_preview_clock_fades_honors_visibility_and_never_overwrites_fx() {
+        let mut p=Project::default();let mut source=poseforge_core::Node::new(1,"Source");
+        source.visible=false;source.render_visible=false;
+        source.destruction=Some(poseforge_core::DestructionSettings {result:Some(2),dust_enabled:true,dust_lifetime:2.,..Default::default()});
+        let mut root=poseforge_core::Node::new(2,"Shards");root.transform.translation=Vec3::new(2.,3.,4.);
+        p.nodes=vec![source,root];let global=p.global_transforms().unwrap();let before=p.clone();
+        let mut volumes=[GpuFx::zeroed();MAX_FX];let mut count=0;
+        let clocks=BTreeMap::from([(1,0.25)]);
+        append_destruction_dust(&p,&global,false,100.,&clocks,&mut volumes,&mut count);assert_eq!(count,1);
+        assert_eq!(volumes[0].params[3],0.25);let density=volumes[0].params[1];assert!(density>0.);
+        assert!(Mat4::from_cols_array_2d(&volumes[0].inverse_model).is_finite());
+        count=0;append_destruction_dust(&p,&global,true,1.5,&clocks,&mut volumes,&mut count);assert_eq!(count,1);assert!(volumes[0].params[1]<density);
+        for t in [0.,2.,5.,f64::NAN] {count=0;append_destruction_dust(&p,&global,true,t,&clocks,&mut volumes,&mut count);assert_eq!(count,0);}
+        count=MAX_FX;let bytes=bytemuck::bytes_of(&volumes).to_vec();
+        append_destruction_dust(&p,&global,false,0.25,&clocks,&mut volumes,&mut count);assert_eq!(bytemuck::bytes_of(&volumes),bytes);
+        assert_eq!(p,before);p.node_mut(2).unwrap().render_visible=false;
+        count=0;append_destruction_dust(&p,&global,true,0.25,&clocks,&mut volumes,&mut count);assert_eq!(count,0);
+        p.node_mut(2).unwrap().visible=false;
+        count=0;append_destruction_dust(&p,&global,false,0.25,&clocks,&mut volumes,&mut count);assert_eq!(count,0);
+    }
     #[test]
     fn cinematic_uniform_flag_does_not_change_gpu_layout_or_normal_fire() {
         let mut e=Editor::new(Project::default());let id=e.create_pyro(FxKind::Fire).unwrap();

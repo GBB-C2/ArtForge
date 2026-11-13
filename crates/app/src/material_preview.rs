@@ -219,6 +219,7 @@ pub(super) fn image_runs(rgba: &[u8], size: u32, circular: bool) -> Vec<UiRect> 
             }
             if color[3] > 0 {
                 rects.push(UiRect {
+                    image_uv: None,
                     triangle: None,
                     segment: None,
                     depth: None,

@@ -58,7 +58,7 @@ pub fn draw_menu(
 
 fn menu_rect(size: [f32; 2], viewport: [f32; 4], menu: Menu) -> [f32; 4] {
     let [width, height] = match menu {
-        Menu::Project => [320., 508.],
+        Menu::Project => [320., 546.],
         Menu::View => [288., 496.],
         Menu::Body => [288., 382.],
     };
@@ -185,6 +185,7 @@ fn project_menu(u: &mut Ui, panel: [f32; 4], project: &Project) {
         false,
         Icon::File,
     );
+    u.quiet_icon_button([x+12.,y+498.,width-24.,32.],"Стартовый экран",Action::ShowWelcome,false,Icon::Grid);
 }
 
 #[allow(clippy::too_many_arguments)] // Menu receives independent workspace toggles.

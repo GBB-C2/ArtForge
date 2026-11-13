@@ -125,6 +125,8 @@ const INTERFACE_VERSION: u64 = 3;
 
 #[derive(Clone, Debug)]
 pub struct Preferences {
+    pub language: crate::localization::Language,
+    pub recent_projects: Vec<PathBuf>,
     pub theme: Theme,
     pub accent: Accent,
     pub left_width: Option<f32>,
@@ -151,6 +153,8 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            language: Default::default(),
+            recent_projects: Vec::new(),
             theme: Theme::Dark,
             accent: Accent::default(),
             left_width: None,
@@ -199,6 +203,9 @@ impl Preferences {
             .as_u64()
             .is_some_and(|version| version >= INTERFACE_VERSION);
         Self {
+            language: crate::localization::Language::from_name(value["language"].as_str().unwrap_or("ru")),
+            recent_projects: value["recent_projects"].as_array().into_iter().flatten().filter_map(|v|v.as_str())
+                .filter(|p|!p.is_empty()).take(6).map(PathBuf::from).collect(),
             theme: Theme::from_name(value["theme"].as_str().unwrap_or("dark")),
             accent: Accent::from_name(value["accent"].as_str().unwrap_or("blue")),
             left_width: value["left_width"]
@@ -251,6 +258,7 @@ impl Preferences {
     fn to_json(&self) -> serde_json::Value {
         serde_json::json!({
             "version": 1, "interface_version": INTERFACE_VERSION,
+            "language": self.language.as_str(), "recent_projects": self.recent_projects,
             "theme": self.theme.as_str(), "accent": self.accent.as_str(),
             "left_width":self.left_width,"right_width":self.right_width,
             "tools_expanded": self.tools_expanded,
@@ -273,6 +281,14 @@ impl Preferences {
             .and_then(|b| serde_json::from_slice(&b).ok())
             .map(|v| Self::from_json(&v))
             .unwrap_or_default()
+    }
+    pub fn remember_project(&mut self, path: &Path) {
+        let path=if path.is_absolute() {path.to_path_buf()} else {
+            std::env::current_dir().map(|base|base.join(path)).unwrap_or_else(|_|path.to_path_buf())
+        };
+        self.recent_projects.retain(|p|*p!=path);
+        self.recent_projects.insert(0,path);
+        self.recent_projects.truncate(6);
     }
     pub fn save(&self) -> Result<(), String> {
         let path = Self::path().ok_or("Не удалось определить папку настроек")?;
@@ -699,4 +715,18 @@ fn collapsed_sections_roundtrip_and_old_preferences_keep_sections_open() {
     let malformed =
         Preferences::from_json(&serde_json::json!({"collapsed_sections":[-1,"x",70000,101]}));
     assert_eq!(malformed.collapsed_sections, BTreeSet::from([101]));
+}
+
+#[cfg(test)]
+mod recent_tests {
+    use super::*;
+    #[test]
+    fn recent_projects_are_bounded_deduplicated_and_language_persists() {
+        let mut p=Preferences::default();p.language=crate::localization::Language::English;
+        for i in 0..10 {p.remember_project(Path::new(&format!("/projects/Лиса {i}.artforge")));}
+        p.remember_project(Path::new("/projects/Лиса 5.artforge"));
+        assert_eq!(p.recent_projects.len(),6);assert_eq!(p.recent_projects[0],PathBuf::from("/projects/Лиса 5.artforge"));
+        let loaded=Preferences::from_json(&p.to_json());assert_eq!(loaded.recent_projects,p.recent_projects);assert_eq!(loaded.language,p.language);
+        assert!(Preferences::from_json(&serde_json::json!({})).recent_projects.is_empty());
+    }
 }

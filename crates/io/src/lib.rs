@@ -20,7 +20,7 @@ pub use import::{import_gltf, import_gltf_with_progress, ImportReport, ImportRes
 pub use obj::{import_obj, import_obj_with_progress};
 pub use project::{load_project, load_project_bytes, merge_project, save_project};
 pub use rig_manifest::{parse_rig_manifest, RigBone, RigManifest, RigMatchReport};
-pub use texture::{load_texture, TextureReduction};
+pub use texture::{load_texture, load_texture_bytes, TextureReduction};
 
 #[derive(Debug, thiserror::Error)]
 pub enum IoError {

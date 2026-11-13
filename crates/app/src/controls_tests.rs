@@ -2706,3 +2706,23 @@ fn floating_surfaces_have_no_opaque_backing_and_timeline_owns_its_input() {
         }
     }
 }
+
+#[test]
+fn slider_repeated_pointer_wrap_keeps_direction_fine_mode_and_single_undo() {
+    let mut a=App::new(None);a.preferences.right_panel=true;a.surface.tab=0;
+    a.editor=Editor::new(Project::default());let mut node=Node::new(1,"Object");node.empty=true;
+    a.editor.project.nodes.push(node);a.editor.selected=Some(1);a.editor.mode=EditorMode::Scene;
+    a.ui=a.build_ui();
+    let (rect,action,range,value)=a.ui.hits.iter().find_map(|hit|match &hit.action {
+        Action::Slide(action,range,value) if **action==Action::EditTransform(0)=>Some((hit.rect,(**action).clone(),*range,*value)),_=>None
+    }).expect("translation slider");
+    a.mouse=[rect[0]+rect[2]*0.5,rect[1]+rect[3]*0.5];
+    let before=a.editor.project.clone();a.begin_slider(action,range,value);
+    a.mouse_move([a.mouse[0]+10.,a.mouse[1]]);let first=a.editor.project.node(1).unwrap().transform.translation.x;
+    for x in [4.,a.width-4.,4.] {a.rebase_slider_pointer(x);a.mouse_move([x+10.,a.mouse[1]]);}
+    let after=a.editor.project.node(1).unwrap().transform.translation.x;assert!(after>first);
+    a.modifiers=ModifiersState::SHIFT;a.rebase_slider_pointer(4.);a.mouse_move([14.,a.mouse[1]]);
+    assert!(a.editor.project.node(1).unwrap().transform.translation.x>=after);
+    a.mouse_up(MouseButton::Left);assert!(a.drag.is_none());assert_eq!(a.editor.undo_len(),1);
+    a.editor.undo();assert_eq!(a.editor.project,before);
+}

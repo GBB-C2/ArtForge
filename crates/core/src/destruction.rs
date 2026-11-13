@@ -15,6 +15,14 @@ pub struct DestructionSettings {
     pub mesh_collision: bool,
     /// Dynamic contacts between enabled fragments, in preview and baked motion.
     pub shard_collision: bool,
+    pub randomize: bool,
+    pub floor_enabled: bool,
+    /// Editor helper only; never exported as scene geometry.
+    pub show_floor: bool,
+    pub dust_enabled: bool,
+    pub dust_density: f64,
+    pub dust_size: f64,
+    pub dust_lifetime: f64,
     /// Dedicated material for newly exposed cut faces; never an all-face overlay.
     pub interior_material: Option<u64>,
     pub visible: bool,
@@ -26,6 +34,8 @@ impl Default for DestructionSettings {
     fn default() -> Self {
         Self { values: [12., 1., 0., 1.5, 9.81, 0., 0.25, 72.], seam_percent: 0.6, cut_contrast: 0.65, visible: true,
             mesh_collision: true, shard_collision: false, interior_material: None,
+            randomize: false, floor_enabled: true, show_floor: false,
+            dust_enabled: false, dust_density: 0.8, dust_size: 1., dust_lifetime: 3.,
             result: None, source_visible: true, source_render_visible: true }
     }
 }
@@ -41,7 +51,15 @@ impl DestructionSettings {
             || !self.cut_contrast.is_finite() || !(0. ..=1.).contains(&self.cut_contrast) {
             return Err(CoreError::Invalid("Некорректная ширина или контраст разрезов".into()));
         }
+        for (value, min, max) in [(self.dust_density, 0., 5.), (self.dust_size, 0.1, 5.), (self.dust_lifetime, 0.2, 20.)] {
+            if !value.is_finite() || !(min..=max).contains(&value) {
+                return Err(CoreError::Invalid("Некорректные параметры пыли".into()));
+            }
+        }
         Ok(())
+    }
+    pub fn collision_floor(self) -> f32 {
+        if self.floor_enabled { self.values[5] as f32 } else { f32::NEG_INFINITY }
     }
 }
 
@@ -50,6 +68,15 @@ mod tests {
     use super::*;
     use crate::{box_mesh, Editor, Node, Project, Vec3};
 
+    #[test]
+    fn old_projects_keep_floor_and_new_dust_fields_round_trip_and_validate() {
+        let legacy:DestructionSettings=serde_json::from_str(r#"{"values":[12,1,0,1.5,9.81,0,0.25,72]}"#).unwrap();
+        assert!(legacy.floor_enabled);assert!(!legacy.show_floor && !legacy.dust_enabled && !legacy.randomize);
+        let mut s=DestructionSettings {floor_enabled:false,show_floor:true,dust_enabled:true,dust_density:2.,dust_size:3.,dust_lifetime:4.,randomize:true,..legacy};
+        assert_eq!(s.collision_floor(),f32::NEG_INFINITY);s.validate().unwrap();
+        let again:DestructionSettings=serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();assert_eq!(again,s);
+        for invalid in [f64::NAN,-1.,21.] {s.dust_lifetime=invalid;assert!(s.validate().is_err());}
+    }
     fn scene() -> Project {
         let mut source = Node::new(1, "Source");
         source.mesh = Some(2);

@@ -55,6 +55,34 @@ fn finite_number(value: &str) -> Result<f64, String> {
 }
 
 impl App {
+    pub(super) fn capture_drag_pointer(&mut self) {
+        let Some(window)=&self.window else {return;};
+        self.slider_cursor_locked=matches!(self.drag,Some(Drag::Slider(_)))
+            && window.set_cursor_grab(winit::window::CursorGrabMode::Locked).is_ok();
+        if self.slider_cursor_locked { window.set_cursor_visible(false); }
+        else {let _=window.set_cursor_grab(winit::window::CursorGrabMode::Confined);}
+    }
+    pub(super) fn release_drag_pointer(&mut self) {
+        self.slider_cursor_locked=false;
+        if let Some(window)=&self.window {
+            let _=window.set_cursor_grab(winit::window::CursorGrabMode::None);
+            window.set_cursor_visible(true);
+        }
+    }
+    pub(super) fn rebase_slider_pointer(&mut self, x:f32) {
+        if let Some(Drag::Slider(drag))=&mut self.drag {
+            drag.pointer_anchor+=x-drag.last_pointer;
+            drag.last_pointer=x;
+            self.mouse[0]=x;
+        }
+    }
+    pub(super) fn wrap_slider_pointer(&mut self) {
+        if self.slider_cursor_locked || !matches!(self.drag,Some(Drag::Slider(_))) || self.width<16. {return;}
+        let x=if self.mouse[0]<=2. {self.width-4.} else if self.mouse[0]>=self.width-2. {4.} else {return;};
+        if self.window.as_ref().is_some_and(|w|w.set_cursor_position(winit::dpi::LogicalPosition::new(x,self.mouse[1])).is_ok()) {
+            self.rebase_slider_pointer(x);
+        }
+    }
     /// A click only arms the bar. Two stationary clicks open its exact value;
     /// a changed value, another action or cancelled capture ends the sequence.
     pub(super) fn slider_double_click(&mut self, action: &Action) -> bool {
@@ -680,7 +708,7 @@ impl App {
                 FilePurpose::Import => (
                     PickerKind::OpenFile,
                     "Импорт модели",
-                    vec!["blend", "glb", "gltf", "obj"],
+                    vec!["glb", "gltf", "obj"],
                 ),
                 FilePurpose::Texture => {
                     (PickerKind::OpenFile, "Изображение или видео", vec!["png", "jpg", "jpeg", "tga", "bmp", "dds", "mp4", "m4v", "mov", "webm", "mkv", "avi", "ogv", "gif"])

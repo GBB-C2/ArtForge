@@ -56,6 +56,8 @@ mod color_controls;
 mod color_interaction_tests;
 #[path = "controls.rs"]
 mod controls;
+#[path = "welcome.rs"]
+mod welcome;
 #[cfg(test)]
 #[path = "controls_tests.rs"]
 mod controls_tests;
@@ -72,6 +74,8 @@ pub(crate) use fluid_domains::ExportDomains;
 mod fluid_object_controls;
 #[path = "destruction_controls.rs"]
 mod destruction_controls;
+#[path = "destruction_overlay.rs"]
+mod destruction_overlay;
 #[path = "destruction_materials.rs"]
 mod destruction_materials;
 #[path = "number_defaults.rs"]
@@ -277,6 +281,11 @@ use winit::{
 pub fn run(initial: Option<PathBuf>) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let mut app = App::new(initial);
+    if app.initial.is_none() {
+        app.action(Action::New);
+        app.status.clear();
+        app.welcome.open=true;
+    }
     app.material_previews.set_waker(event_loop.create_proxy());
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
     if let Some(error)=app.startup_error.take() {Err(error)} else {Ok(())}
@@ -385,7 +394,7 @@ fn file_extension_allowed(purpose: FilePurpose, path: &Path) -> bool {
     match purpose {
         FilePurpose::CacheSave | FilePurpose::CacheLoad => extension == "afcache",
         FilePurpose::Environment => matches!(extension.as_str(), "hdr" | "png" | "jpg" | "jpeg"),
-        FilePurpose::Import => matches!(extension.as_str(), "blend" | "glb" | "gltf" | "obj"),
+        FilePurpose::Import => matches!(extension.as_str(), "glb" | "gltf" | "obj"),
         FilePurpose::Texture => matches!(
             extension.as_str(),
             "png" | "jpg" | "jpeg" | "tga" | "bmp" | "dds" | "mp4" | "m4v" | "mov" | "webm" | "mkv" | "avi" | "ogv" | "gif"
@@ -549,6 +558,7 @@ impl Drop for Job {
 }
 
 struct App {
+    welcome: welcome::Welcome,
     procedural: modifier_controls::State,
     nodes: node_editor::NodeEditor,
     uv: uv_editor::UvState,
@@ -575,6 +585,7 @@ struct App {
     scale: f32,
     ui: Ui,
     mouse: [f32; 2],
+    slider_cursor_locked: bool,
     modifiers: ModifiersState,
     yaw: f32,
     pitch: f32,
@@ -725,6 +736,7 @@ impl App {
         editor.selected = p.nodes.iter().find(|n| n.is_joint).map(|n| n.id);
         let saved_snapshot = editor.project.clone();
         Self {
+            welcome: Default::default(),
             close_recovery: Default::default(),
             material_previews: material_preview::MaterialPreviews::default(),
             nodes: node_editor::NodeEditor::default(),
@@ -750,6 +762,7 @@ impl App {
             scale: 1.,
             ui: Ui::new(1.),
             mouse: [0.; 2],
+            slider_cursor_locked: false,
             modifiers: ModifiersState::empty(),
             yaw: 0.48,
             pitch: 0.21,
@@ -977,7 +990,7 @@ impl App {
             0 if self.selected_text().is_some() => text_controls::PANEL_BOTTOM,
             0 if self.selected_helper().is_some() => self.helper_panel_bottom(),
             0 if self.rig_context() => self.rig_object_bottom(),
-            9 => 700.,
+            9 => 590.,
             10 => self.normals_panel_bottom(),
             1 if !self.surface.material_library && self.surface_mesh_id().is_none()
                 || self.material_locked() =>
@@ -1019,7 +1032,7 @@ impl App {
         self.dirty = self.editor.project != self.saved_snapshot || self.editor.has_staged();
     }
     fn has_modal(&self) -> bool {
-        self.collision_popup_open() || self.environments.open
+        self.welcome.open || self.collision_popup_open() || self.environments.open
             || self.nodes_open()
             || self.dialog.is_some()
             || self.overwrite.is_some()
@@ -1421,9 +1434,7 @@ impl App {
             self.update_dirty();
         }
         self.drag_button = None;
-        if let Some(window) = &self.window {
-            let _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
-        }
+        self.release_drag_pointer();
     }
     fn reset_workflow_selection(&mut self) {
         self.fx_preview=Default::default();
@@ -1529,7 +1540,7 @@ impl App {
         }
     }
     fn open_dropped(&mut self, path: PathBuf) {
-        if self.has_modal() || self.job.is_some() {
+        if (self.has_modal() && !self.welcome_active()) || self.job.is_some() {
             self.status = "Завершите текущий диалог или операцию перед открытием файла.".into();
             return;
         }
@@ -1540,7 +1551,7 @@ impl App {
             .to_ascii_lowercase();
         match ext.as_str() {
             "txt" => self.load_rig_manifest(&path),
-            "glb" | "gltf" | "blend" | "obj" => self.start_load(path, true),
+            "glb" | "gltf" | "obj" => self.start_load(path, true),
             "artforge" | "poseforge" | "json" if !self.dirty && !self.editor.has_staged() => {
                 self.start_load(path, false)
             }
@@ -1548,7 +1559,7 @@ impl App {
                 self.status = "Сначала сохраните текущий проект и запишите временную позу.".into()
             }
             _ => self.status =
-                "Поддерживаются .blend, GLB/glTF, OBJ, .artforge, .poseforge и список костей .txt."
+                "Поддерживаются GLB/glTF, OBJ, .artforge, .poseforge и список костей .txt."
                     .into(),
         }
     }
@@ -1769,6 +1780,9 @@ impl App {
         self.redraw();
     }
     fn start_load(&mut self, path: PathBuf, import: bool) {
+        if import && path.extension().is_some_and(|ext|ext.eq_ignore_ascii_case("blend")) {
+            self.status="Для импорта модели используйте GLB, glTF или OBJ.".into();return;
+        }
         if self.editor.has_staged() {
             self.status = "Запишите ключ или отбросьте временную позу перед загрузкой.".into();
             return;
@@ -2210,6 +2224,9 @@ impl App {
                     self.cancel_drag();
                     self.editor = Editor::new(p);
                     self.saved_snapshot = self.editor.project.clone();
+                    self.preferences.remember_project(&path);
+                    self.persist_preferences();
+                    self.welcome.open=false;
                     self.path = Some(path);
                     self.reset_workflow_selection();
                     self.dirty = false;
@@ -2235,6 +2252,7 @@ impl App {
                     self.last_import_report = report.clone();
                     match self.editor.commit_prepared("Импорт", i.edit) {
                         Ok(()) => {
+                            self.welcome.open=false;
                             self.editor.selected = i.roots.first().copied();
                             if i.has_skeleton {
                                 self.preferences.skeleton = true;
@@ -2313,6 +2331,8 @@ impl App {
                     }
                 }
                 JobMessage::Saved(path, saved) => {
+                    self.preferences.remember_project(&path);
+                    self.persist_preferences();
                     self.path = Some(path.clone());
                     self.dirty = self.editor.project != saved || self.editor.has_staged();
                     self.saved_snapshot = saved;
@@ -2444,6 +2464,7 @@ impl App {
         }
     }
     fn action(&mut self, a: Action) {
+        if self.welcome_action(&a) {return;}
         if self.path_pick.is_some() {
             if let Action::Select(id)=a {self.pick_path_node(id);return;}
             self.path_pick=None;self.status="Выбор привязки отменён".into();self.redraw();return;
@@ -3012,6 +3033,8 @@ impl App {
                 if self.dirty || self.editor.has_staged() {
                     self.status="Сначала сохраните проект. Для новой сцены после сохранения нажмите ещё раз.".into();
                 } else {
+                    self.welcome.open=false;
+                    self.status="Новый проект".into();
                     self.editor = Editor::new(Project::default());
                     self.editor.mode = EditorMode::Scene;
                     self.tool = Tool::Orbit;
@@ -3672,15 +3695,14 @@ impl App {
                 self.details = false;
                 self.rig_details = false;
                 self.update_dirty();
-                if let Some(w) = &self.window {
-                    let _ = w.set_cursor_grab(winit::window::CursorGrabMode::None);
-                }
+                self.release_drag_pointer();
             }
             Action::ConfirmInput => {
                 self.confirm_input();
             }
             Action::Help => self.help = true,
             Action::CloseHelp => self.help = false,
+            Action::ShowWelcome | Action::CloseWelcome | Action::Language(_) | Action::OpenRecent(_) => unreachable!("welcome action routed earlier"),
         }
         self.prune_animation_selection();
         self.sync_fluid_settings();
@@ -3704,6 +3726,10 @@ impl App {
         self.set_time(frame / self.editor.project.fps as f64);
     }
     fn mouse_down(&mut self, button: MouseButton) {
+        if self.welcome_active() {
+            if button==MouseButton::Left {if let Some(action)=self.ui.hit(self.mouse) {self.welcome.focus=Some(action.clone());self.action(action);}}
+            return;
+        }
         self.camera_effect_pointer_focus();
         // A second mouse button must not replace or finish the active gesture.
         if self.drag.is_some() || self.native_picker.is_some() {
@@ -4114,9 +4140,7 @@ impl App {
         // Finish before releasing capture; a subsequent focus event is harmless.
         let drag = self.drag.take();
         self.drag_button = None;
-        if let Some(w) = &self.window {
-            let _ = w.set_cursor_grab(winit::window::CursorGrabMode::None);
-        }
+        self.release_drag_pointer();
         let orbit_click = self.orbit_click.take().is_some();
         if button == MouseButton::Left && orbit_click
             && matches!(&drag, Some(Drag::Orbit { .. } | Drag::CameraNavigate(_)))
@@ -4193,6 +4217,7 @@ impl App {
         let palette = self.preferences.palette();
         let mut u = Ui::with_theme(self.scale, self.preferences.theme, self.mouse);
         u.accent = self.preferences.accent;
+        u.language = self.preferences.language;
         if let Some(Drag::Slider(slider)) = &self.drag {
             u.set_slider_range(slider.action.clone(), slider.range);
         }
@@ -4224,7 +4249,7 @@ impl App {
             }
         }
         let hx = w - 200.;
-        u.fitted_label(
+        u.raw_fitted_label(
             [208., 23., (hx - 224.).max(0.), 18.],
             &format!(
                 "{}{}",
@@ -4302,6 +4327,7 @@ impl App {
                 bones.draw_selected(&mut u, &selected, hovered);
             }
         }
+        self.draw_destruction_floor(&mut u);
         self.draw_curves(&mut u);
         self.draw_rig_handles(&mut u);
         self.draw_normal_directions(&mut u);
@@ -4360,30 +4386,6 @@ impl App {
         self.draw_scene_tree(&mut u);
         self.draw_tool_rail(&mut u);
         self.draw_view_widget(&mut u);
-        if self.editor.project.nodes.is_empty() {
-            let welcome_x = self.left_panel_rect()[0] + self.left_width() + 24.;
-            u.label(
-                welcome_x,
-                v[1] + v[3] / 2. - 25.,
-                "Создайте 3D artwork",
-                23.,
-                palette.text,
-            );
-            u.label(
-                welcome_x,
-                v[1] + v[3] / 2. + 12.,
-                "Перетащите BLEND, GLB, glTF или OBJ в окно",
-                12.,
-                palette.muted,
-            );
-            u.icon_button(
-                [welcome_x, v[1] + v[3] / 2. + 48., 184., 34.],
-                "Импорт модели",
-                Action::Import,
-                true,
-                Icon::Import,
-            );
-        }
         if self.preferences.right_panel {
             u.surface(self.right_panel_rect(), palette.panel);
             self.draw_properties_navigation(&mut u);
@@ -4629,16 +4631,13 @@ impl App {
             );
         }
         self.draw_node_editor(&mut u);
+        if self.welcome.open { self.draw_welcome(&mut u); }
         if let Some(d) = &self.dialog {
             u.hits.clear();
             u.texts.clear();
             u.rect([0., 0., w, h], [0.015, 0.02, 0.03, 0.82]);
             let x = (w - 780.) / 2.;
-            let dialog_height = if d.purpose == FilePurpose::Import {
-                660.
-            } else {
-                540.
-            };
+            let dialog_height = 540.;
             let y = (h - dialog_height) / 2.;
             u.surface([x, y, 780., dialog_height], palette.panel);
             u.label(
@@ -4646,7 +4645,7 @@ impl App {
                 y + 22.,
                 match d.purpose {
                     FilePurpose::Environment => "HDRI окружение · Radiance HDR / PNG / JPEG",
-                    FilePurpose::Import => "Импорт Blender / GLB / glTF / OBJ",
+                    FilePurpose::Import => "Импорт модели · GLB / glTF / OBJ",
                     FilePurpose::Texture => "Карта · изображение или видео",
                     FilePurpose::Rig => "Список костей · TXT",
                     FilePurpose::Open => "Открыть проект",
@@ -4684,81 +4683,14 @@ impl App {
                 x + 148.,
                 y + 124.,
                 if d.purpose == FilePurpose::Import {
-                    "BLEND — в фоне без окна · GLB/glTF/OBJ — без Blender"
+                    "Выберите модель GLB, glTF или OBJ"
                 } else {
                     "Путь: Ctrl+V или «Обзор…» для выбора файла / папки"
                 },
                 11.,
                 palette.muted,
             );
-            if d.purpose == FilePurpose::Import {
-                u.label(
-                    x + 24.,
-                    y + 156.,
-                    "Blender · только для .blend · в фоне без окна · пустое поле — автопоиск",
-                    11.,
-                    palette.muted,
-                );
-                let blender = self
-                    .preferences
-                    .blender_path
-                    .as_ref()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                u.field(
-                    [x + 24., y + 178., 408., 30.],
-                    &blender,
-                    Action::EditBlenderPath,
-                );
-                u.icon_button(
-                    [x + 440., y + 178., 100., 30.],
-                    "Вставить",
-                    Action::PasteBlenderPath,
-                    false,
-                    Icon::Paste,
-                );
-                u.icon_button(
-                    [x + 548., y + 178., 100., 30.],
-                    "Обзор…",
-                    Action::BrowseBlenderPath,
-                    false,
-                    Icon::Folder,
-                );
-                u.icon_button(
-                    [x + 656., y + 178., 100., 30.],
-                    "Проверить",
-                    Action::DetectBlender,
-                    false,
-                    Icon::Search,
-                );
-                let animations = [x + 24., y + 222., 732., 30.];
-                if self.job.is_none() {
-                    u.checkbox(
-                        animations,
-                        "Импортировать готовую анимацию (.blend)",
-                        Action::ToggleBlendImportAnimations,
-                        self.preferences.blend_import_animations,
-                    );
-                } else {
-                    u.disabled_checkbox(
-                        animations,
-                        "Импортировать готовую анимацию (.blend)",
-                        self.preferences.blend_import_animations,
-                    );
-                }
-                u.label(
-                    x + 24.,
-                    y + 258.,
-                    "Для .blend: модель, текстуры и скелет — всегда. Готовые клипы — по флажку.",
-                    11.,
-                    palette.muted,
-                );
-            }
-            let file_list_y = if d.purpose == FilePurpose::Import {
-                283.
-            } else {
-                163.
-            };
+            let file_list_y = 163.;
             for (i, (p, dir)) in d.entries.iter().enumerate().skip(d.offset).take(9) {
                 let y = y + file_list_y + (i - d.offset) as f32 * 31.;
                 u.icon_button(
@@ -5206,6 +5138,7 @@ impl App {
         u
     }
     fn scroll(&mut self, delta: f32) {
+        if self.welcome_active() {return;}
         if self.collision_scroll(delta) { return; }
         if self.dropdown_is_open(ui::DropdownKind::AssetLibrary) {
             self.asset_popup_scroll(delta);
@@ -5343,6 +5276,7 @@ impl App {
         if event.state != ElementState::Pressed || self.native_picker.is_some() {
             return;
         }
+        if self.welcome_key(&event.logical_key,event.repeat) {return;}
         if self.environment_key(&event.logical_key) {
             return;
         }
@@ -5598,6 +5532,7 @@ impl App {
                     window.set_title("ArtForge Studio · 3D Artwork");
                 }
                 eprintln!("GPU готов: {} · {:.1} с",renderer.adapter_name,elapsed.as_secs_f64());
+                if let Some(image)=welcome::artwork() {if let Err(error)=renderer.set_ui_image(image) {self.status=error;}}
                 self.renderer=Some(renderer);
                 // Loading time must not advance the animation or physics clock.
                 self.last_tick=Instant::now();
@@ -5673,6 +5608,7 @@ impl App {
                 renderer.set_editor_shading(self.preferences.viewport_shading);
                 renderer.set_interactive_preview(self.performance.stage==performance::QualityStage::Moving);
                 renderer.set_effect_time(effect_time);
+                renderer.set_destruction_times(self.destruction.preview.times());
                 let fluid = if self.fluid_on || self.fluid.time() > 0. {
                     self.fluid.positions()
                 } else {
@@ -5694,6 +5630,14 @@ impl App {
     }
 }
 impl ApplicationHandler for App {
+    fn device_event(&mut self, _event_loop:&ActiveEventLoop, _device_id:winit::event::DeviceId, event:winit::event::DeviceEvent) {
+        if self.slider_cursor_locked && matches!(self.drag,Some(Drag::Slider(_))) {
+            if let winit::event::DeviceEvent::MouseMotion {delta}=event {
+                let point=[self.mouse[0]+delta.0 as f32/self.scale,self.mouse[1]];
+                self.mouse_move(point);
+            }
+        }
+    }
     fn user_event(&mut self, _: &ActiveEventLoop, _: ()) {
         self.redraw();
     }
@@ -5839,20 +5783,21 @@ impl ApplicationHandler for App {
                 if let Some(input) = &mut self.input {
                     input.end_drag();
                 }
-                self.cancel_drag();
+                if !matches!(self.drag,Some(Drag::Slider(_))) { self.cancel_drag(); }
                 self.redraw();
             }
-            WindowEvent::CursorMoved { position, .. } => self.mouse_move([
-                position.x as f32 / self.scale,
-                position.y as f32 / self.scale,
-            ]),
+            WindowEvent::CursorMoved { position, .. } => {
+                if !self.slider_cursor_locked {
+                    self.mouse_move([position.x as f32/self.scale,position.y as f32/self.scale]);
+                    self.wrap_slider_pointer();
+                }
+            },
             WindowEvent::MouseInput { state, button, .. } => {
                 if state == ElementState::Pressed {
+                    let captured=self.drag.is_some();
                     self.mouse_down(button);
-                    if self.drag.is_some() {
-                        if let Some(w) = &self.window {
-                            let _ = w.set_cursor_grab(winit::window::CursorGrabMode::Confined);
-                        }
+                    if !captured && self.drag.is_some() {
+                        self.capture_drag_pointer();
                     }
                 } else {
                     self.mouse_up(button);

@@ -207,6 +207,9 @@ mod modeling_live;
 #[cfg(test)]
 #[path = "modeling_tests.rs"]
 mod modeling_tests;
+#[cfg(test)]
+#[path = "component_modeling_tests.rs"]
+mod component_modeling_tests;
 #[path = "npr_controls.rs"]
 mod npr_controls;
 #[path = "artistic_controls.rs"]

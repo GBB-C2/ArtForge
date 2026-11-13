@@ -44,6 +44,16 @@ impl MeshConnectivity {
             }
         }
         let mut face_neighbors = vec![BTreeSet::new(); mesh.face_count()];
+        if let Some(topology) = &mesh.topology {
+            for &[a, b] in &topology.loose_edges {
+                let (a, b) = (canonical[a as usize], canonical[b as usize]);
+                if a != b {
+                    edge_faces.entry((a.min(b), a.max(b))).or_default();
+                    vertex_neighbors[a].insert(b);
+                    vertex_neighbors[b].insert(a);
+                }
+            }
+        }
         for faces in edge_faces.values() {
             // Invalid nonmanifold fans must not cause a quadratic allocation.
             if faces.len() <= 8 {

@@ -52,7 +52,7 @@ fn shape_scene() -> Editor {
     let mut n=Node::new(1,"Quad");n.mesh=Some(2);
     let mut mesh=box_mesh(2,"Quad",Vec3::ONE,Some(3));
     mesh.vertices=[[-1.,-1.,0.],[2.,-1.,0.],[1.,1.,0.],[-1.,1.,0.]].into_iter().enumerate().map(|(i,p)|Vertex {position:p,normal:[0.,0.,1.],uv:[i as f32/4.,0.],..Default::default()}).collect();
-    mesh.topology=Some(MeshTopology {faces:vec![vec![0,1,2,3]].into(),face_materials:vec![Some(3)].into(),uv_seams:vec![],primitive:None,smooth_normals:false});
+    mesh.topology=Some(MeshTopology { loose_edges: Vec::new(),faces:vec![vec![0,1,2,3]].into(),face_materials:vec![Some(3)].into(),uv_seams:vec![],primitive:None,smooth_normals:false});
     mesh.indices=vec![0,1,2,0,2,3].into();
     Editor::new(Project {nodes:vec![n],meshes:vec![mesh],materials:vec![Material{id:3,..Default::default()}],..Default::default()})
 }

@@ -8,6 +8,10 @@ pub const MAX_EDIT_TRIANGLES: usize = 131_072;
 
 #[derive(Clone, Debug)]
 pub enum MeshEdit {
+    ExtrudeVertices { vertices: BTreeSet<usize>, distance: f32 },
+    DeleteComponents { vertices: BTreeSet<usize>, edges: BTreeSet<(usize, usize)>, faces: BTreeSet<usize> },
+    SubdivideSelected { vertices: BTreeSet<usize>, edges: BTreeSet<(usize, usize)>, faces: BTreeSet<usize> },
+    BridgeFaces { faces: BTreeSet<usize>, segments: u32 },
     Normals {
         faces: BTreeSet<usize>,
         edit: crate::NormalEdit,
@@ -138,6 +142,13 @@ fn faces_valid(mesh: &Mesh, faces: &BTreeSet<usize>) -> Result<(), CoreError> {
     Ok(())
 }
 fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError> {
+    let preserve_wires = !matches!(operation,
+        MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. } | MeshEdit::SubdivideSelected { .. }
+        | MeshEdit::Transform { .. } | MeshEdit::Translate { .. } | MeshEdit::Slide { .. }
+        | MeshEdit::WeightedTransform { .. } | MeshEdit::Shape { .. } | MeshEdit::Knife { .. } | MeshEdit::Uv(_));
+    let wires: Vec<_> = if preserve_wires { mesh.topology.iter().flat_map(|t|t.loose_edges.iter())
+        .map(|e|(*e,e.map(|v|mesh.vertices[v as usize]))).collect() } else {Vec::new()};
+    if !wires.is_empty() {mesh.topology.as_mut().unwrap().loose_edges.clear();}
     let remap = !matches!(
         operation,
         MeshEdit::Uv(_)
@@ -168,6 +179,23 @@ fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError
         }
     }
     apply_mesh_edit_inner(mesh, operation)?;
+    if !wires.is_empty() {
+        crate::component_mesh::ensure_topology(mesh);
+        let graph=crate::MeshConnectivity::new(mesh);
+        let mut points:BTreeMap<_,_>=mesh.vertices.iter().enumerate().map(|(i,v)|(position_key(v.position),i as u32)).collect();
+        let mut restored=Vec::new();
+        for (old,pair) in wires {
+            let ids=std::array::from_fn(|i| {
+                let v=pair[i];
+                if mesh.vertices.get(old[i] as usize).is_some_and(|current|current.position==v.position) {old[i]}
+                else {*points.entry(position_key(v.position)).or_insert_with(||{let id=mesh.vertices.len() as u32;mesh.vertices.push(v);id})}
+            });
+            let canonical=ids.map(|v|graph.canonical.get(v as usize).copied().unwrap_or(v as usize));
+            if !graph.edges.contains(&(canonical[0].min(canonical[1]),canonical[0].max(canonical[1]))) {restored.push(ids);}
+        }
+        mesh.topology.as_mut().unwrap().loose_edges.extend(restored);
+        if mesh.vertices.len()>MAX_EDIT_VERTICES {return Err(invalid("Операция превышает предел вершин"));}
+    }
     if !seams.is_empty() {
         let g = crate::MeshConnectivity::new(mesh);
         let points: BTreeMap<_, _> = mesh
@@ -212,6 +240,10 @@ fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError
 }
 fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError> {
     match &operation {
+        MeshEdit::ExtrudeVertices { vertices, distance } => return crate::component_mesh::extrude_vertices(mesh, vertices, *distance),
+        MeshEdit::DeleteComponents { vertices, edges, faces } => return crate::component_mesh::delete(mesh, vertices, edges, faces),
+        MeshEdit::SubdivideSelected { vertices, edges, faces } => return crate::component_mesh::subdivide(mesh, vertices, edges, faces),
+        MeshEdit::BridgeFaces { faces, segments } => return crate::mesh_topology_tools::bridge_faces(mesh, faces, *segments),
         MeshEdit::Normals { faces, edit } => return crate::mesh_normals::apply(mesh, faces, edit),
         MeshEdit::Shape {
             vertices,
@@ -285,6 +317,8 @@ fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), Cor
     let mut smooth = mesh.smooth_normals_enabled();
     let keep_policy = mesh.topology.is_some() || matches!(operation, MeshEdit::SmoothNormals);
     match operation {
+        MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. }
+        | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } => unreachable!(),
         MeshEdit::Normals { .. }
         | MeshEdit::Shape { .. }
         | MeshEdit::Knife { .. }
@@ -332,6 +366,7 @@ fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), Cor
         }
         MeshEdit::Extrude { faces, distance } => {
             faces_valid(mesh, &faces)?;
+            if distance==0. {return Ok(());}
             if !distance.is_finite() || distance.abs() < 1e-6 || distance.abs() > 1000. {
                 return Err(invalid(
                     "Расстояние экструзии: ненулевое число от −1000 до 1000",
@@ -458,7 +493,7 @@ fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), Cor
         }
     }
     if keep_policy {
-        mesh.topology = Some(crate::MeshTopology {
+        mesh.topology = Some(crate::MeshTopology { loose_edges: Vec::new(),
             face_materials: Default::default(),
             uv_seams: Vec::new(),
             faces: mesh

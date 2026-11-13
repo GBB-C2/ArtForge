@@ -63,7 +63,7 @@ fn arrow(strokes: &mut Vec<Segment>, center: Vec2, axis: Vec2, sign: f32, length
 impl App {
     pub(super) fn draw_live_handles(&self, u: &mut Ui, op: &LiveOperation) {
         let mut world = op.anchor;
-        if op.kind == Kind::Extrude {
+        if matches!(op.kind,Kind::Extrude|Kind::VertexExtrude) {
             world += op.direction * op.values[0];
         } else if op.kind == Kind::Cut {
             world += op.direction * (op.values[0] / 100. - 0.5);
@@ -90,7 +90,7 @@ impl App {
         let p = u.palette();
         let fields = if op.kind == Kind::Face { 2 } else { 1 };
         for field in 0..fields {
-            let ring = field == 0 && matches!(op.kind, Kind::Vertex | Kind::Edge | Kind::Face | Kind::Inset);
+            let ring = field == 0 && matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Edge | Kind::Face | Kind::Inset);
             let mut strokes = Vec::new();
             if ring {
                 let point = |i: usize| {

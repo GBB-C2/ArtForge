@@ -3,6 +3,7 @@ use super::*;
 use crate::ui::{NormalAction as N, ShapeAction as S};
 use poseforge_core::{MeshEdit, NormalEdit, ShapeEdit};
 pub(super) struct MeshToolsState {
+    pub(super) alignment_mode: u8,
     angle: f32,
     weighted: bool,
     show: bool,
@@ -21,6 +22,7 @@ pub(super) struct MeshToolsState {
 impl Default for MeshToolsState {
     fn default() -> Self {
         Self {
+            alignment_mode: 0,
             angle: 60.,
             weighted: true,
             show: false,
@@ -220,6 +222,7 @@ impl App {
         if self.job.is_some() || self.scene_write_pending() || self.editor.playing {
             return;
         }
+        if let S::AlignmentMode(mode)=a {self.mesh_tools.alignment_mode=mode.min(2);return;}
         if let S::Axis(axis) = a { self.mesh_tools.shape_axis = (axis as usize).min(2); return; }
         if a == S::Pin {
             self.mesh_tools.pin = !self.mesh_tools.pin;

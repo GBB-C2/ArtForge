@@ -139,7 +139,7 @@ impl CurveData {
             return Err(invalid("Геометрия кривой превышает предел вершин; уменьшите детализацию"));
         }
         let mut mesh = Mesh { id, name: "Геометрия кривой".into(), material, vertices: Default::default(),
-            indices: Default::default(), morph_targets: Vec::new(), topology: Some(MeshTopology {
+            indices: Default::default(), morph_targets: Vec::new(), topology: Some(MeshTopology { loose_edges: Vec::new(),
                 faces: Default::default(), face_materials: Default::default(), uv_seams: Vec::new(), primitive: None, smooth_normals: true }) };
         let mut tangents = Vec::with_capacity(centers.len());
         for i in 0..=steps {

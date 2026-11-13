@@ -240,6 +240,8 @@ fn edge_pointer_selection_move_cancel_undo_and_numeric_entry_follow_welded_endpo
         a.editor.project.validate().unwrap();
         let unchanged = a.editor.project.clone();
         a.action(Action::Author(A::DeleteFaces));
+        assert_ne!(a.editor.project, unchanged);
+        a.action(Action::Undo);
         assert_eq!(a.editor.project, unchanged);
         a.action(Action::Author(A::Clear));
         a.modifiers = ModifiersState::SHIFT;

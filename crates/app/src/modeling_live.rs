@@ -7,6 +7,8 @@ use poseforge_core::{Mesh, MeshEdit};
 mod handles;
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
+    VertexExtrude,
+    VertexInset,
     Vertex,
     Edge,
     Face,
@@ -19,6 +21,8 @@ pub(super) struct LiveOperation {
     node: u64,
     original: Mesh,
     selection: SelectionSnapshot,
+    faces: BTreeSet<usize>,
+    vertices: BTreeSet<usize>,
     kind: Kind,
     values: [f32; 3],
     defaults: [f32; 3],
@@ -34,6 +38,8 @@ impl LiveOperation {
     }
     fn label(&self) -> &'static str {
         match self.kind {
+            Kind::VertexExtrude => "Экструдирование точек",
+            Kind::VertexInset => "Вставка вокруг точек",
             Kind::Vertex => "Фаска вершин",
             Kind::Edge => "Фаска рёбер",
             Kind::Face => "Фаска граней",
@@ -52,7 +58,7 @@ impl LiveOperation {
     }
     fn spec(&self, i: usize) -> (&'static str, f32, f32, f32) {
         match (self.kind, i) {
-            (Kind::Vertex, 0) => ("Срез угла, %", 0., 45., 0.25),
+            (Kind::Vertex | Kind::VertexInset, 0) => ("Срез угла, %", 0., 45., 0.25),
             (Kind::Edge, 0) => ("Ширина, м", 0., 1000., self.scale * 0.002),
             (Kind::Edge, 1) => ("Сегменты", 1., 32., 0.1),
             (Kind::Edge, 2) => ("Профиль, %", 0., 100., 0.5),
@@ -66,7 +72,7 @@ impl LiveOperation {
         let (_, min, max, _) = self.spec(i);
         if self.kind == Kind::Edge && i == 0 {
             (min, (self.scale * 0.3).max(self.values[i] * 1.2).min(max))
-        } else if self.kind == Kind::Extrude || (self.kind == Kind::Face && i == 1) {
+        } else if matches!(self.kind, Kind::Extrude | Kind::VertexExtrude) || (self.kind == Kind::Face && i == 1) {
             let extent = self.scale.max(self.values[i].abs() * 1.2);
             ((-extent).max(min), extent.min(max))
         } else {
@@ -75,8 +81,9 @@ impl LiveOperation {
     }
     fn edit(&self, v: [f32; 3]) -> MeshEdit {
         match self.kind {
-            Kind::Vertex => MeshEdit::VertexBevel {
-                vertices: self.selection.vertices.clone(),
+            Kind::VertexExtrude => MeshEdit::ExtrudeVertices { vertices:self.vertices.clone(), distance:v[0] },
+            Kind::Vertex | Kind::VertexInset => MeshEdit::VertexBevel {
+                vertices: self.vertices.clone(),
                 amount: v[0] / 100.,
             },
             Kind::Edge => MeshEdit::EdgeBevel {
@@ -86,20 +93,16 @@ impl LiveOperation {
                 profile: v[2] / 100.,
             },
             Kind::Face | Kind::Inset => MeshEdit::Bevel {
-                faces: self.selection.faces.clone(),
+                faces: self.faces.clone(),
                 inset: v[0] / 100.,
                 shift: if self.kind == Kind::Face { v[1] } else { 0. },
             },
             Kind::Extrude => MeshEdit::Extrude {
-                faces: self.selection.faces.clone(),
+                faces: self.faces.clone(),
                 distance: v[0],
             },
             Kind::Slide => MeshEdit::Slide {
-                vertices: if self.selection.mode == S::Vertex {
-                    self.selection.vertices.clone()
-                } else {
-                    BTreeSet::new()
-                },
+                vertices: self.vertices.clone(),
                 edges: if self.selection.mode == S::Edge {
                     self.selection.edges.clone()
                 } else {
@@ -131,7 +134,7 @@ pub(super) struct ParameterDrag {
 }
 impl App {
     pub(super) fn modeling_live_action(&mut self, a: A) -> bool {
-        let kind = match a {
+        let mut kind = match a {
             A::Slide => Kind::Slide,
             A::EdgeBevel => Kind::Edge,
             A::Bevel => match self.authoring.selection_mode {
@@ -176,12 +179,17 @@ impl App {
         let Some(node) = self.authoring.editing else {
             return true;
         };
+        let faces=self.selected_face_region();
+        let vertices=self.edit_vertices();
+        if faces.is_empty() && self.authoring.selection_mode!=S::Face {
+            if kind==Kind::Extrude {kind=Kind::VertexExtrude;}
+            if kind==Kind::Inset {kind=Kind::VertexInset;}
+        }
         let valid = match kind {
+            Kind::VertexExtrude | Kind::VertexInset => !vertices.is_empty(),
             Kind::Vertex => self.authoring.selection_mode == S::Vertex && !self.authoring.vertices.is_empty(),
             Kind::Slide => {
-                (self.authoring.selection_mode == S::Vertex && !self.authoring.vertices.is_empty())
-                    || (self.authoring.selection_mode == S::Edge
-                        && !self.authoring.edges.is_empty())
+                !vertices.is_empty()
             }
             Kind::Edge => {
                 self.authoring.selection_mode == S::Edge && !self.authoring.edges.is_empty()
@@ -189,7 +197,7 @@ impl App {
             Kind::Cut => {
                 self.authoring.selection_mode == S::Edge && self.authoring.edges.len() == 1
             }
-            _ => self.authoring.selection_mode == S::Face && !self.authoring.faces.is_empty(),
+            _ => !faces.is_empty(),
         };
         if !valid {
             self.status = "Выберите компоненты в подходящем режиме для этой операции".into();
@@ -218,8 +226,13 @@ impl App {
         // Transform a displacement, not a shading normal: object scaling must
         // affect the projected distance in exactly the same way as geometry.
         let mut direction = Vec3::ZERO;
-        if matches!(kind, Kind::Extrude | Kind::Face) {
-            for &f in &self.authoring.faces {
+        if matches!(kind, Kind::Extrude | Kind::VertexExtrude | Kind::Face) {
+            let normal_faces=if kind==Kind::VertexExtrude {
+                let g=self.mesh_cache(&original);
+                let points:BTreeSet<_>=vertices.iter().map(|&v|g.graph.canonical[v]).collect();
+                (0..original.face_count()).filter(|&f|original.face_vertices(f).unwrap().iter().any(|&v|points.contains(&g.graph.canonical[v as usize]))).collect()
+            } else {faces.clone()};
+            for &f in &normal_faces {
                 if let Some(face) = original.face_vertices(f) {
                     let p =
                         |i: usize| Vec3::from_array(original.vertices[face[i] as usize].position);
@@ -228,7 +241,7 @@ impl App {
                     }
                 }
             }
-            direction = model.transform_vector3(direction.normalize_or_zero());
+            direction = model.transform_vector3(direction.try_normalize().unwrap_or(Vec3::Y));
         }
         if kind == Kind::Cut {
             if let Some(&(a, b)) = self.authoring.edges.first() {
@@ -239,11 +252,11 @@ impl App {
             }
         }
         let values = match kind {
-            Kind::Vertex => [15., 0., 0.],
+            Kind::Vertex | Kind::VertexInset => [15., 0., 0.],
             Kind::Edge => [scale * 0.025, 3., 100.],
             Kind::Face => [self.authoring.inset * 100., self.authoring.bevel_height, 0.],
             Kind::Inset => [self.authoring.inset * 100., 0., 0.],
-            Kind::Extrude => [scale * 0.05, 0., 0.],
+            Kind::Extrude | Kind::VertexExtrude => [scale * 0.05, 0., 0.],
             Kind::Cut => [self.authoring.loop_position * 100., 0., 0.],
             Kind::Slide => [0., 0., 0.],
         };
@@ -251,6 +264,8 @@ impl App {
             node,
             original,
             selection: SelectionSnapshot::capture(&self.authoring),
+            faces,
+            vertices,
             kind,
             values,
             defaults: values,
@@ -269,12 +284,13 @@ impl App {
             self.status = e.to_string();
             return true;
         }
-        if matches!(kind, Kind::Vertex | Kind::Edge | Kind::Cut) {
+        if matches!(kind, Kind::Vertex | Kind::VertexInset | Kind::Edge | Kind::Cut) {
             self.authoring.vertices.clear();
             self.authoring.edges.clear();
             self.authoring.faces.clear();
         }
         self.modeling_live = Some(op);
+        self.sync_live_selection();
         self.invalidate_geometry();
         self.status =
             "Предпросмотр · Enter — применить · Esc — отменить · Shift — точно · Ctrl — шаг".into();
@@ -294,6 +310,7 @@ impl App {
             Ok(()) => {
                 op.values = values;
                 op.error = None;
+                self.sync_live_selection();
                 self.invalidate_geometry();
                 Ok(())
             }
@@ -303,6 +320,21 @@ impl App {
                 self.status = text.clone();
                 Err(text)
             }
+        }
+    }
+    fn sync_live_selection(&mut self) {
+        let Some(op)=&self.modeling_live else {return;};
+        if self.editor.editable_mesh(op.node).is_ok_and(|mesh| *mesh == op.original) {
+            op.selection.restore(&mut self.authoring);
+            return;
+        }
+        if op.kind==Kind::VertexExtrude {
+            self.authoring.selection_mode=S::Vertex;
+            self.authoring.vertices=(op.original.vertices.len()..self.editor.editable_mesh(op.node).map_or(0,|m|m.vertices.len())).collect();
+            self.authoring.edges.clear();self.authoring.faces.clear();
+        } else if matches!(op.kind,Kind::Face|Kind::Inset|Kind::Extrude) {
+            self.authoring.selection_mode=S::Face;
+            self.authoring.faces=op.faces.clone();self.authoring.vertices.clear();self.authoring.edges.clear();
         }
     }
     pub(super) fn modeling_live_confirm(&mut self, a: &Action, text: &str) -> Result<bool, String> {
@@ -415,7 +447,7 @@ impl App {
             return;
         }
         let (mut direction, mut step) = self.live_parameter_basis(op, i);
-        if track.is_none() && i == 0 && matches!(op.kind, Kind::Vertex | Kind::Edge | Kind::Face | Kind::Inset) {
+        if track.is_none() && i == 0 && matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Edge | Kind::Face | Kind::Inset) {
             if let Some(center) = self.project_point(
                 op.anchor
                     + if op.kind == Kind::Face {
@@ -479,7 +511,7 @@ impl App {
         if op.kind == Kind::Edge && d.field == 1 {
             value = value.round();
         } else if snapped {
-            let step = if matches!(op.kind, Kind::Vertex | Kind::Cut | Kind::Inset | Kind::Slide)
+            let step = if matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Cut | Kind::Inset | Kind::Slide)
                 || (op.kind == Kind::Face && d.field == 0)
                 || (op.kind == Kind::Edge && d.field == 2)
             {
@@ -545,7 +577,7 @@ impl App {
             }
             return fallback;
         }
-        if !matches!((op.kind, i), (Kind::Extrude, 0) | (Kind::Face, 1)) {
+        if !matches!((op.kind, i), (Kind::Extrude | Kind::VertexExtrude, 0) | (Kind::Face, 1)) {
             return fallback;
         }
         let sample = op.scale * 0.05;
@@ -572,7 +604,7 @@ impl App {
             match self.ui.hit(self.mouse)? {
                 Action::Author(A::LiveDrag(i)) => {
                     let op = self.modeling_live.as_ref()?;
-                    if i == 0 && matches!(op.kind, Kind::Vertex | Kind::Edge | Kind::Face | Kind::Inset) {
+                    if i == 0 && matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Edge | Kind::Face | Kind::Inset) {
                         let center = self.project_point(
                             op.anchor
                                 + if op.kind == Kind::Face {

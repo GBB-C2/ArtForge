@@ -67,6 +67,7 @@ pub use curves::*;
 pub use primitive::*;
 mod connectivity;
 mod mesh_modeling;
+mod component_mesh;
 mod polygon_edit;
 pub use connectivity::MeshConnectivity;
 

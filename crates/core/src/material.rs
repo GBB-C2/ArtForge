@@ -635,7 +635,7 @@ impl Editor {
         let mut copy = source.clone();
         copy.id = output;
         if copy.topology.is_none() {
-            copy.topology = Some(crate::MeshTopology {
+            copy.topology = Some(crate::MeshTopology { loose_edges: Vec::new(),
                 faces: copy.indices.chunks_exact(3).map(|face| face.to_vec()).collect(),
                 face_materials: Default::default(), uv_seams: Vec::new(),
                 smooth_normals: false, primitive: None,
@@ -692,7 +692,7 @@ impl Editor {
         let mut copy = source.clone();
         copy.id = output;
         if copy.topology.is_none() {
-            copy.topology = Some(crate::MeshTopology {
+            copy.topology = Some(crate::MeshTopology { loose_edges: Vec::new(),
                 faces: copy
                     .indices
                     .as_chunks::<3>()

@@ -98,7 +98,7 @@ pub(crate) fn finish(
         return Err(invalid("Операция превышает предел вершин"));
     }
     mesh.vertices = vertices.into();
-    mesh.topology = Some(MeshTopology {
+    mesh.topology = Some(MeshTopology { loose_edges: Vec::new(),
         face_materials,
         uv_seams: Vec::new(),
         faces: output.into(),
@@ -319,6 +319,56 @@ pub(crate) fn bridge(
     if rings.len() != 2 || rings[0].len() != rings[1].len() {
         return Err(invalid("Нужны два контура с одинаковым числом вершин"));
     }
+    let mut output = faces(mesh);
+    append_bridge(mesh, &rings, segments, &mut output)?;
+    finish(mesh, output, mesh.smooth_normals_enabled())
+}
+
+pub(crate) fn bridge_faces(mesh: &mut Mesh, selection: &BTreeSet<usize>, segments: u32) -> Result<(), CoreError> {
+    if selection.len()<2 || selection.iter().any(|&f|f>=mesh.face_count()) || !(1..=32).contains(&segments) {
+        return Err(invalid("Выберите две области граней; сегменты моста: 1–32"));
+    }
+    let g=MeshConnectivity::new(mesh);
+    let mut remaining=selection.clone(); let mut groups=Vec::new();
+    while let Some(&seed)=remaining.first() {
+        let mut group=BTreeSet::from([seed]); let mut pending=vec![seed]; remaining.remove(&seed);
+        while let Some(f)=pending.pop() { for &next in &g.face_neighbors[f] {
+            if remaining.remove(&next) {group.insert(next); pending.push(next);}
+        } }
+        groups.push(group);
+    }
+    if groups.len()!=2 { return Err(invalid("Мост требует две отдельные области граней")); }
+    let mut rings=Vec::new();
+    for group in groups {
+        let mut boundary=Vec::new();
+        for f in group.iter().copied() {
+            let face=mesh.face_vertices(f).unwrap();
+            for i in 0..face.len() {
+                let a=g.canonical[face[i] as usize]; let b=g.canonical[face[(i+1)%face.len()] as usize];
+                if g.edge_faces[&(a.min(b),a.max(b))].iter().filter(|f|group.contains(f)).count()==1 {
+                    // The cap is removed, so its adjacent surface runs in the reverse direction.
+                    boundary.push((b,a));
+                }
+            }
+        }
+        let mut outlines=loops(&boundary)?;
+        if outlines.len()!=1 {return Err(invalid("Область моста должна иметь один внешний контур без отверстий"));}
+        rings.push(outlines.remove(0));
+    }
+    if rings[0].len()!=rings[1].len() || rings[0].iter().any(|v|rings[1].contains(v)) {
+        return Err(invalid("Для моста нужны отдельные контуры с одинаковым числом вершин"));
+    }
+    let mut output:Vec<_>=faces(mesh).into_iter().enumerate().filter_map(|(f,face)|(!selection.contains(&f)).then_some(face)).collect();
+    let mut materials:Vec<_>=(0..mesh.face_count()).filter(|f|!selection.contains(f)).map(|f|mesh.face_material(f)).collect();
+    let material=mesh.face_material(*selection.first().unwrap()); let count=output.len();
+    append_bridge(mesh,&rings,segments,&mut output)?;
+    materials.extend(std::iter::repeat_n(material,output.len()-count));
+    crate::component_mesh::ensure_topology(mesh);
+    let t=mesh.topology.as_mut().unwrap();t.faces=output.clone().into();t.face_materials=materials.into();
+    finish(mesh,output,mesh.smooth_normals_enabled())
+}
+
+fn append_bridge(mesh: &mut Mesh, rings: &[Vec<usize>], segments: u32, output: &mut Vec<Vec<u32>>) -> Result<(),CoreError> {
     let n = rings[0].len();
     if mesh.vertices.len() + (segments as usize - 1) * n > MAX_EDIT_VERTICES
         || mesh.indices.len() / 3 + n * segments as usize * 2 > MAX_EDIT_TRIANGLES
@@ -360,7 +410,6 @@ pub(crate) fn bridge(
         strips.push(row);
     }
     strips.push(last);
-    let mut output = faces(mesh);
     for rows in strips.windows(2) {
         for i in 0..n {
             let j = (i + 1) % n;
@@ -372,15 +421,16 @@ pub(crate) fn bridge(
             output.push(f);
         }
     }
-    finish(mesh, output, mesh.smooth_normals_enabled())
+    Ok(())
 }
 pub(crate) fn dissolve(
     mesh: &mut Mesh,
     selection: &BTreeSet<(usize, usize)>,
 ) -> Result<(), CoreError> {
     let g = MeshConnectivity::new(mesh);
-    let edges = selected_edges(mesh, selection, &g)?;
-    if edges.iter().any(|e| g.edge_faces[e].len() != 2) {
+    let edges: BTreeSet<_> = selected_edges(mesh, selection, &g)?.into_iter()
+        .filter(|e| g.edge_faces[e].len() == 2).collect();
+    if edges.is_empty() {
         return Err(invalid("Растворяются внутренние рёбра между двумя гранями"));
     }
     let mut adjacency = BTreeMap::<usize, Vec<usize>>::new();
@@ -419,27 +469,10 @@ pub(crate) fn dissolve(
             ));
         }
         seen.extend(&group);
-        let original = mesh.face_vertices(start).unwrap();
-        let origin = Vec3::from_array(mesh.vertices[original[0] as usize].position);
-        let normal = crate::polygon_edit::face_normal(mesh, original)
-            .try_normalize()
-            .ok_or_else(|| invalid("Вырожденная грань"))?;
-        let scale = original
-            .iter()
-            .map(|&v| Vec3::from_array(mesh.vertices[v as usize].position).distance(origin))
-            .fold(0_f32, f32::max)
-            .max(0.001);
         let mut boundary = Vec::new();
+        let mut corners = BTreeMap::new();
         for &f in &group {
             let face = mesh.face_vertices(f).unwrap();
-            if face.iter().any(|&v| {
-                (Vec3::from_array(mesh.vertices[v as usize].position) - origin)
-                    .dot(normal)
-                    .abs()
-                    > scale * 0.0001
-            }) {
-                return Err(invalid("Растворение требует копланарные грани"));
-            }
             for j in 0..face.len() {
                 let a = g.canonical[face[j] as usize];
                 let b = g.canonical[face[(j + 1) % face.len()] as usize];
@@ -451,6 +484,7 @@ pub(crate) fn dissolve(
                     == 1
                 {
                     boundary.push((a, b));
+                    corners.entry(a).or_insert(face[j]);
                 }
             }
         }
@@ -461,7 +495,7 @@ pub(crate) fn dissolve(
             ));
         }
         attributes.push(mesh.face_material(start));
-        output.push(loops[0].iter().map(|&v| v as u32).collect());
+        output.push(loops[0].iter().map(|v| corners[v]).collect());
     }
     if let Some(t) = &mut mesh.topology {
         if !t.face_materials.is_empty() {

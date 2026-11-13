@@ -310,6 +310,7 @@ impl App {
             | A::Weld
             | A::WeldDistance
             | A::Bridge
+            | A::BridgeFaces
             | A::BridgeSegments
             | A::Dissolve
             | A::Inspect
@@ -457,16 +458,17 @@ impl App {
             }
             A::Extrude => unreachable!("live operation handled above"),
             A::DeleteFaces | A::Subdivide | A::Smooth | A::Flat => {
-                if command == A::DeleteFaces && self.authoring.selection_mode != S::Face {
-                    self.status = "Для удаления выберите грани · клавиша 3".into();
-                    return;
-                }
                 let Some(id) = self.authoring.editing else {
                     return;
                 };
                 let op = match command {
-                    A::DeleteFaces => MeshEdit::DeleteFaces(self.authoring.faces.clone()),
-                    A::Subdivide => MeshEdit::Subdivide,
+                    A::DeleteFaces | A::Subdivide => {
+                        let vertices=if self.authoring.selection_mode==S::Vertex {self.authoring.vertices.clone()} else {BTreeSet::new()};
+                        let edges=if self.authoring.selection_mode==S::Edge {self.authoring.edges.clone()} else {BTreeSet::new()};
+                        let faces=if self.authoring.selection_mode==S::Face {self.authoring.faces.clone()} else {BTreeSet::new()};
+                        if command==A::DeleteFaces {MeshEdit::DeleteComponents {vertices,edges,faces}}
+                        else {MeshEdit::SubdivideSelected {vertices,edges,faces}}
+                    },
                     A::Smooth => MeshEdit::SmoothNormals,
                     _ => MeshEdit::FlatNormals,
                 };

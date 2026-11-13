@@ -172,7 +172,7 @@ pub(crate) fn apply(
             "Разделение нормалей превысит 65536 вершин; обработайте меньшую область",
         ));
     }
-    let mut topology = mesh.topology.clone().unwrap_or(MeshTopology {
+    let mut topology = mesh.topology.clone().unwrap_or(MeshTopology { loose_edges: Vec::new(),
         faces: Default::default(),
         primitive: None,
         smooth_normals: false,

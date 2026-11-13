@@ -15,6 +15,31 @@ fn detach(mesh: &mut Mesh, smooth: bool) {
     }
 }
 fn finish(mesh: &mut Mesh, smooth: bool) -> Result<(), CoreError> {
+    let vertices = mesh.vertices.clone();
+    if let Some(topology) = &mut mesh.topology {
+        for face in &mut topology.faces {
+            if face.len() != 4 {
+                continue;
+            }
+            let p = |i: u32| Vec3::from_array(vertices[i as usize].position);
+            let normal = (p(face[1]) - p(face[0])).cross(p(face[2]) - p(face[0]))
+                + (p(face[2]) - p(face[0])).cross(p(face[3]) - p(face[0]));
+            for _ in 0..4 {
+                if (p(face[1]) - p(face[0]))
+                    .cross(p(face[2]) - p(face[0]))
+                    .dot(normal)
+                    > 0.
+                    && (p(face[2]) - p(face[0]))
+                        .cross(p(face[3]) - p(face[0]))
+                        .dot(normal)
+                        > 0.
+                {
+                    break;
+                }
+                face.rotate_left(1);
+            }
+        }
+    }
     mesh.rebuild_polygon_indices()?;
     crate::recompute_normals(mesh, smooth);
     detach(mesh, smooth);
@@ -26,6 +51,7 @@ fn finish(mesh: &mut Mesh, smooth: bool) -> Result<(), CoreError> {
 fn polygons(mesh: &mut Mesh) {
     if mesh.topology.is_none() {
         mesh.topology = Some(MeshTopology {
+            loose_edges: Vec::new(),
             face_materials: Default::default(),
             uv_seams: Vec::new(),
             faces: mesh
@@ -129,7 +155,7 @@ pub(crate) fn bevel(
     let source = mesh.topology.as_ref().unwrap().faces.clone();
     for &f in selection {
         let face = &source[f];
-        let center = face
+        let mut center = face
             .iter()
             .map(|&i| Vec3::from_array(mesh.vertices[i as usize].position))
             .sum::<Vec3>()
@@ -137,6 +163,20 @@ pub(crate) fn bevel(
         let normal = crate::polygon_edit::face_normal(mesh, face)
             .try_normalize()
             .ok_or_else(|| invalid("Вырожденная грань: фаска невозможна"))?;
+        // A concave polygon's arithmetic center can lie on or outside its boundary.
+        // Use an interior point of its visibility kernel so inset side walls do
+        // not collapse at reflex corners or cross the original face.
+        let offset = if inset > 0. {
+            match inset_center(mesh, face, center, normal) {
+                Ok(interior) => {
+                    center = interior;
+                    None
+                }
+                Err(_) => Some(offset_inset(mesh, face, inset, normal)?),
+            }
+        } else {
+            None
+        };
         let uv = face.iter().fold([0.; 2], |mut a, &i| {
             for (axis, v) in a.iter_mut().enumerate() {
                 *v += mesh.vertices[i as usize].uv[axis] / face.len() as f32;
@@ -144,10 +184,13 @@ pub(crate) fn bevel(
             a
         });
         let mut cap = Vec::new();
-        for &i in face {
+        for (corner, &i) in face.iter().enumerate() {
             let mut v = mesh.vertices[i as usize];
-            v.position =
-                (Vec3::from_array(v.position).lerp(center, inset) + normal * shift).to_array();
+            v.position = (offset.as_ref().map_or_else(
+                || Vec3::from_array(v.position).lerp(center, inset),
+                |points| points[corner],
+            ) + normal * shift)
+                .to_array();
             for (axis, center) in uv.iter().enumerate() {
                 v.uv[axis] = v.uv[axis] * (1. - inset) + center * inset;
             }
@@ -166,6 +209,186 @@ pub(crate) fn bevel(
         }
     }
     finish(mesh, smooth)
+}
+
+fn inset_center(mesh: &Mesh, face: &[u32], center: Vec3, normal: Vec3) -> Result<Vec3, CoreError> {
+    use glam::DVec2;
+    let axis = if normal.x.abs() >= normal.y.abs() && normal.x.abs() >= normal.z.abs() {
+        0
+    } else if normal.y.abs() >= normal.z.abs() {
+        1
+    } else {
+        2
+    };
+    let x = (axis + 1) % 3;
+    let y = (axis + 2) % 3;
+    let points: Vec<_> = face
+        .iter()
+        .map(|&i| {
+            let p = mesh.vertices[i as usize].position;
+            DVec2::new(p[x] as f64, p[y] as f64)
+        })
+        .collect();
+    let sign = (0..points.len())
+        .map(|i| points[i].perp_dot(points[(i + 1) % points.len()]))
+        .sum::<f64>()
+        .signum();
+    let lo = points
+        .iter()
+        .copied()
+        .fold(DVec2::splat(f64::INFINITY), DVec2::min);
+    let hi = points
+        .iter()
+        .copied()
+        .fold(DVec2::splat(f64::NEG_INFINITY), DVec2::max);
+    let eps = (hi - lo).length_squared().max(1e-20) * 1e-10;
+    let mut kernel = vec![lo, DVec2::new(hi.x, lo.y), hi, DVec2::new(lo.x, hi.y)];
+    for i in 0..points.len() {
+        let a = points[i];
+        let line = points[(i + 1) % points.len()] - a;
+        let side = |p: DVec2| sign * line.perp_dot(p - a);
+        let mut next = Vec::new();
+        for j in 0..kernel.len() {
+            let p = kernel[j];
+            let q = kernel[(j + 1) % kernel.len()];
+            let sp = side(p);
+            let sq = side(q);
+            if sp >= -eps {
+                next.push(p);
+            }
+            if (sp >= -eps) != (sq >= -eps) {
+                next.push(p.lerp(q, sp / (sp - sq)));
+            }
+        }
+        kernel = next;
+        if kernel.len() < 3 {
+            return Err(invalid(
+                "У вогнутой грани нет общей области вставки: разделите её ножом",
+            ));
+        }
+    }
+    let candidate = DVec2::new(center[x] as f64, center[y] as f64);
+    let inside = (0..points.len()).all(|i| {
+        sign * (points[(i + 1) % points.len()] - points[i]).perp_dot(candidate - points[i]) > eps
+    });
+    if inside {
+        return Ok(center);
+    }
+    let p = kernel.iter().copied().sum::<DVec2>() / kernel.len() as f64;
+    let mut result = center;
+    result[x] = p.x as f32;
+    result[y] = p.y as f32;
+    result[axis] = center[axis]
+        - (normal[x] * (result[x] - center[x]) + normal[y] * (result[y] - center[y]))
+            / normal[axis];
+    Ok(result)
+}
+
+// Non-star-shaped polygons (for example a U) have no visibility kernel.
+// Offset their boundary lines and reduce the offset before it can collapse a neck.
+fn offset_inset(
+    mesh: &Mesh,
+    face: &[u32],
+    amount: f32,
+    normal: Vec3,
+) -> Result<Vec<Vec3>, CoreError> {
+    use glam::DVec2;
+    let axis = if normal.x.abs() >= normal.y.abs() && normal.x.abs() >= normal.z.abs() {
+        0
+    } else if normal.y.abs() >= normal.z.abs() {
+        1
+    } else {
+        2
+    };
+    let x = (axis + 1) % 3;
+    let y = (axis + 2) % 3;
+    let original: Vec<_> = face
+        .iter()
+        .map(|&i| Vec3::from_array(mesh.vertices[i as usize].position))
+        .collect();
+    let points: Vec<_> = original
+        .iter()
+        .map(|p| DVec2::new(p[x] as f64, p[y] as f64))
+        .collect();
+    let n = points.len();
+    let sign = (0..n)
+        .map(|i| points[i].perp_dot(points[(i + 1) % n]))
+        .sum::<f64>()
+        .signum();
+    let length = (0..n)
+        .map(|i| points[i].distance(points[(i + 1) % n]))
+        .fold(f64::INFINITY, f64::min);
+    let mut vectors = Vec::new();
+    for i in 0..n {
+        let before = (points[i] - points[(i + n - 1) % n])
+            .try_normalize()
+            .ok_or_else(|| invalid("Нулевое ребро грани"))?;
+        let after = (points[(i + 1) % n] - points[i])
+            .try_normalize()
+            .ok_or_else(|| invalid("Нулевое ребро грани"))?;
+        let a = DVec2::new(-before.y, before.x) * sign;
+        let b = DVec2::new(-after.y, after.x) * sign;
+        let denominator = 1. + a.dot(b);
+        if denominator < 1e-10 {
+            return Err(invalid("Граница грани складывается сама на себя"));
+        }
+        vectors.push((a + b) / denominator);
+    }
+    let inside = |p: DVec2| {
+        let mut result = false;
+        for i in 0..n {
+            let a = points[i];
+            let b = points[(i + 1) % n];
+            if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
+                result = !result;
+            }
+        }
+        result
+    };
+    let mut distance = length * amount as f64 * 0.45;
+    for _ in 0..24 {
+        let cap: Vec<_> = points
+            .iter()
+            .zip(&vectors)
+            .map(|(&p, &v)| p + v * distance)
+            .collect();
+        let cross = |a: DVec2, b: DVec2, c: DVec2| (b - a).perp_dot(c - a);
+        let crossing = (0..n).any(|i| {
+            (i + 1..n).any(|j| {
+                let a = cap[i];
+                let b = cap[(i + 1) % n];
+                let c = cap[j];
+                let d = cap[(j + 1) % n];
+                (i + 1) % n != j
+                    && (j + 1) % n != i
+                    && cross(a, b, c) * cross(a, b, d) < 0.
+                    && cross(c, d, a) * cross(c, d, b) < 0.
+            })
+        });
+        let area = (0..n)
+            .map(|i| cap[i].perp_dot(cap[(i + 1) % n]))
+            .sum::<f64>()
+            * sign;
+        if area > 1e-16
+            && !crossing
+            && (0..n).all(|i| inside(cap[i]) && inside((cap[i] + cap[(i + 1) % n]) * 0.5))
+        {
+            return Ok(original
+                .iter()
+                .zip(cap)
+                .map(|(&p, q)| {
+                    let mut v = p;
+                    v[x] = q.x as f32;
+                    v[y] = q.y as f32;
+                    v[axis] = p[axis]
+                        - (normal[x] * (v[x] - p[x]) + normal[y] * (v[y] - p[y])) / normal[axis];
+                    v
+                })
+                .collect());
+        }
+        distance *= 0.5;
+    }
+    Err(invalid("Отступ слишком мал для точности этой грани"))
 }
 pub(crate) fn loop_cut(
     mesh: &mut Mesh,

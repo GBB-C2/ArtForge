@@ -176,6 +176,7 @@ fn output_budget(mesh: &Mesh, stack: &[MeshModifier]) -> Result<(usize, usize), 
 pub struct ModifierKey {
     source: [u64; 5],
     seams: Vec<[u32; 2]>,
+    wires: Vec<[u32; 2]>,
     material: Option<u64>,
     smooth: bool,
     settings: Vec<ModifierSettings>,
@@ -195,6 +196,7 @@ pub fn modifier_key(mesh: &Mesh, stack: &[MeshModifier]) -> ModifierKey {
             .topology
             .as_ref()
             .map_or_else(Vec::new, |t| t.uv_seams.clone()),
+        wires: mesh.topology.as_ref().map_or_else(Vec::new, |t| t.loose_edges.clone()),
         material: mesh.material,
         smooth: mesh.smooth_normals_enabled(),
         settings: stack
@@ -253,12 +255,12 @@ pub fn evaluate_modifier_mesh(
     })();
     // Cancelled or stale work cannot poison a future request.
     cancelled(cancel)?;
-    let bytes = key.seams.len() * 8
+    let bytes = (key.seams.len() + key.wires.len()) * 8
         + result.as_ref().map_or(0, |m| {
             m.vertices.len() * std::mem::size_of::<crate::Vertex>()
                 + m.indices.len() * 4
                 + m.face_count() * 48
-                + m.topology.as_ref().map_or(0, |t| t.uv_seams.len() * 8)
+                + m.topology.as_ref().map_or(0, |t| (t.uv_seams.len() + t.loose_edges.len()) * 8)
         });
     let mut cache = cache().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(existing) = cache.iter().find(|e| e.key == key) {

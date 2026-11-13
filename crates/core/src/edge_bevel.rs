@@ -318,7 +318,7 @@ pub(crate) fn apply(
             ]);
         }
     }
-    mesh.topology = Some(MeshTopology {
+    mesh.topology = Some(MeshTopology { loose_edges: Vec::new(),
         face_materials: {
             let mut materials = source_materials;
             if !materials.is_empty() {

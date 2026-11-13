@@ -208,7 +208,7 @@ impl MaterialParts {
                 mesh.clear_face_materials();
                 if base_indices.len()!=original.indices.len() {
                     mesh.indices = base_indices.clone().into();
-                    mesh.topology = Some(poseforge_core::MeshTopology {
+                    mesh.topology = Some(poseforge_core::MeshTopology { loose_edges: Vec::new(),
                         faces:base_faces.clone().into(),face_materials:Default::default(),uv_seams:vec![],
                         smooth_normals:original.smooth_normals_enabled(),primitive:None,
                     });
@@ -275,7 +275,7 @@ fn batches(mesh: &Mesh) -> Vec<Batch> {
             let indices = indices.into_iter().map(|index| map[&index]).collect();
             let mut copy = mesh.clone();
             copy.material = material;
-            copy.topology = Some(poseforge_core::MeshTopology {
+            copy.topology = Some(poseforge_core::MeshTopology { loose_edges: Vec::new(),
                 faces, face_materials: Default::default(), uv_seams: vec![], primitive: None,
                 smooth_normals: mesh.smooth_normals_enabled(),
             });

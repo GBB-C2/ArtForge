@@ -382,10 +382,6 @@ impl App {
         self.surface.input_error = None;
         match action {
             Action::SurfaceTab(tab) => {
-                if tab == 8 {
-                    self.rig_stage_action(self.authoring.rig_stage);
-                    return;
-                }
                 if tab == 5 {
                     self.close_uv_workspace(true);
                     self.show_animation_layers();

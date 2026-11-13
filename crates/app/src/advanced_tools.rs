@@ -5,7 +5,7 @@ use poseforge_core::{EdgePoint, MeshEdit};
 
 pub(super) struct KnifeState {
     node: u64,
-    first: Option<EdgePoint>,
+    first: Option<Vec3>,
     selection: component_selection::SelectionSnapshot,
     cuts: usize,
 }
@@ -39,7 +39,7 @@ impl App {
                     cuts: 0,
                 });
                 self.status =
-                    "Нож · выберите две стороны одной грани · Enter — применить · Esc — отменить"
+                    "Нож · продолжайте разрез щелчками · Backspace — новая линия · Enter — применить · Esc — отменить"
                         .into();
             }
             A::KnifeAccept => self.accept_knife(),
@@ -98,6 +98,7 @@ impl App {
             return false;
         }
         match key {
+            Key::Named(NamedKey::Backspace) => self.authoring.knife.as_mut().unwrap().first=None,
             Key::Named(NamedKey::Enter) => self.accept_knife(),
             Key::Named(NamedKey::Escape) => self.cancel_knife(),
             Key::Character(c)
@@ -143,7 +144,8 @@ impl App {
             }
             let wa = (projection * pa.extend(1.)).w;
             let wb = (projection * pb.extend(1.)).w;
-            let t = (s * wa / (wb * (1. - s) + wa * s)).clamp(0.001, 0.999);
+            let t = if s*d.length()<6. {0.} else if (1.-s)*d.length()<6. {1.}
+                else {(s * wa / (wb * (1. - s) + wa * s)).clamp(0.,1.)};
             let p = pa.lerp(pb, t);
             if !self.authoring.xray {
                 let screen = authoring_controls::project(projection, vp, p)?;
@@ -172,25 +174,31 @@ impl App {
         };
         let k = self.authoring.knife.as_ref().unwrap();
         let node = k.node;
+        let Ok(mesh) = self.editor.editable_mesh(node).cloned() else {return;};
+        let point=Vec3::from_array(mesh.vertices[second.edge.0].position)
+            .lerp(Vec3::from_array(mesh.vertices[second.edge.1].position),second.t);
         let Some(first) = k.first else {
-            self.authoring.knife.as_mut().unwrap().first = Some(second);
+            self.authoring.knife.as_mut().unwrap().first = Some(point);
             self.redraw();
             return;
         };
-        if first.edge == second.edge {
-            self.authoring.knife.as_mut().unwrap().first = Some(second);
-            return;
-        }
-        let Ok(mesh) = self.editor.editable_mesh(node).cloned() else {
-            return;
-        };
+        if first.distance_squared(point)<1e-14 {return;}
         let graph = self.mesh_cache(&mesh);
-        let face = graph.graph.edge_faces[&first.edge]
-            .iter()
-            .find(|f| graph.graph.edge_faces[&second.edge].contains(f))
-            .copied();
-        let Some(face) = face else {
-            self.status = "Нож: выберите вторую сторону той же грани".into();
+        let candidate=graph.graph.edge_faces[&second.edge].iter().find_map(|&face| {
+            let ring=mesh.face_vertices(face)?;
+            (0..ring.len()).find_map(|i| {
+                let a=graph.graph.canonical[ring[i] as usize]; let b=graph.graph.canonical[ring[(i+1)%ring.len()] as usize];
+                let edge=(a.min(b),a.max(b)); if edge==second.edge {return None;}
+                let origin=Vec3::from_array(mesh.vertices[edge.0].position);let end=Vec3::from_array(mesh.vertices[edge.1].position);
+                let delta=end-origin;let length=delta.length_squared();if length<1e-16{return None;}
+                let t=(first-origin).dot(delta)/length;
+                if !(-1e-5..=1.00001).contains(&t) || origin.lerp(end,t).distance_squared(first)>length.max(1.)*1e-12 {return None;}
+                let t=if t<1e-5 {0.} else if t>1.-1e-5 {1.} else {t};
+                Some((face,EdgePoint{edge,t}))
+            })
+        });
+        let Some((face,first)) = candidate else {
+            self.status = "Нож: продолжите через следующую сторону грани; Backspace — новая линия".into();
             return;
         };
         let result = self.editor.preview_mesh(
@@ -204,7 +212,7 @@ impl App {
         );
         if self.result(result).is_some() {
             let k = self.authoring.knife.as_mut().unwrap();
-            k.first = None;
+            k.first = Some(point);
             k.cuts += 1;
             self.authoring.vertices.clear();
             self.authoring.edges.clear();
@@ -279,7 +287,7 @@ impl App {
                     )
                 };
                 let hover = self.knife_pick().and_then(screen);
-                if let Some(a) = k.first.and_then(screen) {
+                if let Some(a) = k.first.and_then(|p|project(globals[&k.node].transform_point3(p))) {
                     if let Some(b) = hover {
                         u.mesh_segment(a, b, 2., p.accent);
                     }
@@ -302,7 +310,7 @@ impl App {
             );
             u.fitted_label(
                 [x + 10., y + 30., w - 20., 18.],
-                "Две стороны одной грани",
+                "Непрерывно · Backspace — новая линия",
                 11.,
                 p.muted,
             );

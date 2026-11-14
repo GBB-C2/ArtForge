@@ -687,6 +687,13 @@ impl GizmoDrag {
         })
     }
 
+    pub fn retarget_translation(&self,target:Vec3)->(Transform,Vec3) {
+        let mut delta=target-self.gizmo.origin;
+        if let Handle::Axis(axis)=self.handle {let direction=self.gizmo.axes[axis];delta=direction*delta.dot(direction);}
+        let mut transform=self.start;transform.translation+=self.parent_inverse.transform_vector3(delta);
+        (transform,self.gizmo.origin+delta)
+    }
+
     pub fn at_start(&self, transform: Transform, target: Vec3) -> bool {
         transform
             .translation

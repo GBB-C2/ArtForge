@@ -7,7 +7,7 @@ use thiserror::Error;
 
 pub type NodeId = u64;
 pub type AssetId = u64;
-pub const SCHEMA_VERSION: u32 = 44;
+pub const SCHEMA_VERSION: u32 = 45;
 /// Every enabled light is evaluated by the realtime renderer. Disabled lights
 /// remain in the document without consuming a GPU light slot.
 pub const MAX_ENABLED_LIGHTS: usize = 8;
@@ -1477,6 +1477,7 @@ impl Project {
                 n.parent = n.parent.map(|p| map.get(&p).copied().unwrap_or(p));
                 n.collision_targets.remap(&map);
                 if let Some(fx)=&mut n.fx {fx.source=fx.source.map(|id|map.get(&id).copied().unwrap_or(id));}
+                for modifier in &mut n.modifiers {if let crate::ModifierSettings::CurveArray {curve,..}=&mut modifier.settings {*curve=curve.map(|id|map.get(&id).copied().unwrap_or(id));}}
                 if let Some(binding) = &mut n.curve_binding { binding.curve = map.get(&binding.curve).copied().unwrap_or(binding.curve); }
                 if let Some(settings) = &mut n.destruction {
                     settings.result = settings.result.and_then(|id| map.get(&id).copied());

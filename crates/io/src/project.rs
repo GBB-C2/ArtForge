@@ -105,7 +105,8 @@ fn migrate_loaded_project(mut project: Project) -> Result<Project> {
         // Schema 42 adds explicit combustion settings; absent Pyro preserves the old solver.
         // Schema 43 adds opt-in artistic surfaces; absent settings are disabled.
         // Schema 44 adds non-destructive per-object modifier stacks; absent stacks are empty.
-        1..=43 => {
+        // Schema 45 adds bevel, radial and curve-array modifier settings.
+        1..=44 => {
             // Earlier projects scattered every source in their shared fog.
             if project.version <= 21 && project.render_settings.atmosphere.density > 0. {
                 for light in &mut project.lights { light.volume.enabled = true; }
@@ -209,6 +210,7 @@ pub fn merge_project(destination: &mut Project, incoming: Project) -> Result<Vec
         node.parent = node.parent.map(|id| nodes[&id]);
         node.collision_targets.remap(&nodes);
         if let Some(fx)=&mut node.fx {fx.source=fx.source.map(|id|nodes[&id]);}
+        for modifier in &mut node.modifiers {if let poseforge_core::ModifierSettings::CurveArray {curve,..}=&mut modifier.settings {*curve=curve.map(|id|nodes[&id]);}}
         if let Some(binding) = &mut node.curve_binding { binding.curve = nodes[&binding.curve]; }
         node.mesh = node.mesh.map(|id| meshes[&id]);
         for layer in &mut node.material_layers { layer.material = materials[&layer.material]; }

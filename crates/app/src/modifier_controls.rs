@@ -83,59 +83,60 @@ impl App {
         &self,
     ) -> Result<EvaluatedScene, poseforge_core::CoreError> {
         let mut eval = self.editor.evaluated_base()?;
-        for n in self
+        for node in self
             .editor
             .project
             .nodes
             .iter()
             .filter(|n| n.modifiers.iter().any(|m| m.enabled))
         {
-            if self.authoring.editing == Some(n.id) {
+            if self.authoring.editing == Some(node.id) && !self.authoring.preview_modifiers {
                 continue;
             }
-            let Some(mesh) = n.mesh.and_then(|id| self.editor.project.mesh(id)) else {
+            let Ok(input) = self.editor.project.prepare_modifiers(node.id, &eval.global) else {
                 continue;
             };
-            let key = poseforge_core::modifier_key(mesh, &n.modifiers);
-            let cached = self
+            let ready = self
                 .procedural
                 .ready
-                .get(&n.id)
-                .filter(|(k, _)| *k == key)
+                .get(&node.id)
+                .filter(|(key, _)| *key == input.key)
                 .map(|(_, m)| m.clone())
-                .or_else(|| poseforge_core::cached_modifier_mesh(mesh, &n.modifiers));
-            if let Some(Ok(mesh)) = cached {
-                eval.modifier_meshes.insert(n.id, mesh);
+                .or_else(|| input.cached());
+            if let Some(Ok(mesh)) = ready {
+                eval.modifier_meshes.insert(node.id, mesh);
             }
         }
         Ok(eval)
     }
     pub(super) fn tick_modifiers(&mut self) {
+        let Ok(eval) = self.editor.evaluated_base() else {
+            return;
+        };
         let inputs: Vec<_> = self
             .editor
             .project
             .nodes
             .iter()
             .filter(|n| {
-                n.modifiers.iter().any(|m| m.enabled) && self.authoring.editing != Some(n.id)
+                n.modifiers.iter().any(|m| m.enabled)
+                    && (self.authoring.editing != Some(n.id) || self.authoring.preview_modifiers)
             })
             .filter_map(|n| {
-                n.mesh
-                    .and_then(|id| self.editor.project.mesh(id))
-                    .map(|mesh| {
-                        (
-                            n.id,
-                            poseforge_core::modifier_key(mesh, &n.modifiers),
-                            mesh.clone(),
-                            n.modifiers.clone(),
-                        )
-                    })
+                self.editor
+                    .project
+                    .prepare_modifiers(n.id, &eval.global)
+                    .ok()
+                    .map(|input| (n.id, input))
             })
             .collect();
         self.procedural
             .ready
-            .retain(|id, (key, _)| inputs.iter().any(|(n, k, _, _)| n == id && k == key));
-        let keys: Vec<_> = inputs.iter().map(|(n, k, _, _)| (*n, k.clone())).collect();
+            .retain(|id, (key, _)| inputs.iter().any(|(n, input)| n == id && &input.key == key));
+        let keys: Vec<_> = inputs
+            .iter()
+            .map(|(n, input)| (*n, input.key.clone()))
+            .collect();
         if let Some(worker) = &self.procedural.worker {
             if worker.keys != keys {
                 worker.cancel.store(true, Ordering::Relaxed);
@@ -153,15 +154,13 @@ impl App {
                     self.procedural.worker = None;
                     self.redraw();
                 }
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    self.procedural.worker = None;
-                }
+                Err(mpsc::TryRecvError::Disconnected) => self.procedural.worker = None,
                 Err(mpsc::TryRecvError::Empty) => return,
             }
         }
         let missing: Vec<_> = inputs
             .into_iter()
-            .filter(|(id, _, _, _)| !self.procedural.ready.contains_key(id))
+            .filter(|(id, _)| !self.procedural.ready.contains_key(id))
             .collect();
         if missing.is_empty() {
             return;
@@ -172,19 +171,19 @@ impl App {
         let window = self.window.clone();
         std::thread::spawn(move || {
             let mut results = Vec::new();
-            for (id, key, mesh, stack) in missing {
+            for (id, input) in missing {
                 if token.load(Ordering::Relaxed) {
                     break;
                 }
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    poseforge_core::evaluate_modifier_mesh(&mesh, &stack, &token)
+                    input.evaluate(&token)
                 }))
                 .map_err(|_| "Не удалось рассчитать модификаторы".to_string())
-                .and_then(|result| result.map_err(|e| e.to_string()));
+                .and_then(|r| r.map_err(|e| e.to_string()));
                 if token.load(Ordering::Relaxed) {
                     break;
                 }
-                results.push((id, key, result));
+                results.push((id, input.key, result));
             }
             let _ = sender.send(results);
             if let Some(window) = window {
@@ -267,6 +266,9 @@ impl App {
             | M::Step(n, _, _)
             | M::Duplicate(n, _)
             | M::Transfer(n, _, _, _)
+            | M::ArrayMode(n, _, _)
+            | M::Curve(n, _, _)
+            | M::Follow(n, _)
             | M::Apply(n) => Some(n),
             M::Select(..) => None,
         };
@@ -321,16 +323,20 @@ impl App {
                 }
             }
             M::Apply(_) => {
-                let n = self.editor.project.node(node).unwrap();
-                let mesh = self.editor.project.mesh(n.mesh.unwrap()).unwrap();
-                let key = poseforge_core::modifier_key(mesh, &n.modifiers);
+                let Ok(eval) = self.editor.evaluated_base() else {
+                    return;
+                };
+                let Ok(input) = self.editor.project.prepare_modifiers(node, &eval.global) else {
+                    return;
+                };
+                let key = input.key.clone();
                 let ready = self
                     .procedural
                     .ready
                     .get(&node)
                     .filter(|(k, _)| *k == key)
                     .map(|(_, m)| m.clone())
-                    .or_else(|| poseforge_core::cached_modifier_mesh(mesh, &n.modifiers));
+                    .or_else(|| input.cached());
                 let Some(Ok(mesh)) = ready else {
                     self.status = "Дождитесь успешного расчёта стека перед применением".into();
                     return;
@@ -346,6 +352,9 @@ impl App {
                     | M::Field(_, id, _)
                     | M::Axis(_, id, _)
                     | M::Smooth(_, id)
+                    | M::ArrayMode(_, id, _)
+                    | M::Curve(_, id, _)
+                    | M::Follow(_, id)
                     | M::Reset(_, id) => id,
                     _ => return,
                 };
@@ -383,7 +392,68 @@ impl App {
                             return;
                         }
                     }
-                    M::Reset(..) => modifier.settings = modifier.settings.kind().settings(),
+                    M::ArrayMode(_, _, mode) => {
+                        let count = match modifier.settings {
+                            S::Array { count, .. }
+                            | S::RadialArray { count, .. }
+                            | S::CurveArray { count, .. } => count,
+                            _ => return,
+                        };
+                        modifier.settings = match mode {
+                            0 => S::Array {
+                                count,
+                                offset: [2., 0., 0.],
+                            },
+                            1 => S::RadialArray {
+                                count,
+                                axis: 1,
+                                radius: 2.,
+                                angle: std::f32::consts::TAU,
+                                rotate: true,
+                            },
+                            2 => S::CurveArray {
+                                count,
+                                curve: None,
+                                spacing: 2.,
+                                start: 0.,
+                                roll: 0.,
+                                follow: true,
+                            },
+                            _ => return,
+                        };
+                    }
+                    M::Curve(_, _, target) => {
+                        if let S::CurveArray { curve, .. } = &mut modifier.settings {
+                            *curve = target;
+                        } else {
+                            return;
+                        }
+                    }
+                    M::Follow(..) => match &mut modifier.settings {
+                        S::RadialArray { rotate, .. } => *rotate = !*rotate,
+                        S::CurveArray { follow, .. } => *follow = !*follow,
+                        _ => return,
+                    },
+                    M::Reset(..) => {
+                        modifier.settings = match modifier.settings {
+                            S::RadialArray { .. } => S::RadialArray {
+                                count: 2,
+                                axis: 1,
+                                radius: 2.,
+                                angle: std::f32::consts::TAU,
+                                rotate: true,
+                            },
+                            S::CurveArray { curve, .. } => S::CurveArray {
+                                count: 2,
+                                curve,
+                                spacing: 2.,
+                                start: 0.,
+                                roll: 0.,
+                                follow: true,
+                            },
+                            _ => modifier.settings.kind().settings(),
+                        }
+                    }
                     _ => return,
                 }
                 let result = self.editor.update_modifier(node, modifier);
@@ -427,10 +497,29 @@ impl App {
             };
             match &mut m.settings {
                 S::Mirror { plane, .. } if field == 1 => *plane = number(-10000., 10000.)?,
-                S::Array { count, .. } if field == 1 => *count = integer(128.)? as u16,
+                S::Array { count, .. }
+                | S::RadialArray { count, .. }
+                | S::CurveArray { count, .. }
+                    if field == 1 =>
+                {
+                    *count = integer(128.)? as u16
+                }
                 S::Array { offset, .. } if (2..=4).contains(&field) => {
                     offset[(field - 2) as usize] = number(-10000., 10000.)?
                 }
+                S::RadialArray { radius, .. } if field == 2 => *radius = number(0., 10000.)?,
+                S::RadialArray { angle, .. } if field == 3 => {
+                    *angle = number(-360., 360.)?.to_radians()
+                }
+                S::CurveArray { spacing, .. } if field == 2 => *spacing = number(0.000001, 10000.)?,
+                S::CurveArray { start, .. } if field == 3 => *start = number(-10000., 10000.)?,
+                S::CurveArray { roll, .. } if field == 4 => {
+                    *roll = number(-360., 360.)?.to_radians()
+                }
+                S::Bevel { width, .. } if field == 1 => *width = number(0., 1000.)?,
+                S::Bevel { segments, .. } if field == 2 => *segments = integer(32.)? as u32,
+                S::Bevel { profile, .. } if field == 3 => *profile = number(0., 100.)? / 100.,
+                S::Bevel { angle, .. } if field == 4 => *angle = number(0., 180.)?.to_radians(),
                 S::Subdivision { levels, .. } if field == 1 => *levels = integer(4.)? as u8,
                 S::Solidify { thickness, .. } if field == 1 => *thickness = number(0., 10000.)?,
                 S::Solidify { offset, .. } if field == 2 => *offset = number(-1., 1.)?,
@@ -444,7 +533,7 @@ impl App {
         Ok(true)
     }
     pub(super) fn modifier_panel_bottom(&self) -> f32 {
-        800. + self
+        980. + self
             .editor
             .selected
             .and_then(|n| self.editor.project.node(n))
@@ -467,8 +556,20 @@ impl App {
         };
         let enabled = self.modifier_editable(node.id);
         if self.authoring.editing.is_some() {
-            u.quiet_button([x,y,w,30.],"Завершить правку сетки",Action::Author(ui::AuthorAction::ToggleEdit),false);
-            y+=38.;
+            u.quiet_button(
+                [x, y, w, 30.],
+                "Завершить правку сетки",
+                Action::Author(ui::AuthorAction::ToggleEdit),
+                false,
+            );
+            y += 38.;
+            u.checkbox(
+                [x, y, w, 28.],
+                "Результат модификаторов",
+                Action::Author(ui::AuthorAction::ModifierPreview),
+                self.authoring.preview_modifiers,
+            );
+            y += 36.;
         }
         let button = |u: &mut Ui, r, label, action, active| {
             if enabled {
@@ -543,6 +644,27 @@ impl App {
                 false,
             );
             y += 38.;
+            if modifier.settings.kind() == poseforge_core::ModifierKind::Array {
+                let mode = match modifier.settings {
+                    S::RadialArray { .. } => 1,
+                    S::CurveArray { .. } => 2,
+                    _ => 0,
+                };
+                if enabled {
+                    self.draw_dropdown_button(
+                        u,
+                        [x, y, w, 30.],
+                        DropdownKind::ArrayMode(node.id, id),
+                        ["Линейный массив", "По окружности", "Вдоль кривой"][mode],
+                    );
+                } else {
+                    u.disabled_button(
+                        [x, y, w, 30.],
+                        ["Линейный массив", "По окружности", "Вдоль кривой"][mode],
+                    );
+                }
+                y += 38.;
+            }
             let fields: Vec<(&str, u8)> = match modifier.settings {
                 S::Mirror { axis, .. } => {
                     for a in 0..3 {
@@ -562,6 +684,63 @@ impl App {
                     ("Шаг X", 2),
                     ("Шаг Y", 3),
                     ("Шаг Z", 4),
+                ],
+                S::RadialArray { axis, rotate, .. } => {
+                    for a in 0..3 {
+                        button(
+                            u,
+                            [x + a as f32 * (w + 4.) / 3., y, (w - 8.) / 3., 26.],
+                            ["X", "Y", "Z"][a],
+                            Action::Modifier(M::Axis(node.id, id, a as u8)),
+                            axis == a as u8,
+                        );
+                    }
+                    y += 34.;
+                    button(
+                        u,
+                        [x, y, w, 28.],
+                        "Поворачивать копии",
+                        Action::Modifier(M::Follow(node.id, id)),
+                        rotate,
+                    );
+                    y += 36.;
+                    vec![("Копий, всего", 1), ("Радиус, м", 2), ("Дуга, °", 3)]
+                }
+                S::CurveArray { curve, follow, .. } => {
+                    let label = curve
+                        .and_then(|id| self.editor.project.node(id))
+                        .map_or("Выбрать кривую…", |n| n.name.as_str());
+                    if enabled {
+                        self.draw_dropdown_button(
+                            u,
+                            [x, y, w, 30.],
+                            DropdownKind::ArrayCurve(node.id, id),
+                            label,
+                        );
+                    } else {
+                        u.disabled_button([x, y, w, 30.], label);
+                    }
+                    y += 38.;
+                    button(
+                        u,
+                        [x, y, w, 28.],
+                        "Ось X вдоль пути",
+                        Action::Modifier(M::Follow(node.id, id)),
+                        follow,
+                    );
+                    y += 36.;
+                    vec![
+                        ("Копий, всего", 1),
+                        ("Шаг, м", 2),
+                        ("Начало, м", 3),
+                        ("Поворот / копию, °", 4),
+                    ]
+                }
+                S::Bevel { .. } => vec![
+                    ("Ширина, м", 1),
+                    ("Сегменты", 2),
+                    ("Профиль, %", 3),
+                    ("Порог угла, °", 4),
                 ],
                 S::Subdivision { smooth, .. } => {
                     button(
@@ -689,8 +868,40 @@ fn field_value(m: &MeshModifier, field: u8) -> String {
     }
     let value = match m.settings {
         S::Mirror { plane, .. } => plane,
-        S::Array { count, .. } if field == 1 => return count.to_string(),
+        S::Array { count, .. } | S::RadialArray { count, .. } | S::CurveArray { count, .. }
+            if field == 1 =>
+        {
+            return count.to_string()
+        }
         S::Array { offset, .. } => *offset.get(field.saturating_sub(2) as usize).unwrap_or(&0.),
+        S::RadialArray { radius, angle, .. } => {
+            if field == 2 {
+                radius
+            } else {
+                angle.to_degrees()
+            }
+        }
+        S::CurveArray {
+            spacing,
+            start,
+            roll,
+            ..
+        } => match field {
+            2 => spacing,
+            3 => start,
+            _ => roll.to_degrees(),
+        },
+        S::Bevel {
+            width,
+            segments,
+            profile,
+            angle,
+        } => match field {
+            1 => width,
+            2 => return segments.to_string(),
+            3 => profile * 100.,
+            _ => angle.to_degrees(),
+        },
         S::Subdivision { levels, .. } => return levels.to_string(),
         S::Solidify { thickness, offset } => {
             if field == 1 {

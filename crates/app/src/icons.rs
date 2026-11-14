@@ -6,7 +6,7 @@ use crate::ui::Ui;
 pub enum Icon {
     SelectPointer, SelectBox, SelectLasso, GrowSelection, ShrinkSelection,
     Connected, InvertSelection, EdgeLoop, EdgeRing,
-    Extrude, Inset, Bevel, LoopCut, Knife, SlideEdge,
+    Extrude, ExtrudeIndividual, FillHoles, Triangulate, Separate, Inset, Bevel, LoopCut, Knife, SlideEdge,
     Merge, Weld, Bridge, Dissolve, Flatten, Straighten, EqualSpace, Relax,
     ModelSphere, ModelCircle, Inflate, Twist, Subdivide, InspectMesh, SmoothNormals, FlatNormals, DeleteFaces,
     Physics,
@@ -237,6 +237,10 @@ impl Icon {
                     for x in [8., 12., 16.] { geometry.path(&[[x, 3.], [x, 21.]]); }
                 } else { geometry.path(&[[12., 2.], [12., 22.]]); }
             }
+            Self::FillHoles => {geometry.closed(&[[3.,4.],[21.,4.],[21.,20.],[3.,20.]]);geometry.path(&[[8.,12.],[16.,12.]]);geometry.path(&[[12.,8.],[12.,16.]]);}
+            Self::Triangulate => {geometry.closed(&[[3.,4.],[21.,4.],[21.,20.],[3.,20.]]);geometry.path(&[[3.,4.],[21.,20.]]);}
+            Self::Separate => {geometry.closed(&[[2.,11.],[10.,11.],[10.,21.],[2.,21.]]);geometry.closed(&[[14.,3.],[22.,3.],[22.,13.],[14.,13.]]);geometry.path(&[[10.,8.],[14.,4.],[14.,8.]]);}
+            Self::ExtrudeIndividual => {for x in [3.,14.] {geometry.closed(&[[x,12.],[x+7.,12.],[x+7.,21.],[x,21.]]);geometry.path(&[[x+3.5,10.],[x+3.5,2.]]);geometry.path(&[[x+1.,5.],[x+3.5,2.],[x+6.,5.]]);}}
             Self::Extrude => {
                 geometry.path(&[[4., 16.], [4., 21.], [16., 21.], [20., 17.], [20., 12.]]);
                 geometry.path(&[[16., 16.], [16., 21.]]);
@@ -943,7 +947,7 @@ mod tests {
         Icon::InvertSelection,
         Icon::EdgeLoop,
         Icon::EdgeRing,
-        Icon::Extrude,
+        Icon::Extrude, Icon::ExtrudeIndividual, Icon::FillHoles, Icon::Triangulate, Icon::Separate,
         Icon::Inset,
         Icon::Bevel,
         Icon::LoopCut,

@@ -83,7 +83,7 @@ pub(crate) fn apply(
 ) -> Result<Mesh, CoreError> {
     settings.validate()?;
     cancelled(cancel)?;
-    if source.vertices.is_empty() || (source.indices.is_empty() && !matches!(settings,ModifierSettings::Mirror{..}|ModifierSettings::Array{..})) {
+    if source.vertices.is_empty() || (source.indices.is_empty() && !matches!(settings,ModifierSettings::Mirror{..}|ModifierSettings::Array{..}|ModifierSettings::RadialArray{..}|ModifierSettings::CurveArray{..})) {
         return Ok(source.clone());
     }
     if !source.indices.len().is_multiple_of(3)
@@ -95,6 +95,19 @@ pub(crate) fn apply(
         return Err(error("Некорректные индексы исходного меша"));
     }
     match settings {
+        ModifierSettings::Bevel {width,segments,profile,angle} => crate::advanced_modifiers::bevel(source,width,segments,profile,angle,groups,cancel),
+        ModifierSettings::RadialArray {count,axis,radius,angle,rotate} => {
+            let axis=[Vec3::X,Vec3::Y,Vec3::Z][axis as usize];
+            let radial=if axis==Vec3::X {Vec3::Y} else {Vec3::X};
+            let closed=(angle.abs()-std::f32::consts::TAU).abs()<1e-5;
+            let denominator=if closed {count} else {count.saturating_sub(1)}.max(1) as f32;
+            let frames:Vec<_>=(0..count).map(|i| {
+                let q=crate::Quat::from_axis_angle(axis,angle*i as f32/denominator);
+                crate::Mat4::from_rotation_translation(if rotate {q} else {crate::Quat::IDENTITY},q*radial*radius)
+            }).collect();
+            crate::advanced_modifiers::copies(source,&frames,groups,cancel)
+        }
+        ModifierSettings::CurveArray {..} => Err(error("Выберите кривую для массива")),
         ModifierSettings::Mirror { axis, plane } => copies(
             source,
             2,

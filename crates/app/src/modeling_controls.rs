@@ -26,6 +26,7 @@ impl App {
     }
     pub(super) fn modeling_action(&mut self, command: A) -> bool {
         match command {
+            A::ModifierPreview => self.authoring.preview_modifiers = !self.authoring.preview_modifiers,
             A::Xray => self.authoring.xray = !self.authoring.xray,
             A::PivotOrigin => self.authoring.pivot_origin = !self.authoring.pivot_origin,
             A::Constrain(axis) => {

@@ -63,7 +63,7 @@ fn arrow(strokes: &mut Vec<Segment>, center: Vec2, axis: Vec2, sign: f32, length
 impl App {
     pub(super) fn draw_live_handles(&self, u: &mut Ui, op: &LiveOperation) {
         let mut world = op.anchor;
-        if matches!(op.kind,Kind::Extrude|Kind::VertexExtrude) {
+        if matches!(op.kind,Kind::Extrude|Kind::Individual|Kind::VertexExtrude) {
             world += op.direction * op.values[0];
         } else if op.kind == Kind::Cut {
             world += op.direction * (op.values[0] / 100. - 0.5);

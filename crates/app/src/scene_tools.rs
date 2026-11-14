@@ -603,6 +603,7 @@ impl App {
             }
             roots.push((id, *world, parent.inverse()));
         }
+        if curves.is_empty() {self.begin_snapping(false);}
         self.editor.begin_edit("Трансформация выделения");
         self.editor.playing = false;
         self.drag = Some(Drag::Group(GroupDrag {
@@ -615,11 +616,12 @@ impl App {
         true
     }
     pub(super) fn update_group_drag(&mut self, mut drag: GroupDrag, pointer: [f32; 2]) {
-        if let Some((transform, _, feedback)) = drag.gesture.update(
+        if let Some((mut transform, target, feedback)) = drag.gesture.update(
             pointer,
             self.modifiers.shift_key(),
-            self.modifiers.control_key(),
+            self.modifiers.control_key()&&(self.tool!=Tool::Move||self.authoring.snapping.mode==0||!drag.curves.is_empty()),
         ) {
+            if self.tool==Tool::Move&&drag.curves.is_empty() {transform=drag.gesture.retarget_translation(self.snap_translation(target)).0;}
             let delta = transform.matrix() * drag.origin.inverse();
             let mut transforms = vec![];
             let mut valid = true;

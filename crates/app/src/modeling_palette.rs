@@ -6,10 +6,10 @@ pub(super) const TOOLS_SECTION: u16 = 740;
 pub(super) const PROPERTIES_SECTION: u16 = 741;
 const TOOL_PITCH: f32 = 48.;
 const TOOL_SIZE: f32 = 44.;
-const TOOLS: [M; 28] = [
+const TOOLS: [M; 32] = [
     M::Select(0), M::Select(1), M::Select(2), M::Move, M::Rotate, M::Scale,
-    M::Extrude, M::Inset, M::Bevel, M::LoopCut, M::Knife, M::Slide,
-    M::Merge, M::Weld, M::Bridge, M::BridgeFaces, M::Dissolve, M::DeleteFaces, M::Subdivide,
+    M::Extrude, M::ExtrudeIndividual, M::Inset, M::Bevel, M::LoopCut, M::Knife, M::Slide,
+    M::Merge, M::Weld, M::Bridge, M::BridgeFaces, M::Dissolve, M::DeleteFaces, M::Subdivide, M::FillHoles, M::Triangulate, M::Separate,
     M::Smooth, M::Flat, M::Align, M::Relax,
     M::Sphere, M::Circle, M::Inflate, M::Twist, M::Inspect,
 ];
@@ -22,6 +22,7 @@ impl M {
             Self::Select(_) => "Выделение щелчком",
             Self::Move => "Перемещение · G", Self::Rotate => "Вращение · R",
             Self::Scale => "Масштаб · S", Self::Extrude => "Экструдирование · E",
+            Self::ExtrudeIndividual=>"Индивидуальный экструд", Self::FillHoles=>"Заполнить отверстия", Self::Triangulate=>"Триангулировать выделение",Self::Separate=>"Отделить выбранное",
             Self::Inset => "Вставка граней · I", Self::Bevel => "Фаска · B",
             Self::LoopCut => "Разрез петлёй · C",
             Self::Knife => "Нож · K", Self::Slide => "Сдвиг по поверхности · J",
@@ -41,6 +42,7 @@ impl M {
             Self::Select(1) => Icon::SelectBox, Self::Select(2) => Icon::SelectLasso,
             Self::Select(_) => Icon::SelectPointer,
             Self::Move => Icon::Move, Self::Rotate => Icon::Rotate, Self::Scale => Icon::Scale,
+            Self::ExtrudeIndividual=>Icon::ExtrudeIndividual,Self::FillHoles=>Icon::FillHoles,Self::Triangulate=>Icon::Triangulate,Self::Separate=>Icon::Separate,
             Self::Extrude => Icon::Extrude, Self::Inset => Icon::Inset,
             Self::Bevel => Icon::Bevel,
             Self::LoopCut => Icon::LoopCut, Self::Knife => Icon::Knife, Self::Slide => Icon::SlideEdge,
@@ -56,6 +58,7 @@ impl M {
         Some(match self {
             Self::Select(i) => Action::Author(A::SelectTool(i)),
             Self::Move => Action::Move, Self::Rotate => Action::Rotate, Self::Scale => Action::Scale,
+            Self::ExtrudeIndividual=>Action::Author(A::ExtrudeIndividual),Self::FillHoles=>Action::Author(A::FillHoles),Self::Triangulate=>Action::Author(A::Triangulate),Self::Separate=>Action::Author(A::Separate),
             Self::Extrude => Action::Author(A::Extrude), Self::Inset => Action::Author(A::Inset),
             Self::Bevel => Action::Author(A::Bevel),
             Self::LoopCut => Action::Author(A::LoopCut), Self::Knife => Action::Author(A::Knife),
@@ -71,7 +74,7 @@ impl M {
         })
     }
     fn live(self) -> bool {
-        matches!(self, Self::Extrude | Self::Inset | Self::Bevel | Self::LoopCut | Self::Slide)
+        matches!(self, Self::Extrude | Self::ExtrudeIndividual | Self::Inset | Self::Bevel | Self::LoopCut | Self::Slide)
     }
 }
 
@@ -121,6 +124,7 @@ impl App {
                 S::Face => !self.authoring.faces.is_empty(),
             },
             M::Extrude | M::Inset | M::DeleteFaces | M::Subdivide => !self.edit_vertices().is_empty(),
+            M::ExtrudeIndividual | M::Triangulate | M::Separate => !self.selected_face_region().is_empty(),
             M::BridgeFaces => self.selected_face_region().len()>=2,
             M::Bridge | M::Dissolve => self.authoring.selection_mode == S::Edge && !self.authoring.edges.is_empty(),
             M::LoopCut => self.authoring.selection_mode == S::Edge && self.authoring.edges.len() == 1,
@@ -152,10 +156,11 @@ impl App {
                 Some(M::Rotate | M::Scale) => 224. + if self.authoring.proportional { 34. } else { 0. },
                 Some(M::Relax) => 202.,
                 Some(M::Bevel) => if self.authoring.selection_mode == S::Face { 160. } else { 100. },
-                Some(M::Inspect) => 198.,
-                Some(M::Knife) => 100.,
+                Some(M::Inspect) => 380.,
+                Some(M::Knife) => 180.,
                 Some(M::Align) => if self.mesh_tools.alignment_mode==0 {146.} else {124.},
-                Some(M::Weld | M::Bridge | M::BridgeFaces) => 132.,
+                Some(M::Weld) => 132.,
+                Some(M::Bridge | M::BridgeFaces) => 210.,
                 Some(M::Inset | M::LoopCut) => 104.,
                 _ => 98.,
             }
@@ -237,6 +242,9 @@ impl App {
             M::Sphere|M::Circle|M::Inflate|M::Twist => self.draw_deform_properties(u,x,y,w,tool),
             M::Knife if self.authoring.knife.is_some() => {
                 u.fitted_label([x, y, w, 18.], "Продолжайте разрез · Backspace — новая линия", 11., p.muted);
+                y+=26.;
+                u.checkbox([x,y,w,26.],"Вершины и середины рёбер",Action::Author(A::KnifeSnap),self.authoring.knife_snap);y+=34.;
+                self.draw_dropdown_button(u,[x,y,w,30.],ui::DropdownKind::KnifeAngle,["Свободный угол","Шаг 15°","Шаг 30°","Шаг 45°","Шаг 90°"][self.authoring.knife_angle as usize]);y+=10.;
                 let half = (w - 6.) * 0.5;
                 u.button([x, y + 28., half, 30.], "Применить", Action::Author(A::KnifeAccept), true);
                 u.quiet_button([x + half + 6., y + 28., half, 30.], "Отмена", Action::Author(A::KnifeCancel), false);
@@ -244,7 +252,7 @@ impl App {
             _ => {
                 for (label, value, action) in match tool {
                     M::Weld => vec![("Расстояние, м", self.authoring.weld_distance, A::WeldDistance)],
-                    M::Bridge | M::BridgeFaces => vec![("Сегменты", self.authoring.bridge_segments as f32, A::BridgeSegments)],
+                    M::Bridge | M::BridgeFaces => vec![("Сегменты", self.authoring.bridge_segments as f32, A::BridgeSegments),("Скручивание, шаги",self.authoring.bridge_twist as f32,A::BridgeTwist),("Плавность, %",self.authoring.bridge_smooth*100.,A::BridgeSmooth)],
                     M::Inset => vec![("Отступ, %", self.authoring.inset * 100., A::InsetAmount)],
                     M::Bevel if self.authoring.selection_mode == S::Face => vec![("Отступ, %", self.authoring.inset * 100., A::InsetAmount), ("Высота, м", self.authoring.bevel_height, A::BevelHeight)],
                     M::LoopCut => vec![("Положение, %", self.authoring.loop_position * 100., A::LoopPosition)],
@@ -261,8 +269,9 @@ impl App {
                     y += 38.;
                 }
                 if tool == M::Inspect {
-                    u.quiet_button([x, y, w, 28.], "Выбрать дефекты", Action::Author(A::SelectDefects), false);
-                    y += 34.;
+                    self.draw_dropdown_button(u,[x,y,w,30.],ui::DropdownKind::RepairKind,poseforge_core::RepairKind::ALL[self.authoring.repair_kind as usize].label());y+=38.;
+                    u.quiet_button([x,y,w,28.],"Выделить ошибки категории",Action::Author(A::SelectIssue),false);y+=34.;
+                    u.quiet_button([x,y,w,28.],"Исправить выбранные ошибки",Action::Author(A::RepairIssue),false);y+=34.;
                     self.draw_topology_report(u, x, y, w);
                 } else if !tool.live() {
                     u.fitted_label([x, y, w, 18.], if tool == M::Subdivide { "Только выделенные компоненты · Undo" } else { "Изменение можно отменить · Undo" }, 10., p.muted);

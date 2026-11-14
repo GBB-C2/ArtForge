@@ -187,6 +187,12 @@ impl Editor {
                 self.project.node_mut(id).unwrap().fx.as_mut().unwrap().enabled=false;
             }
         }
+        let removed_curves:BTreeSet<_>=before.project.nodes.iter().filter(|n|n.curve.is_some() && self.project.node(n.id).is_none_or(|n|n.curve.is_none())).map(|n|n.id).collect();
+        for node in &mut self.project.nodes {for m in &mut node.modifiers {
+            if let crate::ModifierSettings::CurveArray {curve:Some(target),..}=m.settings {
+                if removed_curves.contains(&target) {if let crate::ModifierSettings::CurveArray {curve,..}=&mut m.settings {*curve=None;}m.enabled=false;}
+            }
+        }}
         let lost_curve = |binding: Option<crate::CurveBinding>| binding.is_some_and(|b|
             before.project.node(b.curve).is_some() && (self.project.node(b.curve).is_none()
                 || before.project.node(b.curve).is_some_and(|n| n.curve.is_some())

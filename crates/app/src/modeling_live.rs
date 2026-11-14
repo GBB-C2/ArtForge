@@ -7,6 +7,7 @@ use poseforge_core::{Mesh, MeshEdit};
 mod handles;
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
+    Individual,
     VertexExtrude,
     VertexInset,
     Vertex,
@@ -38,6 +39,7 @@ impl LiveOperation {
     }
     fn label(&self) -> &'static str {
         match self.kind {
+            Kind::Individual=>"Индивидуальный экструд",
             Kind::VertexExtrude => "Экструдирование точек",
             Kind::VertexInset => "Вставка вокруг точек",
             Kind::Vertex => "Фаска вершин",
@@ -72,7 +74,7 @@ impl LiveOperation {
         let (_, min, max, _) = self.spec(i);
         if self.kind == Kind::Edge && i == 0 {
             (min, (self.scale * 0.3).max(self.values[i] * 1.2).min(max))
-        } else if matches!(self.kind, Kind::Extrude | Kind::VertexExtrude) || (self.kind == Kind::Face && i == 1) {
+        } else if matches!(self.kind, Kind::Extrude | Kind::Individual | Kind::VertexExtrude) || (self.kind == Kind::Face && i == 1) {
             let extent = self.scale.max(self.values[i].abs() * 1.2);
             ((-extent).max(min), extent.min(max))
         } else {
@@ -81,6 +83,7 @@ impl LiveOperation {
     }
     fn edit(&self, v: [f32; 3]) -> MeshEdit {
         match self.kind {
+            Kind::Individual=>MeshEdit::Bevel {faces:self.faces.clone(),inset:0.,shift:v[0]},
             Kind::VertexExtrude => MeshEdit::ExtrudeVertices { vertices:self.vertices.clone(), distance:v[0] },
             Kind::Vertex | Kind::VertexInset => MeshEdit::VertexBevel {
                 vertices: self.vertices.clone(),
@@ -142,6 +145,7 @@ impl App {
             },
             A::Inset => Kind::Inset,
             A::Extrude => Kind::Extrude,
+            A::ExtrudeIndividual=>Kind::Individual,
             A::LoopCut => Kind::Cut,
             A::LiveAccept => {
                 self.accept_modeling_live();
@@ -226,7 +230,7 @@ impl App {
         // Transform a displacement, not a shading normal: object scaling must
         // affect the projected distance in exactly the same way as geometry.
         let mut direction = Vec3::ZERO;
-        if matches!(kind, Kind::Extrude | Kind::VertexExtrude | Kind::Face) {
+        if matches!(kind, Kind::Extrude | Kind::Individual | Kind::VertexExtrude | Kind::Face) {
             let normal_faces=if kind==Kind::VertexExtrude {
                 let g=self.mesh_cache(&original);
                 let points:BTreeSet<_>=vertices.iter().map(|&v|g.graph.canonical[v]).collect();
@@ -256,7 +260,7 @@ impl App {
             Kind::Edge => [scale * 0.025, 3., 100.],
             Kind::Face => [self.authoring.inset * 100., self.authoring.bevel_height, 0.],
             Kind::Inset => [self.authoring.inset * 100., 0., 0.],
-            Kind::Extrude | Kind::VertexExtrude => [scale * 0.05, 0., 0.],
+            Kind::Extrude | Kind::Individual | Kind::VertexExtrude => [scale * 0.05, 0., 0.],
             Kind::Cut => [self.authoring.loop_position * 100., 0., 0.],
             Kind::Slide => [0., 0., 0.],
         };
@@ -332,7 +336,7 @@ impl App {
             self.authoring.selection_mode=S::Vertex;
             self.authoring.vertices=(op.original.vertices.len()..self.editor.editable_mesh(op.node).map_or(0,|m|m.vertices.len())).collect();
             self.authoring.edges.clear();self.authoring.faces.clear();
-        } else if matches!(op.kind,Kind::Face|Kind::Inset|Kind::Extrude) {
+        } else if matches!(op.kind,Kind::Face|Kind::Inset|Kind::Extrude|Kind::Individual) {
             self.authoring.selection_mode=S::Face;
             self.authoring.faces=op.faces.clone();self.authoring.vertices.clear();self.authoring.edges.clear();
         }
@@ -577,7 +581,7 @@ impl App {
             }
             return fallback;
         }
-        if !matches!((op.kind, i), (Kind::Extrude | Kind::VertexExtrude, 0) | (Kind::Face, 1)) {
+        if !matches!((op.kind, i), (Kind::Extrude | Kind::Individual | Kind::VertexExtrude, 0) | (Kind::Face, 1)) {
             return fallback;
         }
         let sample = op.scale * 0.05;

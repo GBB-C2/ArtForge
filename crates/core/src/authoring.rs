@@ -8,6 +8,9 @@ pub const MAX_EDIT_TRIANGLES: usize = 131_072;
 
 #[derive(Clone, Debug)]
 pub enum MeshEdit {
+    KnifeStroke {cuts:Vec<crate::KnifeCut>},
+    Topology {region:crate::MeshRegion,edit:crate::TopologyEdit},
+    BridgeAdvanced {faces:BTreeSet<usize>,edges:BTreeSet<(usize,usize)>,segments:u32,twist:i32,smooth:f32},
     ExtrudeVertices { vertices: BTreeSet<usize>, distance: f32 },
     DeleteComponents { vertices: BTreeSet<usize>, edges: BTreeSet<(usize, usize)>, faces: BTreeSet<usize> },
     SubdivideSelected { vertices: BTreeSet<usize>, edges: BTreeSet<(usize, usize)>, faces: BTreeSet<usize> },
@@ -141,11 +144,11 @@ fn faces_valid(mesh: &Mesh, faces: &BTreeSet<usize>) -> Result<(), CoreError> {
     }
     Ok(())
 }
-fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError> {
+pub(crate) fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError> {
     let preserve_wires = !matches!(operation,
-        MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. } | MeshEdit::SubdivideSelected { .. }
+        MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. } | MeshEdit::SubdivideSelected { .. } | MeshEdit::Topology {..}
         | MeshEdit::Transform { .. } | MeshEdit::Translate { .. } | MeshEdit::Slide { .. }
-        | MeshEdit::WeightedTransform { .. } | MeshEdit::Shape { .. } | MeshEdit::Knife { .. } | MeshEdit::Uv(_));
+        | MeshEdit::WeightedTransform { .. } | MeshEdit::Shape { .. } | MeshEdit::Knife { .. } | MeshEdit::KnifeStroke {..} | MeshEdit::Uv(_));
     let wires: Vec<_> = if preserve_wires { mesh.topology.iter().flat_map(|t|t.loose_edges.iter())
         .map(|e|(*e,e.map(|v|mesh.vertices[v as usize]))).collect() } else {Vec::new()};
     if !wires.is_empty() {mesh.topology.as_mut().unwrap().loose_edges.clear();}
@@ -154,7 +157,7 @@ fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError
         MeshEdit::Uv(_)
             | MeshEdit::VertexBevel { .. }
             | MeshEdit::Shape { .. }
-            | MeshEdit::Knife { .. }
+            | MeshEdit::Knife { .. } | MeshEdit::KnifeStroke {..}
             | MeshEdit::Transform { .. }
             | MeshEdit::Translate { .. }
             | MeshEdit::Slide { .. }
@@ -240,6 +243,9 @@ fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError
 }
 fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError> {
     match &operation {
+        MeshEdit::KnifeStroke {cuts}=>return crate::knife_stroke::apply(mesh,cuts),
+        MeshEdit::Topology {region,edit}=>return crate::mesh_cleanup::apply(mesh,region,*edit),
+        MeshEdit::BridgeAdvanced {faces,edges,segments,twist,smooth}=>return if faces.is_empty() {crate::mesh_topology_tools::bridge_options(mesh,edges,*segments,*twist,*smooth)} else {crate::mesh_topology_tools::bridge_faces_options(mesh,faces,*segments,*twist,*smooth)},
         MeshEdit::ExtrudeVertices { vertices, distance } => return crate::component_mesh::extrude_vertices(mesh, vertices, *distance),
         MeshEdit::DeleteComponents { vertices, edges, faces } => return crate::component_mesh::delete(mesh, vertices, edges, faces),
         MeshEdit::SubdivideSelected { vertices, edges, faces } => return crate::component_mesh::subdivide(mesh, vertices, edges, faces),
@@ -318,7 +324,7 @@ fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), Cor
     let keep_policy = mesh.topology.is_some() || matches!(operation, MeshEdit::SmoothNormals);
     match operation {
         MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. }
-        | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } => unreachable!(),
+        | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} => unreachable!(),
         MeshEdit::Normals { .. }
         | MeshEdit::Shape { .. }
         | MeshEdit::Knife { .. }

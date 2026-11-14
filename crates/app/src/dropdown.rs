@@ -16,6 +16,7 @@ enum Target {
     CameraEffects { node: u64, effects: poseforge_core::CameraEffects },
     Scene,
     Bone(Vec<poseforge_core::Node>),
+    Array {node:poseforge_core::Node, modifier:u64, curves:Vec<u64>},
     Modifiers {node:poseforge_core::Node, modifier:Option<u64>, choices:Vec<u64>},
     Helper(poseforge_core::Node),
     Text {node:u64,settings:poseforge_core::TextSettings},
@@ -113,13 +114,17 @@ fn labels(kind: DropdownKind, project: &poseforge_core::Project) -> Vec<String> 
             .chain(project.collections.iter().map(|c| c.name.clone()))
             .collect();
     }
+    if let DropdownKind::ArrayCurve(..)=kind {
+        return std::iter::once("Не выбрана".into()).chain(project.nodes.iter().filter(|n|n.curve.is_some()).map(|n|format!("{} · №{}",n.name,n.id))).collect();
+    }
     if let DropdownKind::ModifierTarget(_,owner)=kind {
         return modifier_targets(project,owner).iter().filter_map(|id|project.node(*id))
             .map(|n|format!("{} · №{}",n.name,n.id)).collect();
     }
     let items = match kind {
         DropdownKind::CameraEffectAdd => poseforge_core::CameraEffects::LABELS.to_vec(),
-        DropdownKind::ModifierTarget(..) => unreachable!(),
+        DropdownKind::ModifierTarget(..) | DropdownKind::ArrayCurve(..) => unreachable!(),
+        DropdownKind::ArrayMode(..)=>vec!["Линейный массив","По окружности","Вдоль кривой"],
         DropdownKind::ModifierAdd => poseforge_core::ModifierKind::ALL.into_iter().map(|k|k.label()).collect(),
         DropdownKind::ReflectionSamples => vec!["1 луч", "4 луча", "8 лучей", "16 лучей"],
         DropdownKind::AreaShadowSamples => vec!["4 выборки", "16 выборок", "64 выборки"],
@@ -134,6 +139,9 @@ fn labels(kind: DropdownKind, project: &poseforge_core::Project) -> Vec<String> 
         DropdownKind::TextFont => poseforge_core::TextFont::ALL.into_iter().map(|font|font.label()).collect(),
         DropdownKind::CurveCreate => poseforge_core::CurvePreset::BASIC.into_iter().map(|p| p.label()).chain(std::iter::once("Нарисовать кривую")).collect(),
         DropdownKind::SkeletonCreate => vec!["Пустая кость", "Цепь · 3 кости", "Человек · 67 костей"],
+        DropdownKind::SnapMode=>super::snapping::LABELS.to_vec(),
+        DropdownKind::KnifeAngle=>vec!["Свободный угол","Шаг 15°","Шаг 30°","Шаг 45°","Шаг 90°"],
+        DropdownKind::RepairKind=>poseforge_core::RepairKind::ALL.into_iter().map(|k|k.label()).collect(),
         DropdownKind::Alignment => vec!["В плоскость", "В цепочку", "Равномерный шаг"],
         DropdownKind::BonePreset => poseforge_core::BoneDisplayPreset::ALL.into_iter().map(|p| p.label()).collect(),
         DropdownKind::BoneShape => poseforge_core::BoneShape::ALL.into_iter().map(|s| s.label()).collect(),
@@ -239,7 +247,12 @@ impl App {
     pub(super) fn dropdown_selected(&self, kind: DropdownKind) -> Option<usize> {
         let settings = self.editor.project.render_settings;
         match kind {
+            DropdownKind::SnapMode=>Some(self.authoring.snapping.mode as usize),
+            DropdownKind::KnifeAngle=>Some(self.authoring.knife_angle as usize),
+            DropdownKind::RepairKind=>Some(self.authoring.repair_kind as usize),
             DropdownKind::Alignment => Some(self.mesh_tools.alignment_mode as usize),
+            DropdownKind::ArrayMode(node,id)=>self.editor.project.node(node).and_then(|n|n.modifiers.iter().find(|m|m.id==id)).map(|m|match m.settings {poseforge_core::ModifierSettings::RadialArray {..}=>1,poseforge_core::ModifierSettings::CurveArray {..}=>2,_=>0}),
+            DropdownKind::ArrayCurve(node,id)=>self.editor.project.node(node).and_then(|n|n.modifiers.iter().find(|m|m.id==id)).and_then(|m|if let poseforge_core::ModifierSettings::CurveArray {curve,..}=m.settings {Some(curve.and_then(|c|self.editor.project.nodes.iter().filter(|n|n.curve.is_some()).position(|n|n.id==c)).map_or(0,|i|i+1))}else{None}),
             DropdownKind::ModifierAdd | DropdownKind::ModifierTarget(..) => None,
             DropdownKind::BonePreset => self.bone_display_preset_index(),
             DropdownKind::BoneShape => self.bone_display_shape_index(false),
@@ -407,6 +420,9 @@ impl App {
             Target::CameraEffects {node,effects} => self.surface.tab==0 && self.camera_effect_editable()
                 && self.selected_camera_effects()==Some((*node,*effects)),
             Target::Scene => true,
+            Target::Array {node,modifier,curves}=>self.surface.tab==8 && self.editor.selected==Some(node.id) && self.modifier_editable(node.id)
+                && self.editor.project.node(node.id)==Some(node) && self.selected_modifier().is_some_and(|(owner,m)|owner==node.id && m.id==*modifier)
+                && *curves==self.editor.project.nodes.iter().filter(|n|n.curve.is_some()).map(|n|n.id).collect::<Vec<_>>(),
             Target::Modifiers {node,modifier,choices} => self.surface.tab==8 && self.editor.selected==Some(node.id)
                 && self.modifier_editable(node.id) && self.editor.project.node(node.id)==Some(node)
                 && (modifier.is_none() || self.selected_modifier().is_some_and(|(id,m)|id==node.id && Some(m.id)==*modifier)
@@ -512,6 +528,11 @@ impl App {
                 let Some((node,effects))=self.selected_camera_effects() else {return;};
                 Target::CameraEffects {node,effects}
             },
+            DropdownKind::ArrayMode(owner,id)|DropdownKind::ArrayCurve(owner,id)=> {
+                let Some(node)=self.editor.project.node(owner).filter(|n|self.modifier_editable(n.id)) else {return;};
+                if self.surface.tab!=8 || self.selected_modifier().is_none_or(|(n,m)|n!=owner||m.id!=id) {return;}
+                Target::Array {node:node.clone(),modifier:id,curves:self.editor.project.nodes.iter().filter(|n|n.curve.is_some()).map(|n|n.id).collect()}
+            }
             DropdownKind::ModifierAdd | DropdownKind::ModifierTarget(..) => {
                 let Some(node)=self.editor.selected.and_then(|id|self.editor.project.node(id)).filter(|n|self.modifier_editable(n.id)) else {return;};
                 if self.surface.tab!=8 {return;}
@@ -642,12 +663,19 @@ impl App {
         }
         let action = match dropdown.kind {
             DropdownKind::CameraEffectAdd => (index<7).then_some(Action::CameraTool(crate::ui::CameraTool::AddEffect(index+4))),
+            DropdownKind::ArrayMode(node,id)=>(index<3).then_some(Action::Modifier(crate::ui::ModifierAction::ArrayMode(node,id,index as u8))),
+            DropdownKind::ArrayCurve(node,id)=>match &dropdown.target {Target::Array {curves,..}=> {
+                if index==0 {Some(Action::Modifier(crate::ui::ModifierAction::Curve(node,id,None)))}else{curves.get(index-1).map(|target|Action::Modifier(crate::ui::ModifierAction::Curve(node,id,Some(*target))))}
+            },_=>None},
             DropdownKind::ModifierAdd => poseforge_core::ModifierKind::ALL.get(index).map(|k|Action::Modifier(crate::ui::ModifierAction::Add(*k))),
             DropdownKind::ModifierTarget(copy,_) => match &dropdown.target {
                 Target::Modifiers {node,modifier:Some(id),choices} => choices.get(index).map(|target|Action::Modifier(crate::ui::ModifierAction::Transfer(node.id,*id,*target,copy))),
                 _=>None,
             },
             DropdownKind::BonePreset => poseforge_core::BoneDisplayPreset::ALL.get(index).map(|p| Action::BoneDisplay(crate::ui::BoneDisplayAction::Preset(*p))),
+            DropdownKind::SnapMode=>Some(Action::Author(crate::ui::AuthorAction::SnapMode(index as u8))),
+            DropdownKind::KnifeAngle=>Some(Action::Author(crate::ui::AuthorAction::KnifeAngle(index as u8))),
+            DropdownKind::RepairKind=>Some(Action::Author(crate::ui::AuthorAction::RepairMode(index as u8))),
             DropdownKind::Alignment => Some(Action::Shape(crate::ui::ShapeAction::AlignmentMode(index as u8))),
             DropdownKind::BoneShape => poseforge_core::BoneShape::ALL.get(index).map(|s| Action::BoneDisplay(crate::ui::BoneDisplayAction::BodyShape(*s))),
             DropdownKind::JointShape => poseforge_core::JointShape::ALL.get(index).map(|s| Action::BoneDisplay(crate::ui::BoneDisplayAction::JointShape(*s))),

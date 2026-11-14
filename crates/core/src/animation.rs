@@ -535,7 +535,7 @@ pub fn evaluate(
     overrides: &BTreeMap<NodeId, Transform>,
 ) -> Result<EvaluatedScene, CoreError> {
     let mut scene = evaluate_base(project, clip, time, overrides)?;
-    scene.modifier_meshes = project.evaluated_modifier_meshes(&std::sync::atomic::AtomicBool::new(false))?;
+    scene.modifier_meshes = project.evaluated_modifier_meshes_at(&scene.global, &std::sync::atomic::AtomicBool::new(false))?;
     Ok(scene)
 }
 /// Transform evaluation without expensive procedural geometry; native previews

@@ -258,8 +258,13 @@ impl SliderRange {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DropdownKind {
     Alignment,
+    SnapMode,
+    KnifeAngle,
+    RepairKind,
     CameraEffectAdd,
     ModifierAdd,
+    ArrayMode(u64,u64),
+    ArrayCurve(u64,u64),
     ModifierTarget(bool,u64),
     Accent,
     ReflectionSamples,
@@ -435,6 +440,11 @@ pub enum PrimitiveAction {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AuthorAction {
+    SnapMode(u8), SnapStep,
+    ModifierPreview,
+    KnifeSnap, KnifeAngle(u8),
+    BridgeTwist, BridgeSmooth, FillHoles, Triangulate, Separate, ExtrudeIndividual,
+    RepairMode(u8), SelectIssue, RepairIssue,
     BridgeFaces,
     Knife,
     KnifeAccept,
@@ -557,6 +567,7 @@ pub enum MorphAction { Add, Select(usize), Weight(usize), Rename(usize), Delete(
 pub enum ModifierAction {
     Add(poseforge_core::ModifierKind), Select(u64,u64), Toggle(u64,u64), Remove(u64,u64),
     Field(u64,u64,u8), Axis(u64,u64,u8), Smooth(u64,u64), Reset(u64,u64),
+    ArrayMode(u64,u64,u8), Curve(u64,u64,Option<u64>), Follow(u64,u64),
     Step(u64,u64,i8), Duplicate(u64,u64), Transfer(u64,u64,u64,bool), Apply(u64),
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -848,7 +859,7 @@ pub enum Action {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModelingTool {
     Select(u8), Move, Rotate, Scale,
-    Extrude, Inset, Bevel, LoopCut, Knife, Slide,
+    Extrude, ExtrudeIndividual, Inset, Bevel, LoopCut, Knife, Slide, FillHoles, Triangulate, Separate,
     Merge, Weld, Bridge, BridgeFaces, Dissolve, DeleteFaces, Subdivide,
     Smooth, Flat, Align, Relax, Inspect,
     Sphere, Circle, Inflate, Twist,
@@ -980,7 +991,7 @@ impl Action {
                 AuthorAction::ProportionalRadius
                     | AuthorAction::LiveField(_)
                     | AuthorAction::WeldDistance
-                    | AuthorAction::BridgeSegments
+                    | AuthorAction::BridgeSegments | AuthorAction::SnapStep | AuthorAction::BridgeTwist | AuthorAction::BridgeSmooth
                     | AuthorAction::Coordinate(_)
                     | AuthorAction::RotateDegrees(_)
                     | AuthorAction::ScaleFactor(_)

@@ -4,6 +4,7 @@ use crate::ui::{AuthorAction as A, MeshSelection as S, Ui};
 use poseforge_core::{MeshEdit, SkeletonTemplate};
 
 pub(super) struct AuthoringState {
+    pub snapping:super::snapping::State,
     pub modeling_tool: Option<ui::ModelingTool>,
     pub knife: Option<advanced_tools::KnifeState>,
     pub proportional: bool,
@@ -13,6 +14,12 @@ pub(super) struct AuthoringState {
     pub last_click: Option<(Instant, [f32; 2], S)>,
     pub weld_distance: f32,
     pub bridge_segments: u32,
+    pub bridge_twist: i32,
+    pub bridge_smooth: f32,
+    pub preview_modifiers: bool,
+    pub repair_kind:u8,
+    pub knife_snap:bool,
+    pub knife_angle:u8,
     pub diagnostics: Option<((u64, u64, u64, u64), poseforge_core::TopologyReport)>,
     pub selection_mode: S,
     pub vertices: BTreeSet<usize>,
@@ -33,6 +40,7 @@ pub(super) struct AuthoringState {
 impl Default for AuthoringState {
     fn default() -> Self {
         Self {
+            snapping:Default::default(),
             modeling_tool: None,
             knife: None,
             proportional: false,
@@ -42,6 +50,12 @@ impl Default for AuthoringState {
             last_click: None,
             weld_distance: 0.0001,
             bridge_segments: 1,
+            bridge_twist:0,
+            bridge_smooth:0.,
+            preview_modifiers:true,
+            repair_kind:0,
+            knife_snap:true,
+            knife_angle:0,
             diagnostics: None,
             selection_mode: S::default(),
             vertices: BTreeSet::new(),
@@ -297,7 +311,8 @@ impl App {
             return;
         }
         match command {
-            A::Knife
+            A::SnapMode(_) | A::SnapStep | A::ModifierPreview | A::BridgeTwist | A::BridgeSmooth | A::FillHoles | A::Triangulate | A::Separate | A::ExtrudeIndividual | A::RepairMode(_) | A::SelectIssue | A::RepairIssue | A::KnifeSnap | A::KnifeAngle(_)
+            | A::Knife
             | A::KnifeAccept
             | A::KnifeCancel
             | A::Slide
@@ -580,6 +595,7 @@ impl App {
         action: &Action,
         text: &str,
     ) -> Result<bool, String> {
+        if matches!(action,Action::Author(A::SnapStep)) {self.authoring.snapping.step=surfaces::number(text,0.000001,10000.)?;return Ok(true);}
         if self.topology_confirm(action, text)?
             || self.modeling_live_confirm(action, text)?
             || self.modeling_confirm(action, text)?
@@ -664,6 +680,7 @@ impl App {
                 .transform_vector3([Vec3::X, Vec3::Y, Vec3::Z][i])
                 .normalize()
         });
+        self.begin_snapping(true);
         self.editor.begin_edit(match self.tool {
             Tool::Rotate => "Повернуть компоненты",
             Tool::Scale => "Масштаб компонентов",
@@ -740,8 +757,13 @@ impl App {
                 delta = Vec3::ZERO;
                 delta[axis] = value;
             }
-            if self.modifiers.control_key() {
+            if self.modifiers.control_key() && self.authoring.snapping.mode==0 {
                 delta = (delta * 10.).round() / 10.;
+            }
+            if drag.tool==Tool::Move {
+                let world=drag.anchor+drag.inverse_model.inverse().transform_vector3(delta);
+                delta=drag.inverse_model.transform_vector3(self.snap_translation(world)-drag.anchor);
+                if let Some(axis)=drag.axis {let value=delta[axis];delta=Vec3::ZERO;delta[axis]=value;}
             }
             drag.amount += (pointer[0] - drag.pointer[0] - (pointer[1] - drag.pointer[1]))
                 * if fine { 0.1 } else { 1. };
@@ -1071,8 +1093,9 @@ impl App {
                 clip.z / clip.w
             })
             .collect();
+        let cage_preview=!preview&&self.authoring.preview_modifiers&&self.editor.project.node(id).is_some_and(|n|n.modifiers.iter().any(|m|m.enabled));
         let edge_depth = |a: usize, b: usize| {
-            (preview || !self.authoring.xray).then_some([depths[a], depths[b]])
+            (!cage_preview&&(preview || !self.authoring.xray)).then_some([depths[a], depths[b]])
         };
         let uv_selection = self.uv.open && self.uv.node == Some(id);
         let faces = if uv_selection {
@@ -1088,7 +1111,7 @@ impl App {
             self.authoring.faces.clone()
         };
         if self.authoring.selection_mode == S::Face || uv_selection {
-            super::face_overlay::draw(u, mesh, &faces, projection, viewport, self.authoring.xray);
+            super::face_overlay::draw(u, mesh, &faces, projection, viewport, self.authoring.xray||cage_preview);
         }
         let mut selected_edges = self.authoring.edges.clone();
         if self.authoring.selection_mode == S::Face || uv_selection {

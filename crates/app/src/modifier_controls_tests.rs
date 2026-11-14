@@ -248,7 +248,7 @@ fn keyboard_destination_picker_copies_and_scene_eye_restores_the_original_mesh()
     assert_eq!(a.editor.project.nodes[0].modifiers[0].enabled, true);
 }
 #[test]
-fn render_picking_and_framing_use_the_evaluated_instance_but_edit_mode_uses_the_source() {
+fn render_picking_and_framing_use_the_evaluated_instance_with_optional_edit_preview() {
     let mut a = app();
     let id = add(&mut a, K::Array);
     a.modifier_confirm(&Action::Modifier(M::Field(1, id, 2)), "3")
@@ -272,6 +272,8 @@ fn render_picking_and_framing_use_the_evaluated_instance_but_edit_mode_uses_the_
     assert!(a.frame_modifier_selection(&BTreeSet::from([1])));
     assert!((a.target.x - 1.5).abs() < 0.001);
     a.authoring.editing = Some(1);
+    assert!(a.evaluated_interactive().unwrap().modifier_meshes.contains_key(&1));
+    a.authoring.preview_modifiers=false;
     assert!(!a
         .evaluated_interactive()
         .unwrap()
@@ -328,7 +330,7 @@ fn modifier_panels_and_popups_are_reachable_in_both_themes_and_narrow_panels() {
                         .unwrap()
                         .settings
                         .kind(),
-                    K::Solidify
+                    K::Bevel
                 );
             }
         }

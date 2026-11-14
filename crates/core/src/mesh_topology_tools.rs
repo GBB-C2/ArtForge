@@ -303,6 +303,9 @@ pub(crate) fn bridge(
     selection: &BTreeSet<(usize, usize)>,
     segments: u32,
 ) -> Result<(), CoreError> {
+    bridge_options(mesh,selection,segments,0,0.)
+}
+pub(crate) fn bridge_options(mesh:&mut Mesh,selection:&BTreeSet<(usize,usize)>,segments:u32,twist:i32,smooth:f32)->Result<(),CoreError> {
     if !(1..=32).contains(&segments) {
         return Err(invalid("Сегменты моста: 1–32"));
     }
@@ -316,15 +319,18 @@ pub(crate) fn bridge(
         .map(|&e| directed(mesh, &g, g.edge_faces[&e][0], e))
         .collect();
     let rings = loops(&directed)?;
-    if rings.len() != 2 || rings[0].len() != rings[1].len() {
-        return Err(invalid("Нужны два контура с одинаковым числом вершин"));
+    if rings.len() != 2 {
+        return Err(invalid("Нужны два отдельные замкнутые контура"));
     }
     let mut output = faces(mesh);
-    append_bridge(mesh, &rings, segments, &mut output)?;
+    crate::advanced_bridge::append(mesh, &rings, segments, twist, smooth, &mut output)?;
     finish(mesh, output, mesh.smooth_normals_enabled())
 }
 
 pub(crate) fn bridge_faces(mesh: &mut Mesh, selection: &BTreeSet<usize>, segments: u32) -> Result<(), CoreError> {
+    bridge_faces_options(mesh,selection,segments,0,0.)
+}
+pub(crate) fn bridge_faces_options(mesh:&mut Mesh,selection:&BTreeSet<usize>,segments:u32,twist:i32,smooth:f32)->Result<(),CoreError> {
     if selection.len()<2 || selection.iter().any(|&f|f>=mesh.face_count()) || !(1..=32).contains(&segments) {
         return Err(invalid("Выберите две области граней; сегменты моста: 1–32"));
     }
@@ -355,74 +361,19 @@ pub(crate) fn bridge_faces(mesh: &mut Mesh, selection: &BTreeSet<usize>, segment
         if outlines.len()!=1 {return Err(invalid("Область моста должна иметь один внешний контур без отверстий"));}
         rings.push(outlines.remove(0));
     }
-    if rings[0].len()!=rings[1].len() || rings[0].iter().any(|v|rings[1].contains(v)) {
-        return Err(invalid("Для моста нужны отдельные контуры с одинаковым числом вершин"));
+    if rings[0].iter().any(|v|rings[1].contains(v)) {
+        return Err(invalid("Для моста нужны отдельные контуры без общих вершин"));
     }
     let mut output:Vec<_>=faces(mesh).into_iter().enumerate().filter_map(|(f,face)|(!selection.contains(&f)).then_some(face)).collect();
     let mut materials:Vec<_>=(0..mesh.face_count()).filter(|f|!selection.contains(f)).map(|f|mesh.face_material(f)).collect();
     let material=mesh.face_material(*selection.first().unwrap()); let count=output.len();
-    append_bridge(mesh,&rings,segments,&mut output)?;
+    crate::advanced_bridge::append(mesh,&rings,segments,twist,smooth,&mut output)?;
     materials.extend(std::iter::repeat_n(material,output.len()-count));
     crate::component_mesh::ensure_topology(mesh);
     let t=mesh.topology.as_mut().unwrap();t.faces=output.clone().into();t.face_materials=materials.into();
     finish(mesh,output,mesh.smooth_normals_enabled())
 }
 
-fn append_bridge(mesh: &mut Mesh, rings: &[Vec<usize>], segments: u32, output: &mut Vec<Vec<u32>>) -> Result<(),CoreError> {
-    let n = rings[0].len();
-    if mesh.vertices.len() + (segments as usize - 1) * n > MAX_EDIT_VERTICES
-        || mesh.indices.len() / 3 + n * segments as usize * 2 > MAX_EDIT_TRIANGLES
-    {
-        return Err(invalid("Слишком много сегментов моста"));
-    }
-    let p = |i: usize| Vec3::from_array(mesh.vertices[i].position);
-    let shift = (0..n)
-        .min_by(|&a, &b| {
-            let cost = |s: usize| {
-                (0..n)
-                    .map(|i| p(rings[0][i]).distance_squared(p(rings[1][(s + n - i) % n])) as f64)
-                    .sum::<f64>()
-            };
-            cost(a).total_cmp(&cost(b))
-        })
-        .unwrap();
-    let first: Vec<_> = rings[0].iter().map(|&i| i as u32).collect();
-    let last: Vec<_> = (0..n)
-        .map(|i| rings[1][(shift + n - i) % n] as u32)
-        .collect();
-    let mut strips = vec![first.clone()];
-    for s in 1..segments {
-        let t = s as f32 / segments as f32;
-        let mut row = Vec::new();
-        for i in 0..n {
-            let a = mesh.vertices[first[i] as usize];
-            let b = mesh.vertices[last[i] as usize];
-            let mut v = a;
-            v.position = Vec3::from_array(a.position)
-                .lerp(Vec3::from_array(b.position), t)
-                .to_array();
-            for axis in 0..2 {
-                v.uv[axis] = a.uv[axis] * (1. - t) + b.uv[axis] * t;
-            }
-            row.push(mesh.vertices.len() as u32);
-            mesh.vertices.push(v);
-        }
-        strips.push(row);
-    }
-    strips.push(last);
-    for rows in strips.windows(2) {
-        for i in 0..n {
-            let j = (i + 1) % n;
-            let f = vec![rows[0][j], rows[0][i], rows[1][i], rows[1][j]];
-            let p = |k: usize| Vec3::from_array(mesh.vertices[f[k] as usize].position);
-            if (p(1) - p(0)).cross(p(2) - p(0)).length_squared() < 1e-20 {
-                return Err(invalid("Контуры совпадают или дают вырожденный мост"));
-            }
-            output.push(f);
-        }
-    }
-    Ok(())
-}
 pub(crate) fn dissolve(
     mesh: &mut Mesh,
     selection: &BTreeSet<(usize, usize)>,
@@ -514,6 +465,13 @@ pub struct TopologyReport {
     pub duplicate_faces: usize,
     pub degenerate_faces: usize,
     pub problem_faces: BTreeSet<usize>,
+    pub duplicate_vertex_ids:BTreeSet<usize>,
+    pub boundary_edge_ids:BTreeSet<(usize,usize)>,
+    pub nonmanifold_edge_ids:BTreeSet<(usize,usize)>,
+    pub winding_face_ids:BTreeSet<usize>,
+    pub degenerate_face_ids:BTreeSet<usize>,
+    pub duplicate_face_ids:BTreeSet<usize>,
+    pub inverted_face_ids:BTreeSet<usize>,
 }
 pub fn inspect_topology(mesh: &Mesh) -> TopologyReport {
     let g = MeshConnectivity::new(mesh);
@@ -527,22 +485,31 @@ pub fn inspect_topology(mesh: &Mesh) -> TopologyReport {
         if let Some(old) = seen.insert(key, f) {
             r.duplicate_faces += 1;
             r.problem_faces.extend([old, f]);
+            r.duplicate_face_ids.extend([old,f]);
         }
         let n = crate::polygon_edit::face_normal(mesh, face);
         if n.length_squared() < 1e-20 || !n.is_finite() {
             r.degenerate_faces += 1;
+            r.degenerate_face_ids.insert(f);
             r.problem_faces.insert(f);
         }
     }
+    if let Some(t)=&mesh.topology {used.extend(t.loose_edges.iter().flatten().map(|&v|v as usize));}
     r.isolated_vertices = mesh.vertices.len() - used.len();
+    r.duplicate_vertex_ids=crate::mesh_cleanup::duplicate_points(mesh);
+    r.inverted_face_ids=crate::mesh_cleanup::inverted_faces(mesh,&g);
+    r.problem_faces.extend(&r.inverted_face_ids);
     for (&e, fs) in &g.edge_faces {
         if fs.len() == 1 {
             r.boundary_edges += 1;
+            r.boundary_edge_ids.insert(e);
         } else if fs.len() > 2 {
             r.nonmanifold_edges += 1;
+            r.nonmanifold_edge_ids.insert(e);
             r.problem_faces.extend(fs);
-        } else if directed(mesh, &g, fs[0], e) == directed(mesh, &g, fs[1], e) {
+        } else if fs.len()==2 && directed(mesh, &g, fs[0], e) == directed(mesh, &g, fs[1], e) {
             r.winding_edges += 1;
+            r.winding_face_ids.extend(fs);
             r.problem_faces.extend(fs);
         }
     }

@@ -187,6 +187,11 @@ mod material_library;
 mod material_preview;
 #[path = "mesh_pick.rs"]
 mod mesh_pick;
+#[path="snapping.rs"]
+mod snapping;
+#[cfg(test)]
+#[path="advanced_workflow_tests.rs"]
+mod advanced_workflow_tests;
 #[path = "material_media.rs"]
 mod material_media;
 #[path = "morph_controls.rs"]
@@ -1394,6 +1399,7 @@ impl App {
         if let crate::gizmo::Handle::Axis(axis) = handle {
             self.axis = axis;
         }
+        if chain.is_none()&&curve.is_none() {self.begin_snapping(false);}
         self.editor.begin_edit(match self.tool {
             Tool::Move => "Перемещение",
             Tool::Rotate => "Поворот",
@@ -1410,6 +1416,8 @@ impl App {
         self.drag_button = Some(MouseButton::Left);
     }
     fn cancel_drag(&mut self) {
+        self.authoring.snapping.clear();
+        if let Some(k)=&mut self.authoring.knife {k.press=None;}
         self.curves.drawing = false;
         self.slider_click = None;
         self.view_axis_press = None;
@@ -4094,9 +4102,10 @@ impl App {
                 ik_chain,
                 pole,
             }) => {
-                if let Some((transform, target, feedback)) =
-                    gesture.update(p, self.modifiers.shift_key(), self.modifiers.control_key())
+                if let Some((mut transform, mut target, feedback)) =
+                    gesture.update(p, self.modifiers.shift_key(), self.modifiers.control_key()&&(self.tool!=Tool::Move||self.authoring.snapping.mode==0||curve.is_some()||ik_chain.is_some()))
                 {
+                    if self.tool==Tool::Move&&curve.is_none()&&ik_chain.is_none() {(transform,target)=gesture.retarget_translation(self.snap_translation(target));}
                     let result = if gesture.at_start(transform, target) {
                         // Returning to the initial pose also restores preexisting
                         // staged values; it must not create an identity key/Undo.
@@ -4143,6 +4152,7 @@ impl App {
         self.redraw();
     }
     fn mouse_up(&mut self, button: MouseButton) {
+        if button==MouseButton::Left && self.knife_pointer_up() {self.release_drag_pointer();self.redraw();return;}
         self.node_pointer_up(button);
         self.dropdown_pointer_up();
         if button == MouseButton::Left {
@@ -4164,6 +4174,7 @@ impl App {
         }
         // Finish before releasing capture; a subsequent focus event is harmless.
         let drag = self.drag.take();
+        self.authoring.snapping.clear();
         self.drag_button = None;
         self.release_drag_pointer();
         let orbit_click = self.orbit_click.take().is_some();
@@ -4628,6 +4639,7 @@ impl App {
         self.draw_primitive_panel(&mut u);
         self.draw_modeling_live(&mut u);
         self.draw_advanced_overlay(&mut u);
+        self.draw_snapping(&mut u);
         self.draw_uv_editor(&mut u);
         self.draw_material_drag(&mut u);
         self.draw_scene_drag(&mut u);
@@ -5819,7 +5831,7 @@ impl ApplicationHandler for App {
                 if state == ElementState::Pressed {
                     let captured=self.drag.is_some();
                     self.mouse_down(button);
-                    if !captured && self.drag.is_some() {
+                    if !captured && (self.drag.is_some()||self.authoring.knife.as_ref().is_some_and(|k|k.press.is_some())) {
                         self.capture_drag_pointer();
                     }
                 } else {
@@ -5873,6 +5885,7 @@ impl ApplicationHandler for App {
                 self.authoring.reference_pick = None;
                 self.close_asset_popup();
                 self.cancel_modeling_live();
+                self.cancel_knife();
                 self.close_material_dropdown();
                 self.dropdown = None;
                 self.dropdown_focus = None;

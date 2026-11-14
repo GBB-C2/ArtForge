@@ -648,16 +648,20 @@ impl App {
         for field in effects.ordered_fields() {
             let (value, min, max, label) = effects.field(field).unwrap();
             let y = self.camera_effect_settings_y(field);
+            let theme = u.theme;
+            u.theme = ui::Theme::Dark;
+            let card = u.palette();
+            let focused = self.camera_effects.focused && self.camera_effect_selected(id, field);
+            u.outlined_surface([x,y,width,80.], [0.075,0.08,0.095,1.],
+                if focused {card.accent} else {[0.27,0.29,0.33,1.]});
+            let p = card;
             let color = if effects.effect_enabled(field) { p.text } else { p.muted };
-            let header = [x, y, width, 26.];
+            let header = [x+6., y+3., width-12., 26.];
             u.hits.push(ui::Hit { rect: header, action: Action::CameraEffect(id, C::SelectEffect(field)) });
-            if self.camera_effects.focused && self.camera_effect_selected(id, field) {
-                u.rounded_rect([x, y + 5., 2., 16.], p.accent, 1.);
-            }
-            Icon::Wand.draw(u, [x + 4., y + 4., 18., 18.], color);
-            u.fitted_label([x + 28., y + 5., width - 88., 18.], CameraEffects::LABELS[field - 4], 12., color);
+            Icon::Wand.draw(u, [x + 10., y + 7., 18., 18.], color);
+            u.fitted_label([x + 34., y + 8., width - 100., 18.], CameraEffects::LABELS[field - 4], 12., color);
             self.draw_camera_effect_buttons(u, header, id, field, effects.effect_enabled(field));
-            let rect = [x, y + 26., width, 44.];
+            let rect = [x+8., y+30., width-16., 44.];
             if editable {
                 u.number_field(
                     rect,
@@ -669,6 +673,7 @@ impl App {
             } else {
                 u.disabled_button(rect, &format!("{label}: {value:.2}"));
             }
+            u.theme = theme;
         }
         u.fitted_label(
             [x, self.camera_panel_bottom() - 32., width, 22.],

@@ -21,19 +21,33 @@ pub enum ModifierKind {
     Array,
     Subdivision,
     Solidify,
+    Bevel,
 }
 impl ModifierKind {
-    pub const ALL: [Self; 4] = [Self::Mirror, Self::Array, Self::Subdivision, Self::Solidify];
+    pub const ALL: [Self; 5] = [
+        Self::Mirror,
+        Self::Array,
+        Self::Subdivision,
+        Self::Solidify,
+        Self::Bevel,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             Self::Mirror => "Зеркало",
             Self::Array => "Массив",
             Self::Subdivision => "Подразделение",
             Self::Solidify => "Толщина",
+            Self::Bevel => "Фаска",
         }
     }
     pub fn settings(self) -> ModifierSettings {
         match self {
+            Self::Bevel => ModifierSettings::Bevel {
+                width: 0.05,
+                segments: 3,
+                profile: 0.5,
+                angle: 0.5235988,
+            },
             Self::Mirror => ModifierSettings::Mirror { axis: 0, plane: 0. },
             Self::Array => ModifierSettings::Array {
                 count: 2,
@@ -53,16 +67,52 @@ impl ModifierKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ModifierSettings {
-    Mirror { axis: u8, plane: f32 },
-    Array { count: u16, offset: [f32; 3] },
-    Subdivision { levels: u8, smooth: bool },
-    Solidify { thickness: f32, offset: f32 },
+    Mirror {
+        axis: u8,
+        plane: f32,
+    },
+    Array {
+        count: u16,
+        offset: [f32; 3],
+    },
+    RadialArray {
+        count: u16,
+        axis: u8,
+        radius: f32,
+        angle: f32,
+        rotate: bool,
+    },
+    CurveArray {
+        count: u16,
+        curve: Option<NodeId>,
+        spacing: f32,
+        start: f32,
+        roll: f32,
+        follow: bool,
+    },
+    Bevel {
+        width: f32,
+        segments: u32,
+        profile: f32,
+        angle: f32,
+    },
+    Subdivision {
+        levels: u8,
+        smooth: bool,
+    },
+    Solidify {
+        thickness: f32,
+        offset: f32,
+    },
 }
 impl ModifierSettings {
     pub fn kind(self) -> ModifierKind {
         match self {
             Self::Mirror { .. } => ModifierKind::Mirror,
-            Self::Array { .. } => ModifierKind::Array,
+            Self::Array { .. } | Self::RadialArray { .. } | Self::CurveArray { .. } => {
+                ModifierKind::Array
+            }
+            Self::Bevel { .. } => ModifierKind::Bevel,
             Self::Subdivision { .. } => ModifierKind::Subdivision,
             Self::Solidify { .. } => ModifierKind::Solidify,
         }
@@ -73,6 +123,50 @@ impl ModifierSettings {
             Self::Mirror { axis, plane } => axis < 3 && finite(plane),
             Self::Array { count, offset } => {
                 (1..=128).contains(&count) && offset.into_iter().all(finite)
+            }
+            Self::RadialArray {
+                count,
+                axis,
+                radius,
+                angle,
+                ..
+            } => {
+                (1..=128).contains(&count)
+                    && axis < 3
+                    && finite(radius)
+                    && radius >= 0.
+                    && angle.is_finite()
+                    && angle.abs() <= std::f32::consts::TAU
+            }
+            Self::CurveArray {
+                count,
+                curve,
+                spacing,
+                start,
+                roll,
+                ..
+            } => {
+                (1..=128).contains(&count)
+                    && curve != Some(0)
+                    && finite(spacing)
+                    && spacing > 0.
+                    && finite(start)
+                    && roll.is_finite()
+                    && roll.abs() <= std::f32::consts::TAU
+            }
+            Self::Bevel {
+                width,
+                segments,
+                profile,
+                angle,
+            } => {
+                finite(width)
+                    && (0. ..=1000.).contains(&width)
+                    && (1..=32).contains(&segments)
+                    && profile.is_finite()
+                    && (0. ..=1.).contains(&profile)
+                    && angle.is_finite()
+                    && (0. ..=std::f32::consts::PI).contains(&angle)
             }
             Self::Subdivision { levels, .. } => (1..=4).contains(&levels),
             Self::Solidify { thickness, offset } => {
@@ -139,14 +233,27 @@ fn output_budget(mesh: &Mesh, stack: &[MeshModifier]) -> Result<(usize, usize), 
     for m in stack.iter().filter(|m| m.enabled) {
         m.settings.validate()?;
         match m.settings {
-            ModifierSettings::Mirror { .. } | ModifierSettings::Array { .. } => {
+            ModifierSettings::Mirror { .. }
+            | ModifierSettings::Array { .. }
+            | ModifierSettings::RadialArray { .. }
+            | ModifierSettings::CurveArray { .. } => {
                 let count = match m.settings {
-                    ModifierSettings::Array { count, .. } => count as usize,
+                    ModifierSettings::Array { count, .. }
+                    | ModifierSettings::RadialArray { count, .. }
+                    | ModifierSettings::CurveArray { count, .. } => count as usize,
                     _ => 2,
                 };
                 v = v.saturating_mul(count);
                 t = t.saturating_mul(count);
                 f = f.saturating_mul(count);
+            }
+            ModifierSettings::Bevel {
+                segments, width, ..
+            } if width > 0. => {
+                let corners = t.saturating_add(f.saturating_mul(2));
+                v = v.saturating_add(corners.saturating_mul(3 + segments as usize));
+                t = t.saturating_add(corners.saturating_mul(3 + segments as usize * 2));
+                f = t;
             }
             ModifierSettings::Subdivision { levels, .. } => {
                 for _ in 0..levels {
@@ -180,9 +287,11 @@ pub struct ModifierKey {
     material: Option<u64>,
     smooth: bool,
     settings: Vec<ModifierSettings>,
+    frames: Vec<(u64, Vec<[f32; 16]>)>,
 }
 pub fn modifier_key(mesh: &Mesh, stack: &[MeshModifier]) -> ModifierKey {
     ModifierKey {
+        frames: vec![],
         source: [
             mesh.id,
             mesh.vertices.revision(),
@@ -196,7 +305,10 @@ pub fn modifier_key(mesh: &Mesh, stack: &[MeshModifier]) -> ModifierKey {
             .topology
             .as_ref()
             .map_or_else(Vec::new, |t| t.uv_seams.clone()),
-        wires: mesh.topology.as_ref().map_or_else(Vec::new, |t| t.loose_edges.clone()),
+        wires: mesh
+            .topology
+            .as_ref()
+            .map_or_else(Vec::new, |t| t.loose_edges.clone()),
         material: mesh.material,
         smooth: mesh.smooth_normals_enabled(),
         settings: stack
@@ -204,6 +316,27 @@ pub fn modifier_key(mesh: &Mesh, stack: &[MeshModifier]) -> ModifierKey {
             .filter(|m| m.enabled)
             .map(|m| m.settings)
             .collect(),
+    }
+}
+#[derive(Clone)]
+pub struct PreparedModifiers {
+    pub key: ModifierKey,
+    mesh: Mesh,
+    stack: Vec<MeshModifier>,
+    frames: BTreeMap<u64, Vec<crate::Mat4>>,
+}
+impl PreparedModifiers {
+    pub fn cached(&self) -> Option<Result<Mesh, String>> {
+        cached_key(&self.key)
+    }
+    pub fn evaluate(&self, cancel: &AtomicBool) -> Result<Mesh, CoreError> {
+        evaluate_prepared(
+            &self.mesh,
+            &self.stack,
+            self.key.clone(),
+            &self.frames,
+            cancel,
+        )
     }
 }
 struct CacheEntry {
@@ -220,9 +353,11 @@ pub fn cached_modifier_mesh(mesh: &Mesh, stack: &[MeshModifier]) -> Option<Resul
     if !stack.iter().any(|m| m.enabled) {
         return Some(Ok(mesh.clone()));
     }
-    let key = modifier_key(mesh, stack);
+    cached_key(&modifier_key(mesh, stack))
+}
+fn cached_key(key: &ModifierKey) -> Option<Result<Mesh, String>> {
     let mut cache = cache().lock().unwrap_or_else(|e| e.into_inner());
-    let at = cache.iter().position(|entry| entry.key == key)?;
+    let at = cache.iter().position(|entry| &entry.key == key)?;
     let entry = cache.remove(at).unwrap();
     let result = entry.mesh.clone();
     cache.push_back(entry);
@@ -233,11 +368,25 @@ pub fn evaluate_modifier_mesh(
     stack: &[MeshModifier],
     cancel: &AtomicBool,
 ) -> Result<Mesh, CoreError> {
+    evaluate_prepared(
+        mesh,
+        stack,
+        modifier_key(mesh, stack),
+        &BTreeMap::new(),
+        cancel,
+    )
+}
+fn evaluate_prepared(
+    mesh: &Mesh,
+    stack: &[MeshModifier],
+    key: ModifierKey,
+    frames: &BTreeMap<u64, Vec<crate::Mat4>>,
+    cancel: &AtomicBool,
+) -> Result<Mesh, CoreError> {
     cancelled(cancel)?;
-    if let Some(result) = cached_modifier_mesh(mesh, stack) {
+    if let Some(result) = cached_key(&key) {
         return result.map_err(|s| error(&s));
     }
-    let key = modifier_key(mesh, stack);
     let result = (|| {
         check_modifier_budget(mesh, stack)?;
         mesh.validate_topology()?;
@@ -248,19 +397,32 @@ pub fn evaluate_modifier_mesh(
         let mut groups = vec![0; mesh.vertices.len()];
         for m in stack.iter().filter(|m| m.enabled) {
             cancelled(cancel)?;
-            result = crate::modifier_geometry::apply(&result, m.settings, &mut groups, cancel)
-                .map_err(|e| error(&format!("{}: {e}", m.name)))?;
+            result = match m.settings {
+                ModifierSettings::CurveArray { .. } => crate::advanced_modifiers::copies(
+                    &result,
+                    frames
+                        .get(&m.id)
+                        .ok_or_else(|| error("Выберите кривую для массива"))?,
+                    &mut groups,
+                    cancel,
+                ),
+                _ => crate::modifier_geometry::apply(&result, m.settings, &mut groups, cancel),
+            }
+            .map_err(|e| error(&format!("{}: {e}", m.name)))?;
         }
         Ok(result)
     })();
     // Cancelled or stale work cannot poison a future request.
     cancelled(cancel)?;
     let bytes = (key.seams.len() + key.wires.len()) * 8
+        + key.frames.iter().map(|(_, f)| f.len() * 64).sum::<usize>()
         + result.as_ref().map_or(0, |m| {
             m.vertices.len() * std::mem::size_of::<crate::Vertex>()
                 + m.indices.len() * 4
                 + m.face_count() * 48
-                + m.topology.as_ref().map_or(0, |t| (t.uv_seams.len() + t.loose_edges.len()) * 8)
+                + m.topology
+                    .as_ref()
+                    .map_or(0, |t| (t.uv_seams.len() + t.loose_edges.len()) * 8)
         });
     let mut cache = cache().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(existing) = cache.iter().find(|e| e.key == key) {
@@ -285,6 +447,62 @@ pub fn evaluate_modifier_mesh(
 }
 
 impl Project {
+    /// Resolve path references and animated transforms before handing immutable
+    /// geometry to a worker. The key includes every sampled placement frame.
+    pub fn prepare_modifiers(
+        &self,
+        id: NodeId,
+        globals: &BTreeMap<NodeId, crate::Mat4>,
+    ) -> Result<PreparedModifiers, CoreError> {
+        let node = self.node(id).ok_or(CoreError::MissingNode(id))?;
+        let mesh = node
+            .mesh
+            .and_then(|m| self.mesh(m))
+            .ok_or_else(|| error("Модификатору нужен меш"))?;
+        let mut frames = BTreeMap::new();
+        for m in node.modifiers.iter().filter(|m| m.enabled) {
+            if let ModifierSettings::CurveArray {
+                count,
+                curve: Some(target),
+                spacing,
+                start,
+                roll,
+                follow,
+            } = m.settings
+            {
+                let curve = self
+                    .node(target)
+                    .and_then(|n| n.curve.as_ref())
+                    .ok_or_else(|| error("Кривая массива отсутствует"))?;
+                let owner = *globals.get(&id).ok_or(CoreError::MissingNode(id))?;
+                let target = *globals.get(&target).ok_or(CoreError::MissingNode(target))?;
+                let path = crate::curve_binding::Path::new(curve, owner.inverse() * target)?;
+                let samples = (0..count)
+                    .map(|i| {
+                        let frame = path.text_frame(start + spacing * i as f32);
+                        let placement = if follow {
+                            frame
+                        } else {
+                            crate::Mat4::from_translation(frame.w_axis.truncate())
+                        };
+                        placement * crate::Mat4::from_rotation_x(roll * i as f32)
+                    })
+                    .collect::<Vec<_>>();
+                frames.insert(m.id, samples);
+            }
+        }
+        let mut key = modifier_key(mesh, &node.modifiers);
+        key.frames = frames
+            .iter()
+            .map(|(id, v)| (*id, v.iter().map(|m| m.to_cols_array()).collect()))
+            .collect();
+        Ok(PreparedModifiers {
+            key,
+            mesh: mesh.clone(),
+            stack: node.modifiers.clone(),
+            frames,
+        })
+    }
     pub fn modifier_supported(&self, id: NodeId) -> bool {
         self.node(id).is_some_and(|n| {
             n.mesh
@@ -337,6 +555,15 @@ impl Project {
                     return Err(error("Недопустимое имя или повторный ID модификатора"));
                 }
                 m.settings.validate()?;
+                if let ModifierSettings::CurveArray {
+                    curve: Some(target),
+                    ..
+                } = m.settings
+                {
+                    if !self.node(target).is_some_and(|n| n.curve.is_some()) {
+                        return Err(error("Массив ссылается на отсутствующую кривую"));
+                    }
+                }
             }
         }
         Ok(())
@@ -345,23 +572,24 @@ impl Project {
         &self,
         cancel: &AtomicBool,
     ) -> Result<BTreeMap<NodeId, Mesh>, CoreError> {
-        let mut result = BTreeMap::new();
-        for node in self
-            .nodes
+        self.evaluated_modifier_meshes_at(&self.global_transforms()?, cancel)
+    }
+    pub fn evaluated_modifier_meshes_at(
+        &self,
+        globals: &BTreeMap<NodeId, crate::Mat4>,
+        cancel: &AtomicBool,
+    ) -> Result<BTreeMap<NodeId, Mesh>, CoreError> {
+        self.nodes
             .iter()
             .filter(|n| n.modifiers.iter().any(|m| m.enabled))
-        {
-            cancelled(cancel)?;
-            let mesh = node
-                .mesh
-                .and_then(|id| self.mesh(id))
-                .ok_or(CoreError::MissingNode(node.id))?;
-            result.insert(
-                node.id,
-                evaluate_modifier_mesh(mesh, &node.modifiers, cancel)?,
-            );
-        }
-        Ok(result)
+            .map(|n| {
+                cancelled(cancel)?;
+                Ok((
+                    n.id,
+                    self.prepare_modifiers(n.id, globals)?.evaluate(cancel)?,
+                ))
+            })
+            .collect()
     }
 }
 
@@ -371,9 +599,11 @@ impl Editor {
         if node.modifiers.is_empty() {
             return Ok(());
         }
-        let source = self.project.mesh(node.mesh.unwrap()).unwrap();
-        let key = modifier_key(source, &node.modifiers);
-        let mesh = evaluate_modifier_mesh(source, &node.modifiers, &AtomicBool::new(false))?;
+        let input = self
+            .project
+            .prepare_modifiers(id, &self.evaluated_base()?.global)?;
+        let key = input.key.clone();
+        let mesh = input.evaluate(&AtomicBool::new(false))?;
         self.apply_evaluated_modifiers(id, &key, mesh)
     }
     /// A completed preview can be baked even after its global cache entry was
@@ -386,7 +616,12 @@ impl Editor {
     ) -> Result<(), CoreError> {
         let node = self.modifier_owner(id)?;
         let original = node.mesh.unwrap();
-        if &modifier_key(self.project.mesh(original).unwrap(), &node.modifiers) != expected {
+        if &self
+            .project
+            .prepare_modifiers(id, &self.evaluated_base()?.global)?
+            .key
+            != expected
+        {
             return Err(error(
                 "Исходный меш или стек изменился; дождитесь нового расчёта",
             ));

@@ -2,12 +2,15 @@
 use super::*;
 use crate::ui::AuthorAction as A;
 use poseforge_core::{EdgePoint, MeshEdit};
+#[path = "smart_knife.rs"]
+mod smart_knife;
 
 pub(super) struct KnifeState {
     node: u64,
     first: Option<Vec3>,
     selection: component_selection::SelectionSnapshot,
     cuts: usize,
+    pub(super) press: Option<[f32; 2]>,
 }
 impl App {
     pub(super) fn modeling_area(&self) -> [f32; 4] {
@@ -37,11 +40,14 @@ impl App {
                     first: None,
                     selection: component_selection::SelectionSnapshot::capture(&self.authoring),
                     cuts: 0,
+                    press: None,
                 });
                 self.status =
-                    "Нож · продолжайте разрез щелчками · Backspace — новая линия · Enter — применить · Esc — отменить"
+                    "Нож · потяните линию через грани · Shift / C — угол · Enter — применить · Esc — отменить"
                         .into();
             }
+            A::KnifeSnap => self.authoring.knife_snap = !self.authoring.knife_snap,
+            A::KnifeAngle(mode) => self.authoring.knife_angle = mode.min(4),
             A::KnifeAccept => self.accept_knife(),
             A::KnifeCancel => self.cancel_knife(),
             A::Proportional => self.authoring.proportional = !self.authoring.proportional,
@@ -55,6 +61,7 @@ impl App {
     }
     pub(super) fn cancel_knife(&mut self) {
         if let Some(k) = self.authoring.knife.take() {
+            self.release_drag_pointer();
             self.editor.cancel_edit();
             k.selection.restore(&mut self.authoring);
             self.invalidate_geometry();
@@ -64,6 +71,7 @@ impl App {
     }
     fn accept_knife(&mut self) {
         if let Some(k) = self.authoring.knife.take() {
+            self.release_drag_pointer();
             let r = self.editor.commit_edit();
             if self.result(r).is_some() {
                 self.status = format!("Нож · разрезов: {}", k.cuts);
@@ -80,9 +88,19 @@ impl App {
             return false;
         }
         match action {
-            Action::ToggleSection(id) if matches!(*id, super::modeling_palette::TOOLS_SECTION | super::modeling_palette::PROPERTIES_SECTION) => false,
+            Action::ToggleSection(id)
+                if matches!(
+                    *id,
+                    super::modeling_palette::TOOLS_SECTION
+                        | super::modeling_palette::PROPERTIES_SECTION
+                ) =>
+            {
+                false
+            }
             Action::ScrollPanel(0) | Action::ToggleRightPanel => false,
-            Action::Author(A::KnifeAccept | A::KnifeCancel) => false,
+            Action::Author(A::KnifeAccept | A::KnifeCancel | A::KnifeSnap | A::KnifeAngle(_))
+            | Action::DropdownOpen(ui::DropdownKind::KnifeAngle)
+            | Action::DropdownChoose(_) => false,
             Action::Cancel | Action::Undo | Action::Redo => {
                 self.cancel_knife();
                 true
@@ -98,7 +116,18 @@ impl App {
             return false;
         }
         match key {
-            Key::Named(NamedKey::Backspace) => self.authoring.knife.as_mut().unwrap().first=None,
+            Key::Named(NamedKey::Backspace) => {
+                let k = self.authoring.knife.as_mut().unwrap();
+                k.first = None;
+                k.press = None;
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("c") => {
+                self.authoring.knife_angle = if self.authoring.knife_angle == 0 {
+                    3
+                } else {
+                    0
+                }
+            }
             Key::Named(NamedKey::Enter) => self.accept_knife(),
             Key::Named(NamedKey::Escape) => self.cancel_knife(),
             Key::Character(c)
@@ -113,113 +142,10 @@ impl App {
         true
     }
     fn knife_pick(&self) -> Option<EdgePoint> {
-        let k = self.authoring.knife.as_ref()?;
-        let mesh = self.editor.editable_mesh(k.node).ok()?;
-        let model = self.editor.project.global_transforms().ok()?[&k.node];
-        let projection = self.view().view_projection();
-        let vp = self.viewport();
-        let cache = self.mesh_cache(mesh);
-        let mut best = 12_f32;
-        let mut found = None;
-        for &(a, b) in &cache.graph.edges {
-            let pa = model.transform_point3(Vec3::from_array(mesh.vertices[a].position));
-            let pb = model.transform_point3(Vec3::from_array(mesh.vertices[b].position));
-            let (Some(sa), Some(sb)) = (
-                authoring_controls::project(projection, vp, pa),
-                authoring_controls::project(projection, vp, pb),
-            ) else {
-                continue;
-            };
-            let d = glam::Vec2::from_array(sb) - glam::Vec2::from_array(sa);
-            if d.length_squared() < 1e-8 {
-                continue;
-            }
-            let s = ((glam::Vec2::from_array(self.mouse) - glam::Vec2::from_array(sa)).dot(d)
-                / d.length_squared())
-            .clamp(0., 1.);
-            let distance =
-                (glam::Vec2::from_array(sa) + d * s - glam::Vec2::from_array(self.mouse)).length();
-            if distance >= best {
-                continue;
-            }
-            let wa = (projection * pa.extend(1.)).w;
-            let wb = (projection * pb.extend(1.)).w;
-            let t = if s*d.length()<6. {0.} else if (1.-s)*d.length()<6. {1.}
-                else {(s * wa / (wb * (1. - s) + wa * s)).clamp(0.,1.)};
-            let p = pa.lerp(pb, t);
-            if !self.authoring.xray {
-                let screen = authoring_controls::project(projection, vp, p)?;
-                let (origin, direction) =
-                    authoring_controls::ray(projection.inverse(), vp, screen)?;
-                let distance = (p - origin).dot(direction);
-                let inverse = model.inverse();
-                if cache
-                    .hit(
-                        inverse.transform_point3(origin),
-                        inverse.transform_vector3(direction),
-                    )
-                    .is_some_and(|(_, hit)| hit + distance.abs().max(1.) * 0.0001 < distance)
-                {
-                    continue;
-                }
-            }
-            best = distance;
-            found = Some(EdgePoint { edge: (a, b), t });
-        }
-        found
+        self.smart_knife_pick(self.knife_cursor())
     }
     pub(super) fn knife_click(&mut self) {
-        let Some(second) = self.knife_pick() else {
-            return;
-        };
-        let k = self.authoring.knife.as_ref().unwrap();
-        let node = k.node;
-        let Ok(mesh) = self.editor.editable_mesh(node).cloned() else {return;};
-        let point=Vec3::from_array(mesh.vertices[second.edge.0].position)
-            .lerp(Vec3::from_array(mesh.vertices[second.edge.1].position),second.t);
-        let Some(first) = k.first else {
-            self.authoring.knife.as_mut().unwrap().first = Some(point);
-            self.redraw();
-            return;
-        };
-        if first.distance_squared(point)<1e-14 {return;}
-        let graph = self.mesh_cache(&mesh);
-        let candidate=graph.graph.edge_faces[&second.edge].iter().find_map(|&face| {
-            let ring=mesh.face_vertices(face)?;
-            (0..ring.len()).find_map(|i| {
-                let a=graph.graph.canonical[ring[i] as usize]; let b=graph.graph.canonical[ring[(i+1)%ring.len()] as usize];
-                let edge=(a.min(b),a.max(b)); if edge==second.edge {return None;}
-                let origin=Vec3::from_array(mesh.vertices[edge.0].position);let end=Vec3::from_array(mesh.vertices[edge.1].position);
-                let delta=end-origin;let length=delta.length_squared();if length<1e-16{return None;}
-                let t=(first-origin).dot(delta)/length;
-                if !(-1e-5..=1.00001).contains(&t) || origin.lerp(end,t).distance_squared(first)>length.max(1.)*1e-12 {return None;}
-                let t=if t<1e-5 {0.} else if t>1.-1e-5 {1.} else {t};
-                Some((face,EdgePoint{edge,t}))
-            })
-        });
-        let Some((face,first)) = candidate else {
-            self.status = "Нож: продолжите через следующую сторону грани; Backspace — новая линия".into();
-            return;
-        };
-        let result = self.editor.preview_mesh(
-            node,
-            &mesh,
-            MeshEdit::Knife {
-                face,
-                first,
-                second,
-            },
-        );
-        if self.result(result).is_some() {
-            let k = self.authoring.knife.as_mut().unwrap();
-            k.first = Some(point);
-            k.cuts += 1;
-            self.authoring.vertices.clear();
-            self.authoring.edges.clear();
-            self.authoring.faces.clear();
-            self.invalidate_geometry();
-            self.redraw();
-        }
+        self.smart_knife_click();
     }
     pub(super) fn component_transform(&self, matrix: Mat4) -> Result<MeshEdit, String> {
         let vertices = self.edit_vertices();
@@ -287,8 +213,11 @@ impl App {
                     )
                 };
                 let hover = self.knife_pick().and_then(screen);
-                if let Some(a) = k.first.and_then(|p|project(globals[&k.node].transform_point3(p))) {
-                    if let Some(b) = hover {
+                if let Some(a) = k.press.or_else(|| {
+                    k.first
+                        .and_then(|p| project(globals[&k.node].transform_point3(p)))
+                }) {
+                    if let Some(b) = hover.or(Some(self.knife_cursor())) {
                         u.mesh_segment(a, b, 2., p.accent);
                     }
                     u.rect([a[0] - 4., a[1] - 4., 8., 8.], p.accent);

@@ -83,6 +83,7 @@ const LABELS:&[(&str,&str)]=&[
     ("Сохранить","Save"),("Сохранить как…","Save as…"),("Сохранить проект","Save project"),
     ("Сцена","Scene"),("СЦЕНА","SCENE"),("Рендер и экспорт…","Render and export…"),("Справка и клавиши","Help and shortcuts"),
     ("Отчёт последнего импорта","Last import report"),("Отчёт","Report"),("Свойства","Properties"),
+    ("Свойства — в плавающей панели над сценой","Properties are in the floating panel over the scene"),
     ("Отмена","Cancel"),("Продолжить","Continue"),("Закрыть","Close"),("Удалить","Delete"),("Добавить","Add"),
     ("Вставить","Paste"),("Обзор…","Browse…"),("На уровень ↑","Up one level ↑"),
     ("Импорт модели","Import model"),("Выберите модель GLB, glTF или OBJ","Choose a GLB, glTF or OBJ model"),

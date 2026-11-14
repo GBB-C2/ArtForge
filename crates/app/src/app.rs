@@ -319,6 +319,7 @@ enum Tool {
 #[derive(Clone)]
 enum Drag {
     ToolPanel { start: [f32;2], origin: [f32;2], original: Option<[f32;2]> },
+    ToolPanelScroll { start: f32, value: f32, scale: f32 },
     Swatch(color_swatches::SwatchDrag),
     CreationPanel { start: [f32; 2], origin: [f32; 2], original: Option<[f32; 2]>, moved: bool },
     Curve(curve_controls::CurveDrag),
@@ -1462,7 +1463,7 @@ impl App {
             } else if let Drag::Slider(ref slider) = drag {
                 if !Self::workflow_preference_field(&slider.action) {self.editor.cancel_edit();}
                 self.restore_slider_preferences(slider);
-            } else if !matches!(drag, Drag::ToolPanel {..} | Drag::ComponentSelection(_) | Drag::LiveParameter(_)
+            } else if !matches!(drag, Drag::ToolPanel {..} | Drag::ToolPanelScroll {..} | Drag::ComponentSelection(_) | Drag::LiveParameter(_)
                 | Drag::Orbit {..} | Drag::Pan {..} | Drag::ViewWidget {..} | Drag::CameraEffectScroll {..} | Drag::ObjectScroll {..}) {
                 self.editor.cancel_edit();
                 self.restore_animation_drag(&drag);
@@ -4051,6 +4052,10 @@ impl App {
         match self.drag.clone() {
             Some(Drag::Swatch(drag)) => self.update_swatch_drag(drag),
             Some(Drag::ToolPanel {start,origin,original}) => self.update_tool_panel_drag(start,origin,original),
+            Some(Drag::ToolPanelScroll { start, value, scale }) => {
+                self.authoring.workflow.panel_scroll =
+                    (value + (self.mouse[1] - start) * scale).clamp(0., self.tool_panel_scroll_max());
+            }
             Some(Drag::CreationPanel { start, origin, original, moved }) => self.update_creation_panel_drag(start, origin, original, moved),
             Some(Drag::Material(_)) => {}
             Some(Drag::Scene(_)) => self.scroll_scene_drag(),
@@ -5221,6 +5226,7 @@ impl App {
             return;
         }
         self.slider_click = None;
+        if self.tool_panel_scroll(delta) { return; }
         if self.knife_scroll(delta) {return;}
         if self.camera_effect_scroll(delta) { return; }
         if self.modeling_live_scroll(delta) {

@@ -6,6 +6,7 @@ pub(super) struct State {
     pub values: [f32; 13],
     pub extrude_mode: u8,
     pub panel_position: Option<[f32; 2]>,
+    pub panel_scroll: f32,
     pub collapsed: bool,
     pub close_gap: bool,
 }
@@ -15,6 +16,7 @@ impl Default for State {
             values: DEFAULTS,
             extrude_mode: 0,
             panel_position: None,
+            panel_scroll: 0.,
             collapsed: false,
             close_gap: false,
         }
@@ -59,6 +61,7 @@ impl App {
                     self.drag_button = Some(MouseButton::Left);
                 }
             }
+            A::ToolPanelScroll => self.start_tool_panel_scroll(),
             A::ToolArray => {
                 let Some(id) = self.authoring.editing else {
                     return true;
@@ -211,9 +214,7 @@ impl App {
         let h = if self.authoring.workflow.collapsed {
             38.
         } else {
-            (self.modeling_panel_bottom() - self.modeling_properties_start()
-                + 16.)
-            .min(area[3])
+            (self.modeling_tool_properties_height() + 16.).min(area[3])
         };
         let mut default = [area[0], area[1] + area[3] - h];
         if let Some(anchor) = self.modeling_panel_anchor() {
@@ -261,14 +262,64 @@ impl App {
             original,
         });
     }
+    pub(super) fn tool_panel_scroll_max(&self) -> f32 {
+        if self.authoring.workflow.collapsed {
+            return 0.;
+        }
+        self.tool_panel_rect().map_or(0., |r| {
+            (self.modeling_tool_properties_height() + 16. - r[3]).max(0.)
+        })
+    }
+    pub(super) fn tool_panel_scroll(&mut self, delta: f32) -> bool {
+        if self.has_modal() || self.menu.is_some() || self.drag.is_some() || !delta.is_finite() {
+            return false;
+        }
+        if !self.tool_panel_rect().is_some_and(|r| ui::contains(r, self.mouse)) {
+            return false;
+        }
+        let maximum = self.tool_panel_scroll_max();
+        // Keep wheel adjustment on live fields when the complete panel fits.
+        if maximum == 0. && self.modeling_live.is_some() {
+            return false;
+        }
+        if self.input.is_some() && !self.resolve_input() {
+            return true;
+        }
+        self.authoring.workflow.panel_scroll =
+            (self.authoring.workflow.panel_scroll.clamp(0., maximum) - delta * 36.).clamp(0., maximum);
+        self.redraw();
+        true
+    }
+    fn start_tool_panel_scroll(&mut self) {
+        let Some([x, y, w, h]) = self.tool_panel_rect() else { return; };
+        let maximum = self.tool_panel_scroll_max();
+        if maximum <= 0. { return; }
+        let track = [x + w - 18., y + 38., 12., h - 46.];
+        let thumb = (track[3] * track[3] / (track[3] + maximum)).max(28.).min(track[3]);
+        let mut value = self.authoring.workflow.panel_scroll.clamp(0., maximum);
+        let top = track[1] + (track[3] - thumb) * value / maximum;
+        if self.mouse[1] < top || self.mouse[1] > top + thumb {
+            value = ((self.mouse[1] - track[1] - thumb * 0.5)
+                / (track[3] - thumb).max(1.) * maximum).clamp(0., maximum);
+        }
+        self.authoring.workflow.panel_scroll = value;
+        self.drag = Some(Drag::ToolPanelScroll {
+            start: self.mouse[1], value, scale: maximum / (track[3] - thumb).max(1.),
+        });
+        self.drag_button = Some(MouseButton::Left);
+    }
     pub(super) fn draw_tool_panel(&self, u: &mut Ui) {
         let Some([x, y, w, h]) = self.tool_panel_rect() else {
             return;
         };
         let p = u.palette();
-        let mut bg = p.panel;
+        let mut bg = p.selection;
         bg[3] = 0.82;
-        u.outlined_surface([x, y, w, h], bg, p.border);
+        let mut border = p.accent;
+        border[3] = 0.6;
+        // Paint the outline as a stroke, without an opaque backing under the fill.
+        u.surface([x, y, w, h], bg);
+        u.surface_outline([x, y, w, h], border);
         u.hits.push(ui::Hit {
             rect: [x, y, w, h],
             action: Action::Author(A::LiveBackdrop),
@@ -277,21 +328,33 @@ impl App {
             rect: [x, y, w - 38., 36.],
             action: Action::Author(A::ToolPanelDrag),
         });
-        if self.authoring.workflow.collapsed {
-            u.fitted_label(
-                [x + 12., y + 9., w - 120., 20.],
-                self.authoring.modeling_tool.unwrap().title(),
-                12.,
-                p.text,
-            );
-        } else {
+        let compact_actions = self.authoring.workflow.collapsed
+            && (self.modeling_live.is_some() || self.authoring.knife.is_some());
+        u.fitted_label(
+            [x + 12., y + 9., w - if compact_actions { 120. } else { 52. }, 20.],
+            self.authoring.modeling_tool.unwrap().title(),
+            12.,
+            p.text,
+        );
+        if !self.authoring.workflow.collapsed {
+            let maximum = self.tool_panel_scroll_max();
+            let scroll = self.authoring.workflow.panel_scroll.clamp(0., maximum);
+            let body = [x + 12., y + 38., w - if maximum > 0. { 36. } else { 24. }, h - 46.];
             let start = (u.rects.len(), u.texts.len(), u.hits.len());
-            self.draw_modeling_tool_properties(u, x + 12., y + 5., w - 24.);
-            clip_scrolled(u, start, [x + 1., y + 1., w - 2., h - 2.], 0.);
+            u.set_cursor([self.mouse[0], self.mouse[1] + scroll]);
+            self.draw_modeling_tool_properties(u, body[0], body[1], body[2]);
+            clip_scrolled(u, start, body, scroll);
+            u.set_cursor(self.mouse);
+            if maximum > 0. {
+                u.vertical_scrollbar(
+                    [x + w - 18., body[1], 12., body[3]],
+                    scroll / maximum,
+                    body[3] / (body[3] + maximum),
+                    Action::Author(A::ToolPanelScroll),
+                );
+            }
         }
-        if self.authoring.workflow.collapsed
-            && (self.modeling_live.is_some() || self.authoring.knife.is_some())
-        {
+        if compact_actions {
             let knife = self.authoring.knife.is_some();
             u.quiet_icon_button(
                 [x + w - 102., y + 3., 30., 30.],
@@ -329,7 +392,7 @@ impl App {
             M::Dissolve => "Убирает компоненты, сохраняя поверхность",
             M::FillHoles => "Выберите один элемент у края отверстия",
             M::Array => "Копирует выделение с шагом и поворотом",
-            _ => "Выберите инструмент — свойства в панели",
+            _ => "Свойства — в плавающей панели над сценой",
         };
         let w = 310_f32.min(self.width - 24.);
         let x = (self.mouse[0] - w - 12.).max(12.);

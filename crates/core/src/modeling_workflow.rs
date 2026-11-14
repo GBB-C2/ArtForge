@@ -128,7 +128,14 @@ pub(crate) fn extrude(
         let ring = &source[f];
         for i in 0..ring.len() {
             let (a, b) = (ring[i], ring[(i + 1) % ring.len()]);
-            if g.edge_faces[&edge(g.canonical[a as usize], g.canonical[b as usize])]
+            let (ca, cb) = (g.canonical[a as usize], g.canonical[b as usize]);
+            // A side omitted by connectivity must not produce a zero-width wall.
+            if ca == cb {
+                continue;
+            }
+            let incident = g.edge_faces.get(&edge(ca, cb))
+                .ok_or_else(|| invalid("У грани нарушены связи рёбер"))?;
+            if incident
                 .iter()
                 .filter(|f| selection.contains(f))
                 .count()

@@ -56,19 +56,10 @@ pub(crate) fn apply(
             Vec3::from_array(mesh.vertices[e.0].position)
                 .distance(Vec3::from_array(mesh.vertices[e.1].position))
         };
-        let requested = boundary
-            .iter()
-            .map(|&e| length(e))
-            .fold(f32::INFINITY, f32::min)
-            * inset
-            * 0.5;
-        let limit = graph
-            .edges
-            .iter()
-            .filter(|(a, b)| affected.contains(a) || affected.contains(b))
-            .map(|&e| length(e) * 0.2)
-            .fold(f32::INFINITY, f32::min);
-        crate::edge_bevel::apply(mesh, &boundary, requested.min(limit), segments, profile)?;
+        let mut lengths: Vec<_> = boundary.iter().map(|&e| length(e)).collect();
+        lengths.sort_by(f32::total_cmp);
+        let requested = lengths[lengths.len() / 2] * inset * 0.5;
+        crate::edge_bevel::apply(mesh, &boundary, requested, segments, profile)?;
         if shift != 0. {
             let vertices = selection
                 .iter()

@@ -19,6 +19,7 @@ mod extrude_manifold;
 mod modeling_workflow;
 pub use modeling_workflow::loop_cut_path;
 pub use knife_stroke::KnifeCut;
+pub use fracture::sections::{PlaneCut, plane_cut_path};
 mod mesh_cleanup;
 pub use mesh_cleanup::{MeshRegion,TopologyEdit,RepairKind};
 pub use modifiers::*;

@@ -50,7 +50,7 @@ impl LiveOperation {
             Kind::Face => "Фаска граней",
             Kind::Inset => "Вставка граней",
             Kind::Extrude => "Экструдирование",
-            Kind::Cut => "Разрез петлёй",
+            Kind::Cut => "Разрез",
             Kind::Slide => "Сдвиг по поверхности",
         }
     }
@@ -162,7 +162,7 @@ impl App {
         let mut kind = match a {
             A::Bridge | A::BridgeFaces => Kind::Bridge,
             A::Slide => Kind::Slide,
-            A::EdgeBevel => Kind::Edge,
+            A::EdgeBevel => if self.authoring.selection_mode==S::Face {Kind::Face}else{Kind::Edge},
             A::Bevel => match self.authoring.selection_mode {
                 S::Vertex => Kind::Vertex, S::Edge => Kind::Edge, S::Face => Kind::Face,
             },

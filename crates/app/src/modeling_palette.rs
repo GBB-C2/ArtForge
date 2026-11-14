@@ -24,7 +24,7 @@ impl M {
             Self::Scale => "Масштаб · S", Self::Extrude => "Экструдирование · E",
             Self::ExtrudeIndividual=>"Индивидуальный экструд", Self::FillHoles=>"Заполнить отверстия", Self::Triangulate=>"Триангулировать выделение",Self::Separate=>"Отделить выбранное",
             Self::Inset => "Вставка граней · I", Self::Bevel => "Фаска · B",
-            Self::LoopCut => "Разрез петлёй · C",
+            Self::LoopCut => "Разрез · C",
             Self::Knife => "Нож · K", Self::Slide => "Сдвиг по поверхности · J",
             Self::Merge => "Объединить в центре", Self::Weld => "Сварка вершин",
             Self::Bridge => "Мост", Self::Dissolve => "Растворить", Self::Array=>"Массив",
@@ -157,7 +157,8 @@ impl App {
                 Some(M::Relax) => 202.,
                 Some(M::Bevel) => if self.authoring.selection_mode == S::Face { 160. } else { 100. },
                 Some(M::Inspect) => 380.,
-                Some(M::Knife | M::LoopCut) => 310.,
+                Some(M::LoopCut) => if self.authoring.knife.as_ref().is_some_and(|k|k.section_edit) {355.}else{270.},
+                Some(M::Knife) => 310.,
                 Some(M::Array)=>350.,
                 Some(M::Extrude)=>210.,
                 Some(M::Align) => if self.mesh_tools.alignment_mode==0 {146.} else {124.},
@@ -247,15 +248,13 @@ impl App {
             M::Relax => { self.draw_relax_properties(u, x, y, w); }
             M::Sphere|M::Circle|M::Inflate|M::Twist => self.draw_deform_properties(u,x,y,w,tool),
             M::Array => self.draw_array_properties(u,x,y,w),
-            M::Knife | M::LoopCut if self.authoring.knife.is_some() => {
-                u.fitted_label([x, y, w, 18.], if tool==M::LoopCut {"Щелчок — новая петля · Enter — завершить"}else{"Backspace — новая линия · Enter — завершить"}, 11., p.muted);
-                y+=26.;
-                self.draw_workflow_field(u,x,y,w,if tool==M::LoopCut {1}else{0},38.);y+=46.;
+            M::LoopCut if self.authoring.knife.is_some() => self.draw_section_properties(u,x,y,w),
+            M::Knife if self.authoring.knife.is_some() => {
+                u.fitted_label([x,y,w,18.],"Backspace — новая линия · Enter — завершить",11.,p.muted);y+=26.;
+                self.draw_workflow_field(u,x,y,w,0,38.);y+=46.;
                 u.checkbox([x,y,w,26.],"Закрыть торцы зазора",Action::Author(A::KnifeCloseGap),self.authoring.workflow.close_gap);y+=34.;
-                if tool==M::LoopCut {self.draw_workflow_field(u,x,y,w,9,38.);y+=46.;
-                    u.fitted_label([x,y,w,18.],&format!("Линий: {} · Ctrl + колесо",self.authoring.workflow.values[9] as u32),11.,p.muted);y+=24.;}
-                if tool==M::Knife {u.checkbox([x,y,w,26.],"Вершины и середины рёбер",Action::Author(A::KnifeSnap),self.authoring.knife_snap);y+=34.;
-                self.draw_dropdown_button(u,[x,y,w,30.],ui::DropdownKind::KnifeAngle,["Свободный угол","Шаг 15°","Шаг 30°","Шаг 45°","Шаг 90°"][self.authoring.knife_angle as usize]);y+=10.;}else{y-=18.;}
+                u.checkbox([x,y,w,26.],"Вершины и середины рёбер",Action::Author(A::KnifeSnap),self.authoring.knife_snap);y+=34.;
+                self.draw_dropdown_button(u,[x,y,w,30.],ui::DropdownKind::KnifeAngle,["Свободный угол","Шаг 15°","Шаг 30°","Шаг 45°","Шаг 90°"][self.authoring.knife_angle as usize]);y+=10.;
                 let half = (w - 6.) * 0.5;
                 u.button([x, y + 28., half, 30.], "Применить", Action::Author(A::KnifeAccept), true);
                 u.quiet_button([x + half + 6., y + 28., half, 30.], "Отмена", Action::Author(A::KnifeCancel), false);

@@ -8,6 +8,7 @@ pub const MAX_EDIT_TRIANGLES: usize = 131_072;
 
 #[derive(Clone, Debug)]
 pub enum MeshEdit {
+    Sections { cuts: Vec<crate::PlaneCut> },
     KnifeGap { cuts: Vec<crate::KnifeCut>, width: f32 },
     KnifeGapClosed { cuts: Vec<crate::KnifeCut>, width: f32 },
     Dissolve { region: crate::MeshRegion },
@@ -252,6 +253,7 @@ pub(crate) fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<()
 fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError> {
     match &operation {
         MeshEdit::FaceBevel{faces,inset,shift,segments,profile}=>return crate::face_bevel::apply(mesh,faces,*inset,*shift,*segments,*profile),
+        MeshEdit::Sections {cuts}=>return crate::fracture::sections::apply(mesh,cuts).map_err(|e|invalid(&e)),
         MeshEdit::KnifeGapClosed {cuts,width}=>return crate::knife_stroke::apply_gap_closed(mesh,cuts,*width),
         MeshEdit::KnifeGap {cuts,width}=>return crate::knife_stroke::apply_gap(mesh,cuts,*width),
         MeshEdit::Dissolve {region}=>return crate::modeling_workflow::dissolve(mesh,region),
@@ -339,7 +341,7 @@ fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), Cor
     let keep_policy = mesh.topology.is_some() || matches!(operation, MeshEdit::SmoothNormals);
     match operation {
         MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. }
-        | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::KnifeGapClosed {..} | MeshEdit::Dissolve {..} | MeshEdit::Array {..} | MeshEdit::ExtrudeDistributed {..} | MeshEdit::ExtrudeManifold {..} | MeshEdit::FaceBevel {..} => unreachable!(),
+        | MeshEdit::Sections {..} | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::KnifeGapClosed {..} | MeshEdit::Dissolve {..} | MeshEdit::Array {..} | MeshEdit::ExtrudeDistributed {..} | MeshEdit::ExtrudeManifold {..} | MeshEdit::FaceBevel {..} => unreachable!(),
         MeshEdit::Normals { .. }
         | MeshEdit::Shape { .. }
         | MeshEdit::Knife { .. }

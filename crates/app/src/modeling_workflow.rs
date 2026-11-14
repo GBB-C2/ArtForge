@@ -1,9 +1,9 @@
 //! Floating tool properties and explicit component construction settings.
 use super::*;
 use crate::ui::{AuthorAction as A, MeshSelection as S, ModelingTool as M};
-pub(super) const DEFAULTS: [f32; 10] = [0., 0., 3., 1., 0., 0., 0., 0., 0., 1.];
+pub(super) const DEFAULTS: [f32; 13] = [0., 0., 3., 1., 0., 0., 0., 0., 0., 1., 0., 0., 0.];
 pub(super) struct State {
-    pub values: [f32; 10],
+    pub values: [f32; 13],
     pub extrude_mode: u8,
     pub panel_position: Option<[f32; 2]>,
     pub collapsed: bool,
@@ -42,7 +42,7 @@ impl App {
         match a {
             A::ToolField(i) => {
                 if let Some(v) = self.authoring.workflow.values.get(i as usize) {
-                    self.input(Action::Author(a), ui::number_caption(*v as f64));
+                    self.input(Action::Author(a), ui::number_caption(self.section_value(i).unwrap_or(*v) as f64));
                 }
             }
             A::ExtrudeMode(mode) => self.change_extrude_mode(mode.min(3)),
@@ -87,12 +87,14 @@ impl App {
         let Action::Author(A::ToolField(i)) = *a else {
             return Ok(false);
         };
+        if self.section_confirm(i,text)? {return Ok(true);}
         let (min, max) = match i {
             0 | 1 => (0., 1000.),
             2 => (2., 128.),
             9 => (1.,16.),
             3..=5 => (-10000., 10000.),
-            6..=8 => (-3600., 3600.),
+            6..=8 | 11..=12 => (-3600., 3600.),
+            10 => (-10000.,10000.),
             _ => return Err("Неизвестный параметр".into()),
         };
         let value = surfaces::number(text, min, max)?;
@@ -134,6 +136,9 @@ impl App {
         let (label, min, max, step): (&str, f64, f64, f64) = match i {
             0 | 1 => ("Зазор, м", 0., 1., 0.001),
             9 => ("Количество линий",1.,16.,1.),
+            10 => ("Смещение плоскости, м",-2.,2.,0.01),
+            11 => ("Наклон X, °",-180.,180.,1.),
+            12 => ("Наклон Y, °",-180.,180.,1.),
             2 => ("Копии, включая исходную", 2., 32., 1.),
             3 => ("Смещение X, м", -10., 10., 0.01),
             4 => ("Смещение Y, м", -10., 10., 0.01),
@@ -142,7 +147,7 @@ impl App {
             7 => ("Поворот Y, °", -180., 180., 1.),
             _ => ("Поворот Z, °", -180., 180., 1.),
         };
-        let v = self.authoring.workflow.values[i as usize] as f64;
+        let v = self.section_value(i).unwrap_or(self.authoring.workflow.values[i as usize]) as f64;
         u.number_field(
             [x, y, w, h],
             label,
@@ -318,7 +323,7 @@ impl App {
         };
         let detail = match tool {
             M::Extrude => "Область, по нормалям или отдельные грани",
-            M::LoopCut => "Наведите на ребро и нажмите · Enter завершает",
+            M::LoopCut => "Создайте разрез · выберите плоскость в режиме редактирования",
             M::Knife => "Потяните линию · Shift — угол · Enter завершает",
             M::Bridge => "Соединяет грани, контуры и цепочки рёбер",
             M::Dissolve => "Убирает компоненты, сохраняя поверхность",

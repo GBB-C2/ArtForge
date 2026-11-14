@@ -4,12 +4,18 @@ use crate::ui::AuthorAction as A;
 use poseforge_core::{EdgePoint, MeshEdit};
 #[path = "smart_knife.rs"]
 mod smart_knife;
+#[path = "editable_sections.rs"]
+mod editable_sections;
 
 pub(super) struct KnifeState {
     node: u64,
     original: poseforge_core::Mesh,
     strokes: Vec<poseforge_core::KnifeCut>,
-    loops: Vec<EdgePoint>,
+    sections: Vec<editable_sections::Panel>,
+    pub(super) section_edit: bool,
+    section_selected: Option<usize>,
+    section_batch: Option<(EdgePoint,usize,usize)>,
+    section_drag: Option<(usize,[f32;2],f32)>,
     pub(super) loop_mode:bool,
     first: Option<Vec3>,
     selection: component_selection::SelectionSnapshot,
@@ -32,6 +38,7 @@ impl App {
         [x, top, (right - x).max(1.), (bottom - top).max(1.)]
     }
     pub(super) fn advanced_action(&mut self, command: A) -> bool {
+        if self.section_action(command) {return true;}
         match command {
             A::Knife | A::LoopCut => {
                 self.cancel_modeling_live();
@@ -39,17 +46,19 @@ impl App {
                     return true;
                 };
                 let Ok(original)=self.editor.editable_mesh(node).cloned() else {return true;};
-                self.editor.begin_edit("Нож");
+                self.editor.begin_edit(if command==A::LoopCut {"Разрез"} else {"Нож"});
                 self.authoring.knife = Some(KnifeState {
-                    node, original, strokes:Vec::new(), loops:Vec::new(),
+                    node, original, strokes:Vec::new(), sections:Vec::new(),
+                    section_edit:false,section_selected:None,section_batch:None,section_drag:None,
                     loop_mode: command==A::LoopCut,
                     first: None,
                     selection: component_selection::SelectionSnapshot::capture(&self.authoring),
                     cuts: 0,
                     press: None,
                 });
-                self.status = if command==A::LoopCut {"Разрез петлёй · наведите на грань и нажмите · Enter — применить · Esc — отменить"}else{"Нож · потяните линию через грани · Shift / C — угол · Enter — применить · Esc — отменить"}.into();
+                self.status = if command==A::LoopCut {"Разрез · наведите на грань и нажмите · Enter — применить · Esc — отменить"}else{"Нож · потяните линию через грани · Shift / C — угол · Enter — применить · Esc — отменить"}.into();
             }
+            A::KnifeCloseGap if self.authoring.knife.as_ref().is_some_and(|k|k.loop_mode) => { self.section_toggle_cap(); }
             A::KnifeCloseGap => {
                 self.authoring.workflow.close_gap=!self.authoring.workflow.close_gap;
                 if let Err(e)=self.preview_knife_geometry() {self.authoring.workflow.close_gap=!self.authoring.workflow.close_gap;self.status=e;}
@@ -82,7 +91,7 @@ impl App {
             self.release_drag_pointer();
             let r = self.editor.commit_edit();
             if self.result(r).is_some() {
-                self.status = format!("{} · разрезов: {}", if k.loop_mode {"Петля"}else{"Нож"}, k.cuts);
+                self.status = format!("{} · разрезов: {}", if k.loop_mode {"Разрез"}else{"Нож"}, k.cuts);
             }
             self.authoring.vertices.clear();
             self.authoring.edges.clear();
@@ -109,7 +118,7 @@ impl App {
             a if Self::preview_navigation_action(a) => false,
             Action::Author(A::SnapToggle|A::SnapMode(_)|A::SnapGridStep(_))
                 | Action::DropdownOpen(ui::DropdownKind::SnapMode)|Action::DropdownDismiss=>false,
-            Action::Author(A::ToolField(_) | A::LoopPosition | A::ToolPanelDrag | A::ToolPanelToggle | A::LiveBackdrop)=>false,
+            Action::Author(A::SectionMode(_) | A::SectionSelect(_) | A::SectionDelete | A::ToolField(_) | A::LoopPosition | A::ToolPanelDrag | A::ToolPanelToggle | A::LiveBackdrop)=>false,
             Action::Slide(field,_,_) | Action::ResetNumber(field) if Self::workflow_preference_field(field)=>false,
             Action::Author(A::KnifeAccept | A::KnifeCancel | A::KnifeSnap | A::KnifeCloseGap | A::KnifeAngle(_))
             | Action::DropdownOpen(ui::DropdownKind::KnifeAngle)
@@ -129,6 +138,7 @@ impl App {
             return false;
         }
         match key {
+            Key::Named(NamedKey::Delete) if self.authoring.knife.as_ref().is_some_and(|k|k.loop_mode&&k.section_edit) => {self.section_action(A::SectionDelete);}
             Key::Named(NamedKey::Backspace) => {
                 let k = self.authoring.knife.as_mut().unwrap();
                 k.first = None;
@@ -169,24 +179,26 @@ impl App {
         }).min_by(|a,b|a.0.total_cmp(&b.0)).map(|(_,hit)|hit)
     }
     fn loop_cut_click(&mut self) {
+        if self.authoring.knife.as_ref().is_some_and(|k|k.section_edit) {self.select_section_at_cursor();return;}
         let Some(hit)=self.loop_pick()else{return;};
-        let Some(k)=self.authoring.knife.as_mut()else{return;};
-        k.loops.push(hit);
-        if let Err(e)=self.preview_knife_geometry() {self.authoring.knife.as_mut().unwrap().loops.pop();self.status=e;}
+        if let Err(e)=self.create_sections(hit) {self.status=e;}
     }
     fn loop_paths(&self,mesh:&poseforge_core::Mesh,hit:EdgePoint)->Result<Vec<poseforge_core::KnifeCut>,poseforge_core::CoreError> {
-        let count=self.authoring.workflow.values[9] as usize;
-        let t=hit.t.clamp(0.01,0.99);let span=2.*t.min(1.-t);
         let mut cuts=Vec::new();
-        for i in 0..count {
-            let position=if count==1 {t} else {t-span*0.5+span*(i+1) as f32/(count+1) as f32};
-            cuts.extend(poseforge_core::loop_cut_path(mesh,hit.edge,position)?);
+        for panel in self.section_panels(hit).map_err(poseforge_core::CoreError::Invalid)? {
+            cuts.extend(poseforge_core::plane_cut_path(mesh,&panel.cut())?);
         } Ok(cuts)
     }
     pub(super) fn preview_knife_geometry(&mut self)->Result<(),String> {
         let Some(k)=self.authoring.knife.as_ref() else {return Ok(());};
-        let mut cuts=k.strokes.clone();
-        for &hit in &k.loops {cuts.extend(self.loop_paths(&k.original,hit).map_err(|e|e.to_string())?);}
+        if k.loop_mode {
+            let cuts=k.sections.iter().map(|p|p.cut()).collect();
+            self.editor.preview_mesh(k.node,&k.original,MeshEdit::Sections{cuts}).map_err(|e|e.to_string())?;
+            let k=self.authoring.knife.as_mut().unwrap();k.cuts=k.sections.len();
+            self.authoring.vertices.clear();self.authoring.edges.clear();self.authoring.faces.clear();
+            self.invalidate_geometry();self.update_dirty();return Ok(());
+        }
+        let cuts=k.strokes.clone();
         if cuts.is_empty() {return Ok(());}
         let count=cuts.len();let width=self.authoring.workflow.values[usize::from(k.loop_mode)];
         let edit=if self.authoring.workflow.close_gap {MeshEdit::KnifeGapClosed{cuts,width}} else {MeshEdit::KnifeGap{cuts,width}};
@@ -198,6 +210,10 @@ impl App {
     pub(super) fn knife_scroll(&mut self,delta:f32)->bool {
         if !self.authoring.knife.as_ref().is_some_and(|k|k.loop_mode) || !self.modifiers.control_key()
             || !self.canvas_input_at(self.mouse) || self.drag.is_some() || self.has_modal() {return false;}
+        if let Some(k)=self.authoring.knife.as_ref().filter(|k|k.section_edit) {
+            let len=k.sections.len();if len>0 {let next=(k.section_selected.unwrap_or(0) as isize+if delta>0.{1}else{-1}).rem_euclid(len as isize) as usize;self.section_action(A::SectionSelect(next));}
+            self.redraw();return true;
+        }
         let count=(self.authoring.workflow.values[9]+delta.signum()).clamp(1.,16.);
         let result=self.workflow_confirm(&Action::Author(A::ToolField(9)),&count.to_string());
         if let Err(e)=result {self.status=e;} self.redraw();true
@@ -270,11 +286,11 @@ impl App {
                         ),
                     )
                 };
-                if k.loop_mode {
+                if k.loop_mode && !k.section_edit {
                     if let Some(hit)=self.knife_pick() {if let Ok(cuts)=self.loop_paths(mesh,hit) {for c in cuts {if let (Some(a),Some(b))=(project(globals[&k.node].transform_point3(Vec3::from_array(c.first))),project(globals[&k.node].transform_point3(Vec3::from_array(c.second)))) {u.mesh_segment(a,b,2.,p.accent);}}}}
                 }
-                let hover = self.knife_pick().and_then(screen);
-                if let Some(a) = k.press.or_else(|| {
+                let hover = if k.loop_mode {None}else{self.knife_pick().and_then(screen)};
+                if let Some(a) = k.press.filter(|_|!k.loop_mode).or_else(|| {
                     k.first
                         .and_then(|p| project(globals[&k.node].transform_point3(p)))
                 }) {
@@ -289,6 +305,7 @@ impl App {
             }
 
         }
+        self.draw_section_planes(u);
         clip_scrolled(u, start, self.modeling_area(), 0.);
     }
 }

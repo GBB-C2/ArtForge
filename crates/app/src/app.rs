@@ -3797,8 +3797,8 @@ impl App {
         {
             self.slider_click = None;
         }
-        if self.authoring.knife.is_some() && button != MouseButton::Left {
-            self.cancel_knife();
+        if self.authoring.knife.as_ref().is_some_and(|k|k.press.is_some()) && button != MouseButton::Left {
+            return;
         }
         if self.uv_middle(button) {
             self.redraw();
@@ -4034,6 +4034,7 @@ impl App {
         }
         self.dropdown_pointer_move();
         self.collision_pointer_move();
+        self.move_section_plane();
         if pending_click {
             self.redraw();
             return;

@@ -70,6 +70,12 @@ pub(super) fn close_cut(faces: &[Polygon], n: Vec3, d: f32, epsilon: f32, materi
         let mut contour:Vec<_>=rings[outer].iter().copied().map(vertex).collect();
         if normal(&contour).dot(n)<0. {contour.reverse();}
         let holes:Vec<_>=(0..rings.len()).filter(|&i| depths[i]==depths[outer]+1 && inside(flat[i][0],&flat[outer])).collect();
+        // Keep a simple cap as one polygon. Its rendering triangulation is not
+        // editable topology, and subsequent crossing cuts retain its boundary.
+        if holes.is_empty() && contour.len() <= crate::MAX_FACE_CORNERS {
+            caps.push(Polygon { vertices: contour, material });
+            continue;
+        }
         // Join each hole through a visible bridge. Repeated endpoints describe
         // the two sides of the bridge; triangulation ignores coincident corners.
         for &hole in &holes {

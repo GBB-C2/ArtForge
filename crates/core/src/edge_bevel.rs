@@ -118,7 +118,11 @@ pub(crate) fn apply(
             if !left && !right {
                 continue;
             }
-            let straight = left && right && incoming.dot(outgoing) > 0.99999;
+            // A knife can split one side of a crease while leaving a straight
+            // corner in the neighbouring polygon. A bevel ending there needs
+            // an inset anchor and a short end cap, not an intersection of two
+            // parallel offset lines.
+            let straight = incoming.dot(outgoing) > 0.99999;
             if !straight && incoming.cross(outgoing).dot(normal).abs() <= 0.00001 {
                 return Err(invalid(
                     "Угол грани рядом с фаской должен быть ненулевым",
@@ -147,7 +151,7 @@ pub(crate) fn apply(
                 return Err(invalid("Фаска пересекает соседний угол; уменьшите ширину"));
             }
             let mut q = p + delta;
-            if left != right {
+            if left != right && !straight {
                 let neighbor = if left { after } else { before };
                 let direction = (positions[neighbor] - p).normalize();
                 let distance = delta.dot(direction);

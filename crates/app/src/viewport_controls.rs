@@ -109,19 +109,25 @@ impl App {
         [self.navigation_right() - 116., 68., 112., 112.]
     }
     pub(super) fn shading_toolbar_rect(&self) -> [f32; 4] {
-        let r = self.view_menu_rect(); [r[0], r[1], 146., r[3]]
+        let r = self.view_menu_rect();
+        if self.compact_view_controls() { [r[0]-94.,r[1],120.,58.] }
+        else { [r[0]-62., r[1], 208., r[3]] }
+    }
+    fn compact_view_controls(&self) -> bool {
+        let rail=self.rail_rect();
+        self.view_widget_rect()[0]-220. < rail[0]+rail[2]+8.
     }
     pub(super) fn view_menu_rect(&self) -> [f32; 4] {
         let r = self.view_widget_rect();
-        [r[0] - 158., r[1] + 6., 26., 26.]
+        [r[0] - if self.compact_view_controls() {34.} else {158.}, r[1] + 6., 26., 26.]
     }
     pub(super) fn object_scrollbar_rect(&self) -> [f32; 4] {
         let r = self.left_panel_rect();
         [
-            r[0] + r[2] - 16.,
+            r[0] + r[2] - 18.,
             r[1] + 74.,
             12.,
-            self.scene_capacity() as f32 * 27.,
+            (self.scene_capacity() as f32 * 27.).min((r[3]-82.).max(0.)),
         ]
     }
     pub(super) fn update_object_scroll(&mut self, start: f32, value: usize, y: f32) {
@@ -260,8 +266,10 @@ impl App {
             });
         }
         let menu = self.view_menu_rect();
+        let shading = if self.compact_view_controls() { [menu[0]-94.,menu[1]+32.] }
+            else { [menu[0]+30.,menu[1]] };
         for (i, icon) in [Icon::Grid, Icon::Sphere, Icon::Material, Icon::Render].into_iter().enumerate() {
-            u.quiet_icon_button([menu[0] + 30. + i as f32 * 30., menu[1], 26., 26.], "",
+            u.quiet_icon_button([shading[0] + i as f32 * 30., shading[1], 26., 26.], "",
                 Action::ViewShading(i as u8), self.preferences.viewport_shading == i as u8, icon);
         }
         u.icon_button(
@@ -335,6 +343,7 @@ impl App {
     }
     /// In lock-to-camera mode, all previews derive from the initial pose.
     pub(super) fn begin_camera_navigation(&mut self, pan: bool, button: MouseButton) -> bool {
+        if self.modeling_live.is_some() || self.authoring.knife.is_some() { return false; }
         if !self.camera_navigation_lock || self.camera_view.is_none() {
             return false;
         }
@@ -396,6 +405,7 @@ impl App {
         self.apply_camera_navigation(&drag, camera, drag.pan || drag.zoom);
     }
     pub(super) fn camera_scroll(&mut self, delta: f32) -> bool {
+        if self.modeling_live.is_some() || self.authoring.knife.is_some() { return false; }
         if !self.camera_navigation_lock || self.camera_view.is_none() {
             return false;
         }

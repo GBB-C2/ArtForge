@@ -301,6 +301,7 @@ pub fn run(initial: Option<PathBuf>) -> Result<(), String> {
     let mut app = App::new(initial);
     if app.initial.is_none() {
         app.action(Action::New);
+        app.action(Action::ConfirmNew);
         app.status.clear();
     }
     app.material_previews.set_waker(event_loop.create_proxy());
@@ -335,6 +336,7 @@ enum Drag {
     Scene(scene_organization::SceneDrag),
     Node(node_editor::NodeDrag),
     NodePan(node_editor::NodePan),
+    CameraEffectScroll { start:f32,value:f32,scale:f32 },
     ObjectScroll {
         start: f32,
         value: usize,
@@ -653,6 +655,7 @@ struct App {
     texture_target: Option<(u64, usize)>,
     node_texture_target: Option<(u64, u32)>,
     overwrite: Option<(PathBuf, FilePurpose)>,
+    confirm_new: bool,
     path: Option<PathBuf>,
     status: String,
     job: Option<Job>,
@@ -834,6 +837,7 @@ impl App {
             texture_target: None,
             node_texture_target: None,
             overwrite: None,
+            confirm_new: false,
             path: None,
             status: "Демонстрационная сцена. Выберите сустав и измените позу.".into(),
             job: None,
@@ -1016,7 +1020,7 @@ impl App {
             0 if self.selected_text().is_some() => text_controls::PANEL_BOTTOM,
             0 if self.selected_helper().is_some() => self.helper_panel_bottom(),
             0 if self.rig_context() => self.rig_object_bottom(),
-            9 => 430.,
+            9 => 570.,
             10 => self.normals_panel_bottom(),
             1 if !self.surface.material_library && self.surface_mesh_id().is_none()
                 || self.material_locked() =>
@@ -1058,7 +1062,7 @@ impl App {
         self.dirty = self.editor.project != self.saved_snapshot || self.editor.has_staged();
     }
     fn has_modal(&self) -> bool {
-        self.welcome.open || self.collision_popup_open() || self.environments.open
+        self.confirm_new || self.welcome.open || self.collision_popup_open() || self.environments.open
             || self.nodes_open()
             || self.dialog.is_some()
             || self.overwrite.is_some()
@@ -1458,7 +1462,8 @@ impl App {
             } else if let Drag::Slider(ref slider) = drag {
                 if !Self::workflow_preference_field(&slider.action) {self.editor.cancel_edit();}
                 self.restore_slider_preferences(slider);
-            } else if !matches!(drag, Drag::ToolPanel {..} | Drag::ComponentSelection(_) | Drag::LiveParameter(_)) {
+            } else if !matches!(drag, Drag::ToolPanel {..} | Drag::ComponentSelection(_) | Drag::LiveParameter(_)
+                | Drag::Orbit {..} | Drag::Pan {..} | Drag::ViewWidget {..} | Drag::CameraEffectScroll {..} | Drag::ObjectScroll {..}) {
                 self.editor.cancel_edit();
                 self.restore_animation_drag(&drag);
                 if matches!(drag, Drag::Uv(_) | Drag::Mesh(_) | Drag::Weights(_) | Drag::Curve(_)) {
@@ -2502,6 +2507,7 @@ impl App {
         }
     }
     fn action(&mut self, a: Action) {
+        if self.confirm_new && !matches!(a, Action::Cancel | Action::ConfirmNew) { return; }
         if self.swatch_menu_action(&a) { return; }
         if self.welcome_action(&a) {return;}
         if self.path_pick.is_some() {
@@ -2541,6 +2547,9 @@ impl App {
             return;
         }
         self.performance.changed();
+        if (self.modeling_live.is_some() || self.authoring.knife.is_some()) && Self::preview_navigation_action(&a) {
+            self.leave_camera_view();
+        }
         if self.dropdown.is_some() && a == Action::Cancel {
             self.close_asset_popup();
             self.close_material_dropdown();
@@ -3069,27 +3078,25 @@ impl App {
                     self.persist_preferences();
                 }
             }
-            Action::New => {
-                if self.dirty || self.editor.has_staged() {
-                    self.status="Сначала сохраните проект. Для новой сцены после сохранения нажмите ещё раз.".into();
-                } else {
+            Action::New => { self.confirm_new=true; self.menu=None; self.editor.playing=false; }
+            Action::ConfirmNew => {
+                if self.confirm_new && self.job.is_none() {
+                    self.confirm_new=false;
+                    self.cancel_modeling_live(); self.cancel_drag(); self.cancel_color_picker();
                     self.welcome.open=false;
-                    self.status="Новый проект".into();
                     self.editor = Editor::new(Project::default());
-                    self.editor.mode = EditorMode::Scene;
-                    self.tool = Tool::Orbit;
-                    self.saved_snapshot = self.editor.project.clone();
-                    self.path = None;
-                    self.recovery_id = workspace::new_recovery_id();
-                    self.last_autosave = Instant::now();
-                    self.reset_workflow_selection();
-                    self.scene_scroll = 0;
-                    self.collapsed.clear();
-                    self.scene_query.clear();
-                    self.invalidate();
-                    self.frame_all();
+                    self.editor.mode = EditorMode::Scene; self.tool=Tool::Orbit;
+                    self.saved_snapshot=self.editor.project.clone(); self.dirty=false; self.path=None;
+                    self.recovery_id=workspace::new_recovery_id(); self.last_autosave=Instant::now();
+                    self.reset_workflow_selection(); self.scene_scroll=0; self.collapsed.clear(); self.scene_query.clear();
+                    self.camera_view=None; self.camera_effects=Default::default(); self.inspector_scroll=0.;
+                    self.invalidate(); self.restore_camera(); self.status="Создана новая пустая сцена".into();
                 }
             }
+            Action::MeshColor => self.open_color_picker(a),
+            Action::MeshOpacity => self.input(a,ui::number_caption((self.preferences.mesh_opacity*100.) as f64)),
+            Action::CameraEffectSearch => self.input(a,self.camera_effects.query.clone()),
+            Action::CameraEffectScroll => self.start_camera_effect_scroll(),
             Action::Import => self.show_files(FilePurpose::Import),
             Action::SurfaceImportTexture(slot) => {
                 if self.job.is_some() {
@@ -3703,7 +3710,8 @@ impl App {
                 }
             }
             Action::Cancel => {
-                if self.fluid_preview.baking.is_some() {
+                if self.confirm_new { self.confirm_new=false; }
+                else if self.fluid_preview.baking.is_some() {
                     self.fluid_preview.cancel();
                     self.status = "Запекание жидкости отменено".into();
                 } else if self.input.is_some() {
@@ -3864,7 +3872,7 @@ impl App {
         if self.scene_write_pending() {
             return;
         }
-        if self.dialog.is_some()
+        if self.confirm_new || self.dialog.is_some()
             || self.overwrite.is_some()
             || self.help
             || self.poses
@@ -3879,9 +3887,7 @@ impl App {
         if button == MouseButton::Left && self.timeline_pointer_down() {
             return;
         }
-        if self.modeling_live.is_some() {
-            return;
-        }
+        if self.modeling_live.is_some() && button==MouseButton::Left {return;}
         if !self.canvas_input_at(self.mouse) {
             return;
         }
@@ -4048,6 +4054,9 @@ impl App {
             Some(Drag::Material(_)) => {}
             Some(Drag::Scene(_)) => self.scroll_scene_drag(),
             Some(Drag::CameraNavigate(drag)) => self.update_camera_navigation(drag, p),
+            Some(Drag::CameraEffectScroll {start,value,scale}) => {
+                self.camera_effects.scroll=(value+(self.mouse[1]-start)*scale).clamp(0.,self.camera_effect_scroll_max());
+            }
             Some(Drag::ObjectScroll { start, value }) => {
                 self.update_object_scroll(start, value, p[1])
             }
@@ -5186,17 +5195,33 @@ impl App {
                 );
             }
         }
+        if self.confirm_new {
+            u.hits.clear(); u.texts.clear();
+            u.rect([0.,0.,w,h],[0.02,0.025,0.035,0.80]);
+            let rw=480_f32.min(w-32.); let x=(w-rw)*0.5; let y=(h-202.)*0.5;
+            u.outlined_surface([x,y,rw,202.],palette.panel,palette.border);
+            u.label(x+20.,y+20.,"Создать новую сцену?",20.,palette.text);
+            u.fitted_label([x+20.,y+64.,rw-40.,24.],"Текущий проект будет закрыт.",13.,palette.text);
+            u.fitted_label([x+20.,y+92.,rw-40.,30.],
+                if self.dirty || self.editor.has_staged() {"Несохранённые изменения будут потеряны."}
+                else {"Откроется пустая сцена без объектов."},12.,palette.muted);
+            let half=(rw-52.)*0.5;
+            u.button([x+20.,y+146.,half,36.],"Отмена",Action::Cancel,false);
+            u.button([x+32.+half,y+146.,half,36.],"Создать сцену",Action::ConfirmNew,true);
+        }
         self.tint_default_resets(&mut u);
         u
     }
     fn scroll(&mut self, delta: f32) {
-        if self.welcome_active() || self.swatch_menu_open() {return;}
+        if self.confirm_new || self.welcome_active() || self.swatch_menu_open() {return;}
         if self.collision_scroll(delta) { return; }
         if self.dropdown_is_open(ui::DropdownKind::AssetLibrary) {
             self.asset_popup_scroll(delta);
             return;
         }
         self.slider_click = None;
+        if self.knife_scroll(delta) {return;}
+        if self.camera_effect_scroll(delta) { return; }
         if self.modeling_live_scroll(delta) {
             return;
         }
@@ -5432,6 +5457,17 @@ impl App {
             self.redraw();
             return;
         }
+        if self.modeling_live.is_some() || self.authoring.knife.is_some() {
+            if !ctrl && !event.repeat {
+                let nav=match &event.logical_key {
+                    Key::Character(c)=>match c.to_lowercase().as_str() {
+                        "f"=>Some(Action::FrameSelected),"1"=>Some(Action::Front),"3"=>Some(Action::Side),"7"=>Some(Action::Top),"5"=>Some(Action::Perspective),_=>None},
+                    _=>None,
+                };
+                if let Some(nav)=nav {self.action(nav);return;}
+            }
+            if event.logical_key==Key::Named(NamedKey::Escape) && self.drag.is_some() {self.cancel_drag();self.redraw();return;}
+        }
         if self.modeling_live.is_some() {
             match event.logical_key {
                 Key::Named(NamedKey::Escape) => self.cancel_modeling_live(),
@@ -5457,7 +5493,7 @@ impl App {
             self.action(action);
             return;
         }
-        if self.dialog.is_some()
+        if self.confirm_new || self.dialog.is_some()
             || self.overwrite.is_some()
             || self.pending_time.is_some()
             || self.help

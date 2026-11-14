@@ -19,6 +19,7 @@ impl App {
         let fluid = FluidSettings::default();
         let physics = PhysicsSettings::default();
         Some(match *action {
+            Action::MeshOpacity => 50.,
             Action::BoneDisplay(ui::BoneDisplayAction::Size(_)) => 1.,
             Action::Fx(ui::FxAction::Field(i))=>fx_controls::number(fx_controls::defaults(self.selected_fx()?.1),i)?,
             Action::Helper(ui::HelperAction::Size)=>1.,
@@ -39,7 +40,7 @@ impl App {
             }
             Action::Text(ui::TextAction::Field(field)) => [1.,0.08,1.,0.,3.].get(field as usize).copied()?,
             Action::Curve(ui::CurveAction::Field(field)) => match field {
-                0..=2 => 0., 3 => 12., 4 => 0.05, 5 => 8., _ => return None,
+                0..=2 => 0., 3 => 12., 4 => 0.05, 5 => 8., 6 => 0., _ => return None,
             },
             Action::EditWidth => render.output_width as f64,
             Action::EditHeight => render.output_height as f64,

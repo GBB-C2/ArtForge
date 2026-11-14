@@ -403,6 +403,8 @@ fn clipboard_crosses_clips_but_new_document_clears_all_key_references() {
     assert_eq!(app.editor.project, original);
     assert!(!app.dirty);
     app.action(Action::New);
+    assert!(!app.editor.project.nodes.is_empty());
+    app.action(Action::ConfirmNew);
     assert!(app.editor.project.nodes.is_empty());
     assert!(app.timeline.selection.is_empty());
     assert!(!app.animation.focused);

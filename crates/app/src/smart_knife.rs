@@ -101,7 +101,7 @@ impl App {
     }
     pub(super) fn smart_knife_pick(&self, pointer: [f32; 2]) -> Option<EdgePoint> {
         let k = self.authoring.knife.as_ref()?;
-        let mesh = self.editor.editable_mesh(k.node).ok()?;
+        let mesh = &k.original;
         let model = self.editor.project.global_transforms().ok()?[&k.node];
         let projection = self.view().view_projection();
         let vp = self.viewport();
@@ -203,21 +203,25 @@ impl App {
         }
         found
     }
+    pub(super) fn knife_surface_point(&self,pointer:[f32;2])->Option<Vec3> {
+        let k=self.authoring.knife.as_ref()?;let mesh=&k.original;
+        if let Some(hit)=self.smart_knife_pick(pointer) {
+            return Some(Vec3::from_array(mesh.vertices[hit.edge.0].position).lerp(Vec3::from_array(mesh.vertices[hit.edge.1].position),hit.t));
+        }
+        let model=self.editor.project.global_transforms().ok()?[&k.node];
+        let(o,d)=authoring_controls::ray(self.view().view_projection().inverse(),self.viewport(),pointer)?;
+        let inverse=model.inverse();let o=inverse.transform_point3(o);let d=inverse.transform_vector3(d);
+        let(_,t)=self.mesh_cache(mesh).hit(o,d)?;Some(o+d*t)
+    }
     pub(super) fn smart_knife_click(&mut self) {
         let cursor = self.knife_cursor();
         let Some(k) = self.authoring.knife.as_ref() else {
             return;
         };
         let node = k.node;
-        let Some(hit) = self.smart_knife_pick(cursor) else {
-            self.authoring.knife.as_mut().unwrap().press = Some(cursor);
-            return;
+        let Some(point)=self.knife_surface_point(cursor) else {
+            self.authoring.knife.as_mut().unwrap().press=Some(cursor); return;
         };
-        let Ok(mesh) = self.editor.editable_mesh(node) else {
-            return;
-        };
-        let point = Vec3::from_array(mesh.vertices[hit.edge.0].position)
-            .lerp(Vec3::from_array(mesh.vertices[hit.edge.1].position), hit.t);
         let Ok(globals) = self.editor.project.global_transforms() else {
             return;
         };
@@ -248,7 +252,7 @@ impl App {
             if let Some(hit) = self.smart_knife_pick(end) {
                 let k = self.authoring.knife.as_ref().unwrap();
                 if let (Ok(mesh), Ok(globals)) = (
-                    self.editor.editable_mesh(k.node),
+                    Ok::<_,poseforge_core::CoreError>(&k.original),
                     self.editor.project.global_transforms(),
                 ) {
                     let p = Vec3::from_array(mesh.vertices[hit.edge.0].position)
@@ -278,9 +282,7 @@ impl App {
             return;
         };
         let node = k.node;
-        let Ok(mesh) = self.editor.editable_mesh(node).cloned() else {
-            return;
-        };
+        let mesh=k.original.clone();
         let Ok(globals) = self.editor.project.global_transforms() else {
             return;
         };
@@ -330,6 +332,17 @@ impl App {
             let point = local_a.lerp(local_b, fraction);
             for &face in faces {
                 crossings.entry(face).or_default().push((t, point));
+            }
+        }
+        for (t,pixel) in [(0.,start),(1.,end)] {
+            if let Some((origin,direction))=authoring_controls::ray(projection.inverse(),vp,pixel) {
+                let inverse=model.inverse();let o=inverse.transform_point3(origin);let d=inverse.transform_vector3(direction);
+                if let Some((triangle,distance))=cache.hit(o,d) {
+                    if let Some(face)=mesh.triangle_face(triangle) {
+                        let points=crossings.entry(face).or_default();
+                        if !points.iter().any(|(u,_)|(*u-t).abs()<1e-4) {points.push((t,o+d*distance));}
+                    }
+                }
             }
         }
         let mut cuts = Vec::new();
@@ -402,12 +415,12 @@ impl App {
             return;
         }
         let count = cuts.len();
-        let result = self
-            .editor
-            .preview_mesh(node, &mesh, MeshEdit::KnifeGap { cuts, width:self.authoring.workflow.values[0] });
-        if self.result(result).is_some() {
+        let previous=self.authoring.knife.as_ref().unwrap().strokes.len();
+        self.authoring.knife.as_mut().unwrap().strokes.extend(cuts);
+        let result=self.preview_knife_geometry();
+        if result.is_ok() {
             let k = self.authoring.knife.as_mut().unwrap();
-            k.cuts += count;
+
             k.first = last.map(|(_, p)| p);
             self.authoring.vertices.clear();
             self.authoring.edges.clear();
@@ -416,6 +429,9 @@ impl App {
             self.update_dirty();
             self.status =
                 format!("Нож · разрезано граней: {count} · Enter — применить · Esc — отменить");
+        } else {
+            self.authoring.knife.as_mut().unwrap().strokes.truncate(previous);
+            self.status=result.unwrap_err();
         }
     }
 }

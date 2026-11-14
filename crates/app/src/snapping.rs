@@ -18,6 +18,7 @@ const CELL: f32 = 24.;
 pub(super) struct State {
     pub mode: u8,
     pub step: f32,
+    last_mode: u8,
     snapshot: Option<Snapshot>,
     feedback: Option<(Vec3, &'static str)>,
 }
@@ -409,7 +410,16 @@ impl App {
     }
     pub(super) fn snap_translation(&mut self, raw: Vec3) -> Vec3 {
         let state = &mut self.authoring.snapping;
-        state.feedback = None;
+        let previous=state.feedback.take();
+        if state.mode!=0 && state.mode!=5 {
+            if let (Some(snapshot),Some((p,label)))=(&state.snapshot,previous) {
+                if let (Some(a),Some(b))=(authoring_controls::project(snapshot.projection,snapshot.viewport,raw),authoring_controls::project(snapshot.projection,snapshot.viewport,p)) {
+                    if matches!(label,"Вершина"|"Середина ребра") && Vec2::from_array(a).distance(Vec2::from_array(b))<=15. && (self.authoring.xray||snapshot.visible(p)) {
+                        state.feedback=Some((p,label));return p;
+                    }
+                }
+            }
+        }
         let target = if state.mode == 5 {
             let step = if state.step > 0. { state.step } else { 0.1 };
             Some(((raw / step).round() * step, "Сетка"))
@@ -428,7 +438,14 @@ impl App {
     }
     pub(super) fn snap_action(&mut self, a: A) -> bool {
         match a {
+            A::SnapToggle => {
+                let s=&mut self.authoring.snapping;
+                if s.mode==0 {s.mode=if s.last_mode==0 {6} else {s.last_mode};} else {s.last_mode=s.mode;s.mode=0;}
+                s.clear();
+            }
+            A::SnapGridStep(step) => {self.authoring.snapping.step=step;}
             A::SnapMode(mode) => {
+                if mode>0 {self.authoring.snapping.last_mode=mode.min(6);}
                 self.authoring.snapping.mode = mode.min(6);
                 self.authoring.snapping.clear();
             }
@@ -448,33 +465,14 @@ impl App {
         }
     }
     pub(super) fn draw_snapping(&self, u: &mut ui::Ui) {
-        if self.editor.mode != EditorMode::Scene
-            || self.tool != Tool::Move
-            || self.authoring.knife.is_some()
-            || self.primitive_panel.is_some()
-            || self.modeling_live.is_some()
-            || (self.authoring.editing.is_some() && self.authoring.modeling_tool.is_some_and(|t| !matches!(t,ui::ModelingTool::Move|ui::ModelingTool::Rotate|ui::ModelingTool::Scale|ui::ModelingTool::Select(_))))
-            || self.uv.open
-        {
-            return;
+        if self.editor.mode!=EditorMode::Scene || self.uv.open {return;}
+        let area=self.modeling_area(); let p=u.palette(); let eye=self.view_menu_rect();
+        u.quiet_icon_button([eye[0]-62.,eye[1],30.,26.],"",Action::Author(A::SnapToggle),self.authoring.snapping.mode!=0,Icon::Magnet);
+        u.quiet_icon_button([eye[0]-30.,eye[1],22.,26.],"",Action::DropdownOpen(DropdownKind::SnapMode),self.dropdown_is_open(DropdownKind::SnapMode),Icon::ChevronDown);
+        if self.input.as_ref().is_some_and(|i|i.purpose==Action::Author(A::SnapStep)) {
+            u.number_field([(eye[0]-62.).max(area[0]).min((area[0]+area[2]-200.).max(area[0])),self.shading_toolbar_rect()[1]+self.shading_toolbar_rect()[3]+8.,200.,30.],"Шаг сетки",self.snap_step() as f64,
+                Action::Author(A::SnapStep),ui::SliderRange::new(0.001,10.,0.001));
         }
-        let area = self.modeling_area();
-        if area[2] < 160. || area[3] < 180. {
-            return;
-        }
-        let p = u.palette();
-        let width = 268_f32.min(area[2]);
-        let x = area[0];
-        let mut y = area[1] + area[3] - 44.;
-        if let Some(panel)=self.tool_panel_rect() {if intersect_rect([x,y,width,38.],panel).is_some(){if panel[1]-44. < area[1]{return;}y=panel[1]-44.;}}
-        u.outlined_surface([x, y, width, 38.], p.panel, p.border);
-        u.button(
-            [x + 4., y + 4., width - 94., 30.],
-            LABELS[self.authoring.snapping.mode as usize],
-            Action::DropdownOpen(DropdownKind::SnapMode),
-            self.authoring.snapping.mode != 0,
-        );
-        u.number_field([x+width-86.,y+4.,82.,30.],"Шаг",self.snap_step() as f64,Action::Author(A::SnapStep),ui::SliderRange::new(0.001,1.,0.001));
         if let Some((world, label)) = self.authoring.snapping.feedback {
             if let Some(q) =
                 authoring_controls::project(self.view().view_projection(), self.viewport(), world)

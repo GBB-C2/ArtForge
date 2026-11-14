@@ -30,7 +30,12 @@ impl App {
         for (i,(label,language)) in [("Русский",crate::localization::Language::Russian),("English β",crate::localization::Language::English)].into_iter().enumerate() {
             u.quiet_button([x+i as f32*(half+6.),350.,half,30.],label,Action::Language(language),self.preferences.language==language);
         }
-        u.fitted_label([x,394.,w,18.],"Настройки сохраняются автоматически",11.,p.muted);
+        u.fitted_label([x,400.,w,18.],"Сетка модели",12.,p.muted);
+        let c=self.preferences.mesh_color;
+        u.color_field([x,426.,w,30.], "Цвет сетки", Action::MeshColor, c);
+        u.number_field([x,468.,w,44.],"Непрозрачность, %", (self.preferences.mesh_opacity*100.) as f64,
+            Action::MeshOpacity, SliderRange::new(0.,100.,1.));
+        u.fitted_label([x,532.,w,18.],"Настройки сохраняются автоматически",11.,p.muted);
     }
 }
 

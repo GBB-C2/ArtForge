@@ -16,7 +16,7 @@ pub(super) fn artwork() -> Option<&'static poseforge_core::Texture> {
 
 impl App {
     pub(super) fn welcome_active(&self)->bool {
-        self.welcome.open && self.dialog.is_none() && self.input.is_none() && self.overwrite.is_none()
+        !self.confirm_new && self.welcome.open && self.dialog.is_none() && self.input.is_none() && self.overwrite.is_none()
             && self.job.is_none() && self.native_picker.is_none() && !self.close_recovery.is_pending()
     }
     pub(super) fn welcome_action(&mut self, action:&Action)->bool {
@@ -130,6 +130,7 @@ mod tests {
         a.action(Action::Language(Language::English));assert_eq!(a.preferences.language,Language::English);
         assert!(a.welcome_key(&Key::Named(NamedKey::Tab),false));assert!(a.welcome.focus.is_some());
         a.welcome.focus=Some(Action::New);a.welcome_key(&Key::Named(NamedKey::Enter),false);
+        assert!(a.confirm_new);a.action(Action::ConfirmNew);
         assert!(!a.welcome.open);assert!(a.editor.project.nodes.is_empty());
         let ui=a.build_ui();assert!(!ui.texts.iter().any(|t|t.text=="Импорт модели" || t.text=="Import model"));
         a.action(Action::ShowWelcome);assert!(a.welcome.open);

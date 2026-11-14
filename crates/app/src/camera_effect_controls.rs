@@ -3,7 +3,8 @@ use super::*;
 use crate::ui::{CameraTool as C, DropdownKind};
 use poseforge_core::CameraEffects;
 
-const LIST_Y: f32 = 1234.;
+const LIST_Y: f32 = 1274.;
+const LIST_HEIGHT: f32 = 280.;
 const SETTINGS_ROW: f32 = 88.;
 
 #[derive(Default)]
@@ -11,6 +12,8 @@ pub(super) struct State {
     selection: Option<(u64, usize)>,
     focused: bool,
     in_scene: bool,
+    pub query: String,
+    pub scroll: f32,
 }
 
 #[cfg(test)]
@@ -178,7 +181,7 @@ mod tests {
                     a.ui = a.build_ui();
                     assert!(a.ui.action_point(&Action::CameraNumber(10)).is_some());
                     assert!(a.inspector_scroll <= a.inspector_max_scroll());
-                    assert_eq!(a.camera_panel_bottom(), 1894.);
+                    assert_eq!(a.camera_panel_bottom(), LIST_Y+LIST_HEIGHT+44.);
                 }
             }
         }
@@ -211,8 +214,10 @@ mod tests {
                     for step in 0..=((a.inspector_max_scroll() / 80.).ceil() as usize) {
                         a.inspector_scroll = (step as f32 * 80.).min(a.inspector_max_scroll());
                         a.ui = a.build_ui();
-                        for hit in &a.ui.hits {
-                            if let Action::CameraNumber(field @ 4..=10) = hit.action { seen.insert(field); }
+                        for inner in 0..=((a.camera_effect_scroll_max()/60.).ceil() as usize) {
+                            a.camera_effects.scroll=(inner as f32*60.).min(a.camera_effect_scroll_max());
+                            a.ui=a.build_ui();
+                            for hit in &a.ui.hits {if let Action::CameraNumber(field @ 4..=10)=hit.action {seen.insert(field);}}
                         }
                     }
                     assert_eq!(seen, BTreeSet::from([4,5,6,7,8,9,10]));
@@ -373,14 +378,18 @@ impl App {
         else if index >= self.scene_scroll + page { self.scene_scroll = index + 1 - page; }
     }
     pub(super) fn camera_panel_bottom(&self) -> f32 {
-        let count = self.selected_camera_effects().map_or(0, |(_, effects)| effects.ordered_fields().count());
-        LIST_Y + count.max(1) as f32 * SETTINGS_ROW + 44.
+        LIST_Y + LIST_HEIGHT + 44.
     }
     fn camera_effect_settings_y(&self, field: usize) -> f32 {
-        let row = self.selected_camera_effects().and_then(|(_, effects)| effects.ordered_fields().position(|f| f == field)).unwrap_or(0);
-        LIST_Y + row as f32 * SETTINGS_ROW
+        let row = self.camera_effect_fields().iter().position(|f| *f==field).unwrap_or(0);
+        LIST_Y + 8. + row as f32 * SETTINGS_ROW - self.camera_effects.scroll.min(self.camera_effect_scroll_max())
     }
     fn reveal_camera_effect_y(&mut self, raw_y: f32, height: f32) {
+        let top=LIST_Y+8.; let bottom=LIST_Y+LIST_HEIGHT-8.;
+        if raw_y<top {self.camera_effects.scroll-=top-raw_y;}
+        else if raw_y+height>bottom {self.camera_effects.scroll+=raw_y+height-bottom;}
+        self.camera_effects.scroll=self.camera_effects.scroll.clamp(0.,self.camera_effect_scroll_max());
+        let raw_y=raw_y.clamp(top,bottom-height);
         if let Some(mapped) = self.property_y(raw_y) {
             let y = mapped - super::properties::CONTENT_SHIFT - self.inspector_scroll;
             let area = self.properties_content_rect();
@@ -586,8 +595,9 @@ impl App {
                 _ => false,
             };
         };
-        let fields: Vec<_> = effects.ordered_fields().collect();
-        let index = fields.iter().position(|&f| f == field).unwrap();
+        let fields: Vec<_> = if self.camera_effects.in_scene {effects.ordered_fields().collect()} else {self.camera_effect_fields()};
+        if fields.is_empty() {return false;}
+        let index = fields.iter().position(|&f| f == field).unwrap_or(0);
         let action = match key {
             Key::Named(NamedKey::ArrowUp) => C::SelectEffect(fields[index.saturating_sub(1)]),
             Key::Named(NamedKey::ArrowDown) => {
@@ -615,6 +625,33 @@ impl App {
         true
     }
 
+    fn camera_effect_query(&self) -> &str {
+        self.input.as_ref().filter(|i|i.purpose==Action::CameraEffectSearch).map_or(self.camera_effects.query.as_str(),|i|i.value.as_str())
+    }
+    fn camera_effect_fields(&self) -> Vec<usize> {
+        let query=self.camera_effect_query().trim().to_lowercase();
+        self.selected_camera_effects().map_or(Vec::new(),|(_,e)|e.ordered_fields()
+            .filter(|f|CameraEffects::LABELS[f-4].to_lowercase().contains(&query)).collect())
+    }
+    pub(super) fn camera_effect_scroll_max(&self) -> f32 {(self.camera_effect_fields().len() as f32*SETTINGS_ROW-(LIST_HEIGHT-16.)).max(0.)}
+    pub(super) fn camera_effect_scroll(&mut self, delta:f32) -> bool {
+        if self.has_modal() || self.drag.is_some() {return false;}
+        let Some(track)=self.ui.hits.iter().find(|h|h.action==Action::CameraEffectScroll).map(|h|h.rect) else {return false;};
+        let area=[track[0]-self.right_width()+40.,track[1],self.right_width()-30.,track[3]];
+        if !ui::contains(area,self.mouse) {return false;}
+        self.camera_effects.scroll=(self.camera_effects.scroll-delta*36.).clamp(0.,self.camera_effect_scroll_max());self.redraw();true
+    }
+    pub(super) fn start_camera_effect_scroll(&mut self) {
+        let Some(r)=self.ui.hits.iter().find(|h|h.action==Action::CameraEffectScroll).map(|h|h.rect) else {return;};
+        let max=self.camera_effect_scroll_max(); if max<=0. {return;}
+        let thumb=(r[3]*(LIST_HEIGHT-16.)/(max+LIST_HEIGHT-16.)).max(28.).min(r[3]);
+        let top=r[1]+(r[3]-thumb)*self.camera_effects.scroll/max;
+        if self.mouse[1]<top || self.mouse[1]>top+thumb {
+            self.camera_effects.scroll=((self.mouse[1]-r[1]-thumb*0.5)/(r[3]-thumb).max(1.)*max).clamp(0.,max);
+        }
+        self.drag=Some(Drag::CameraEffectScroll{start:self.mouse[1],value:self.camera_effects.scroll,scale:max/(r[3]-thumb).max(1.)});
+        self.drag_button=Some(MouseButton::Left);
+    }
     pub(super) fn draw_camera_effect_list(
         &self,
         u: &mut Ui,
@@ -642,23 +679,23 @@ impl App {
             u.disabled_checkbox([x, 1154., width, 28.], "Включить эффекты", effects.enabled);
             u.disabled_button([x, 1194., width, 30.], "Добавить эффект…");
         }
-        if effects.ordered_fields().next().is_none() {
-            u.fitted_label([x, LIST_Y + 10., width, 22.], "Добавьте эффект из списка выше", 11., p.muted);
+        u.field([x,LIST_Y-40.,width,30.],
+            if self.camera_effect_query().is_empty() {"Поиск эффектов…"} else {self.camera_effect_query()},Action::CameraEffectSearch);
+        u.outlined_surface([x,LIST_Y,width,LIST_HEIGHT],[0.055,0.06,0.075,1.],p.border);
+        let start=(u.rects.len(),u.texts.len(),u.hits.len());
+        let group_x=x; let group_width=width;
+        let x=x+8.; let width=width-30.;
+        if self.camera_effect_fields().is_empty() {
+            u.fitted_label([x, LIST_Y + 12., width, 22.], if self.camera_effect_query().is_empty() {"Добавьте эффект из списка выше"} else {"Эффекты не найдены"}, 11., [0.7,0.72,0.76,1.]);
         }
-        for field in effects.ordered_fields() {
+        for field in self.camera_effect_fields() {
             let (value, min, max, label) = effects.field(field).unwrap();
             let y = self.camera_effect_settings_y(field);
-            let theme = u.theme;
-            u.theme = ui::Theme::Dark;
-            let card = u.palette();
-            let focused = self.camera_effects.focused && self.camera_effect_selected(id, field);
-            u.outlined_surface([x,y,width,80.], [0.075,0.08,0.095,1.],
-                if focused {card.accent} else {[0.27,0.29,0.33,1.]});
-            let p = card;
+            u.surface([x,y,width,80.], p.panel);
             let color = if effects.effect_enabled(field) { p.text } else { p.muted };
             let header = [x+6., y+3., width-12., 26.];
             u.hits.push(ui::Hit { rect: header, action: Action::CameraEffect(id, C::SelectEffect(field)) });
-            Icon::Wand.draw(u, [x + 10., y + 7., 18., 18.], color);
+            Icon::Wand.draw(u, [x + 10., y + 7., 18., 18.], if self.camera_effects.focused&&self.camera_effect_selected(id,field) {p.accent} else {color});
             u.fitted_label([x + 34., y + 8., width - 100., 18.], CameraEffects::LABELS[field - 4], 12., color);
             self.draw_camera_effect_buttons(u, header, id, field, effects.effect_enabled(field));
             let rect = [x+8., y+30., width-16., 44.];
@@ -673,8 +710,12 @@ impl App {
             } else {
                 u.disabled_button(rect, &format!("{label}: {value:.2}"));
             }
-            u.theme = theme;
         }
+        clip_scrolled(u,start,[group_x+4.,LIST_Y+4.,group_width-24.,LIST_HEIGHT-8.],0.);
+        let max=self.camera_effect_scroll_max();
+        u.vertical_scrollbar([group_x+group_width-16.,LIST_Y+8.,10.,LIST_HEIGHT-16.],
+            if max>0. {self.camera_effects.scroll.min(max)/max} else {0.},
+            ((LIST_HEIGHT-16.)/(max+LIST_HEIGHT-16.)).min(1.),Action::CameraEffectScroll);
         u.fitted_label(
             [x, self.camera_panel_bottom() - 32., width, 22.],
             "Вид из камеры · Материал / Рендер",

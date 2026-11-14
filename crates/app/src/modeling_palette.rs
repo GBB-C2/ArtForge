@@ -1,9 +1,8 @@
-//! Icon tools and contextual properties use the existing modeling commands.
+//! The dock holds tools; their properties are drawn only in the viewport panel.
 use super::*;
 use crate::ui::{AuthorAction as A, MeshSelection as S, ModelingTool as M, ShapeAction};
 
 pub(super) const TOOLS_SECTION: u16 = 740;
-pub(super) const PROPERTIES_SECTION: u16 = 741;
 const TOOL_PITCH: f32 = 48.;
 const TOOL_SIZE: f32 = 44.;
 const TOOLS: [M; 29] = [
@@ -91,15 +90,19 @@ impl App {
             _ => TOOLS.into_iter().find(|tool| tool.command().as_ref() == Some(action)),
         };
         if let Some(tool) = tool {
+            if self.authoring.modeling_tool != Some(tool) {
+                self.authoring.workflow.panel_scroll = 0.;
+                self.authoring.workflow.collapsed = false;
+            }
             self.authoring.modeling_tool = Some(tool);
-            self.preferences.collapsed_sections.remove(&PROPERTIES_SECTION);
         }
     }
     pub(super) fn choose_modeling_tool(&mut self, tool: M) {
         if self.authoring.editing.is_none() || self.job.is_some() || self.editor.playing
             || self.scene_write_pending() || self.editor.has_staged() { return; }
         self.authoring.modeling_tool = Some(tool);
-        self.preferences.collapsed_sections.remove(&PROPERTIES_SECTION);
+        self.authoring.workflow.panel_scroll = 0.;
+        self.authoring.workflow.collapsed = false;
         if let Some(action) = tool.command() {
             if matches!(tool, M::Select(_) | M::Move | M::Rotate | M::Scale | M::Knife | M::LoopCut | M::Inspect)
                 || (tool.live() && self.modeling_tool_ready(tool)) {
@@ -107,12 +110,6 @@ impl App {
             }
         }
         self.set_properties_tab(7);
-        // Reveal the properties heading, including at narrow panel widths.
-        let top = self.modeling_properties_start() + 28. - properties::CONTENT_SHIFT;
-        let viewport = self.properties_content_rect();
-        if top - self.inspector_scroll > viewport[1] + viewport[3] - 120. {
-            self.inspector_scroll = (top - viewport[1] - 40.).max(0.).min(self.inspector_max_scroll());
-        }
     }
     fn modeling_tool_ready(&self, tool: M) -> bool {
         if self.authoring.editing.is_none() || self.job.is_some() || self.editor.playing
@@ -137,13 +134,13 @@ impl App {
     fn modeling_columns(&self) -> usize {
         ((self.right_width() - properties::RAIL_WIDTH - 28.) / TOOL_PITCH).floor().max(1.) as usize
     }
-    pub(super) fn modeling_properties_start(&self) -> f32 {
-        206. + TOOLS.len().div_ceil(self.modeling_columns()) as f32 * TOOL_PITCH + 8.
-    }
     pub(super) fn modeling_panel_bottom(&self) -> f32 {
         if self.has_morph_panel() { return self.morph_panel_bottom(); }
         if self.authoring.editing.is_none() { return if self.selected_primitive().is_some() || self.selected_curve().is_some() { 268. } else { 222. }; }
-        let height = if self.modeling_live.is_some() {
+        206. + TOOLS.len().div_ceil(self.modeling_columns()) as f32 * TOOL_PITCH + 8.
+    }
+    pub(super) fn modeling_tool_properties_height(&self) -> f32 {
+        if self.modeling_live.is_some() {
             self.modeling_live_properties_height() + 30.
                 + if self.authoring.modeling_tool == Some(M::Bevel) { 22. } else if self.authoring.modeling_tool==Some(M::Extrude) {90.} else { 0. }
         } else {
@@ -167,8 +164,7 @@ impl App {
                 Some(M::Inset) => 104.,
                 _ => 98.,
             }
-        };
-        self.modeling_properties_start() + height
+        }
     }
     pub(super) fn draw_modeling_palette(&self, u: &mut Ui, x: f32, w: f32) {
         let p = u.palette();
@@ -194,13 +190,10 @@ impl App {
             u.modeling_icon_button(rect, Action::ModelingTool(tool), tool.icon(), self.authoring.modeling_tool == Some(tool),
                 self.job.is_none() && !self.editor.playing && !self.editor.has_staged());
         }
-        self.draw_modeling_tool_properties(u,x,self.modeling_properties_start(),w);
     }
     pub(super) fn draw_modeling_tool_properties(&self,u:&mut Ui,x:f32,mut y:f32,w:f32) {
         let p=u.palette();
         let Some(tool) = self.authoring.modeling_tool else { return; };
-        u.fitted_label([x, y + 4., w, 20.], tool.title(), 12., p.text);
-        y += 30.;
         if tool == M::Bevel {
             u.fitted_label([x, y, w, 18.], match self.authoring.selection_mode {
                 S::Vertex => "Вершины · срез углов",

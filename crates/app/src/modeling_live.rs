@@ -455,8 +455,8 @@ impl App {
             Action::Author(A::SnapToggle|A::SnapMode(_)|A::SnapGridStep(_))
                 | Action::DropdownOpen(ui::DropdownKind::SnapMode)|Action::DropdownChoose(_)|Action::DropdownDismiss=>false,
             Action::ResetNumber(field) if matches!(**field,Action::Author(A::LiveField(_)))=>false,
-            Action::Author(A::ToolPanelDrag | A::ToolPanelToggle | A::ExtrudeMode(_))=>false,
-            Action::ToggleSection(id) if matches!(*id, super::modeling_palette::TOOLS_SECTION | super::modeling_palette::PROPERTIES_SECTION) => false,
+            Action::Author(A::ToolPanelDrag | A::ToolPanelToggle | A::ToolPanelScroll | A::ExtrudeMode(_))=>false,
+            Action::ToggleSection(super::modeling_palette::TOOLS_SECTION) => false,
             Action::ScrollPanel(0) | Action::ToggleRightPanel => false,
             Action::Author(
                 v @ (A::LiveField(_)
@@ -1018,7 +1018,7 @@ mod tests {
         a.cancel_modeling_live();
         a.width = 900.;
         a.height = 600.;
-        // A hidden inspector retains the floating fallback panel.
+        // Tool properties stay available with the inspector hidden.
         a.preferences.right_panel = false;
         a.action(Action::Author(A::EdgeBevel));
         if !a.authoring.workflow.collapsed {

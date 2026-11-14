@@ -133,7 +133,7 @@ impl App {
             6 | 11 => (600, vec![(171., "Физика объекта", 0.)]),
             7 if self.authoring.editing.is_some() => (
                 modeling_palette::TOOLS_SECTION,
-                vec![(171., "Моделирование", 0.), (self.modeling_properties_start(), "Свойства", 0.)],
+                vec![(171., "Моделирование", 0.)],
             ),
             7 if self.has_morph_panel() => (700, vec![(171., "Геометрия", 0.), (self.morph_panel_start(), "Морфы", 24.)]),
             7 => (700, vec![(171., "Геометрия", 0.)]),
@@ -208,8 +208,7 @@ impl App {
                     }
                     else if base==100 && title=="Краска и бумага" {182}
                     else {base + i as u16 - if transform && i>1 {1} else {0}};
-                let closed = self.preferences.collapsed_sections.contains(&id)
-                    || (id == modeling_palette::PROPERTIES_SECTION && self.authoring.modeling_tool.is_none());
+                let closed = self.preferences.collapsed_sections.contains(&id);
                 let section = Section {
                     id,
                     title,
@@ -310,11 +309,6 @@ impl App {
 
     pub(super) fn toggle_property_section(&mut self, id: u16) {
         if !self.preferences.right_panel || !self.property_sections().iter().any(|s| s.id == id) {
-            return;
-        }
-        if id == modeling_palette::PROPERTIES_SECTION && self.authoring.modeling_tool.is_none() {
-            self.authoring.modeling_tool = Some(ui::ModelingTool::Select(self.authoring.selection_tool));
-            self.preferences.collapsed_sections.remove(&id);
             return;
         }
         if !self.preferences.collapsed_sections.remove(&id) {

@@ -65,7 +65,7 @@ fn library_entries_do_not_expand_mesh_properties_or_request_hidden_previews() {
 }
 
 #[test]
-fn enlarged_modeling_controls_fit_the_panel_and_keep_properties_below() {
+fn enlarged_modeling_controls_fit_the_panel_without_unused_properties_space() {
     for width in [280.,336.,440.] {
         let mut a=app();a.preferences.right_width=Some(width);
         a.action(Action::Author(ui::AuthorAction::SelectMode(ui::MeshSelection::Vertex)));
@@ -75,7 +75,7 @@ fn enlarged_modeling_controls_fit_the_panel_and_keep_properties_below() {
         for (i,b) in buttons.iter().enumerate() {
             assert_eq!(b.rect[2],44.);assert_eq!(b.rect[3],44.);
             assert!(b.rect[0]>=0. && b.rect[0]+b.rect[2]<=w+0.01);
-            assert!(b.rect[1]+b.rect[3]<a.modeling_properties_start());
+            assert!(b.rect[1]+b.rect[3]<a.modeling_panel_bottom());
             for other in &buttons[i+1..] {assert!(b.rect[0]+44.<=other.rect[0] || other.rect[0]+44.<=b.rect[0] || b.rect[1]+44.<=other.rect[1] || other.rect[1]+44.<=b.rect[1]);}
         }
     }

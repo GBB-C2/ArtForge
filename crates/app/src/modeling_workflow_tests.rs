@@ -93,6 +93,13 @@ fn workflow_floating_panel_drag_collapse_and_cancel_keep_geometry_transaction() 
         a.action(Action::ModelingTool(M::Extrude));
         let preview = a.editor.project.clone();
         let before = a.tool_panel_rect().unwrap();
+        let mut panel = Ui::with_theme(1., theme, [0., 0.]);
+        a.draw_tool_panel(&mut panel);
+        let sample = [before[0] + before[2] - 46., before[1] + 32.];
+        let transmission: f32 = panel.rects.iter()
+            .filter(|r| ui::contains(r.rect, sample))
+            .map(|r| 1. - r.color[3]).product();
+        assert!(transmission > 0.1 && transmission < 0.5, "Panel has an opaque backing");
         a.mouse = point(&mut a, Action::Author(A::ToolPanelDrag));
         a.mouse_down(MouseButton::Left);
         assert!(matches!(a.drag, Some(Drag::ToolPanel { .. })));
@@ -107,6 +114,82 @@ fn workflow_floating_panel_drag_collapse_and_cancel_keep_geometry_transaction() 
         click(&mut a, Action::Author(A::LiveCancel));
         assert_eq!(a.editor.project, original);
         assert_eq!(a.editor.undo_len(), 0);
+    }
+}
+#[test]
+fn floating_properties_scroll_reaches_all_array_fields_without_zoom_or_geometry_changes() {
+    let mut a = app();
+    a.height = 400.;
+    a.action(Action::ModelingTool(M::Array));
+    let before = a.editor.project.clone();
+    let distance = a.distance;
+    let rect = a.tool_panel_rect().unwrap();
+    assert!(a.tool_panel_scroll_max() > 0.);
+    a.ui = a.build_ui();
+    a.mouse = [rect[0] + 40., rect[1] + 80.];
+    a.scroll(-100.);
+    assert_eq!(a.authoring.workflow.panel_scroll, a.tool_panel_scroll_max());
+    let field = point(&mut a, Action::Author(A::ToolField(8)));
+    assert!(matches!(a.ui.hit(field), Some(Action::Slide(action, _, _))
+        if *action == Action::Author(A::ToolField(8))));
+    // Numeric sliders enter exact input on a double click.
+    click(&mut a, Action::Author(A::ToolField(8)));
+    click(&mut a, Action::Author(A::ToolField(8)));
+    a.input.as_mut().unwrap().select_all();
+    a.input.as_mut().unwrap().insert("45");
+    a.action(Action::ConfirmInput);
+    assert_eq!(a.authoring.workflow.values[8], 45.);
+    assert_eq!(a.distance, distance);
+    assert_eq!(a.editor.project, before);
+    assert_eq!(a.editor.undo_len(), 0);
+    a.mouse = point(&mut a, Action::Author(A::ToolPanelScroll));
+    a.mouse_down(MouseButton::Left);
+    assert!(matches!(a.drag, Some(Drag::ToolPanelScroll { .. })));
+    a.mouse_move([a.mouse[0], rect[1] + 38.]);
+    a.mouse_up(MouseButton::Left);
+    assert_eq!(a.authoring.workflow.panel_scroll, 0.);
+    assert!(a.build_ui().action_point(&Action::Author(A::ToolField(2))).is_some());
+    a.action(Action::ModelingTool(M::Move));
+    assert_eq!(a.authoring.workflow.panel_scroll, 0.);
+    assert_eq!(a.editor.project, before);
+}
+#[test]
+fn knife_panel_move_collapse_backdrop_and_scroll_keep_the_active_cut_session() {
+    for tool in [M::Knife, M::LoopCut] {
+        let mut a = app();
+        a.height = 360.;
+        a.action(Action::ModelingTool(tool));
+        let before = a.editor.project.clone();
+        click(&mut a, Action::Author(A::ToolPanelToggle));
+        assert!(a.authoring.workflow.collapsed);
+        assert!(a.authoring.knife.is_some());
+        click(&mut a, Action::Author(A::ToolPanelToggle));
+        a.mouse = point(&mut a, Action::Author(A::ToolPanelDrag));
+        a.mouse_down(MouseButton::Left);
+        a.mouse_move([a.mouse[0] + 40., a.mouse[1]]);
+        a.mouse_up(MouseButton::Left);
+        let rect = a.tool_panel_rect().unwrap();
+        a.ui = a.build_ui();
+        a.mouse = [rect[0] + 3., rect[1] + rect[3] * 0.5];
+        assert_eq!(a.ui.hit(a.mouse), Some(Action::Author(A::LiveBackdrop)));
+        a.mouse_down(MouseButton::Left);
+        a.mouse_up(MouseButton::Left);
+        a.scroll(-100.);
+        assert!(a.authoring.workflow.panel_scroll > 0.);
+        a.mouse = point(&mut a, Action::Author(A::ToolPanelScroll));
+        a.mouse_down(MouseButton::Left);
+        a.mouse_move([a.mouse[0], rect[1] + 38.]);
+        a.cancel_drag();
+        assert!(a.authoring.knife.is_some());
+        assert!(a.editor.has_active_edit());
+        assert_eq!(a.editor.project, before);
+        assert_eq!(a.editor.undo_len(), 0);
+        a.mouse = [rect[0] + 3., rect[1] + 60.];
+        a.scroll(-100.);
+        click(&mut a, Action::Author(A::KnifeCancel));
+        assert!(a.authoring.knife.is_none());
+        assert!(!a.editor.has_active_edit());
+        assert_eq!(a.editor.project, before);
     }
 }
 #[test]
@@ -216,6 +299,8 @@ fn workflow_capture_ui() {
                 let mut a = app();
                 a.width = width;
                 a.preferences.theme = theme;
+                if let Ok(height) = std::env::var("ARTFORGE_UI_CAPTURE_HEIGHT") { a.height = height.parse().unwrap(); }
+                if let Ok(accent) = std::env::var("ARTFORGE_UI_CAPTURE_ACCENT") { a.preferences.accent = ui::Accent::from_name(&accent); }
                 a.action(Action::ModelingTool(tool));
                 a.mouse = [0., 0.];
                 let u = a.build_ui();
@@ -239,7 +324,7 @@ fn workflow_capture_ui() {
 }
 
 #[test]
-fn workflow_exact_entry_stays_on_the_clicked_panel() {
+fn workflow_exact_entry_uses_only_the_floating_panel() {
     let mut a = app();
     a.action(Action::ModelingTool(M::Extrude));
     a.inspector_scroll = a.inspector_max_scroll();
@@ -250,7 +335,8 @@ fn workflow_exact_entry_stays_on_the_clicked_panel() {
             .filter(|h| h.action == Action::Author(A::LiveField(0)))
             .map(|h| h.rect)
             .collect();
-    assert_eq!(fields.len(), 2);
+    assert_eq!(fields.len(), 1);
+    assert!(ui::contains(a.tool_panel_rect().unwrap(), [fields[0][0], fields[0][1]]));
     for r in fields {
         a.mouse = [r[0] + r[2] * 0.5, r[1] + r[3] * 0.5];
         a.action(Action::Author(A::LiveField(0)));

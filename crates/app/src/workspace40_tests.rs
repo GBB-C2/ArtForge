@@ -54,7 +54,9 @@ fn icons_reveal_only_the_chosen_properties_without_changing_the_mesh() {
         let mut a = app(); a.preferences.right_width = Some(width);
         click(&mut a, Action::Author(A::SelectMode(S::Vertex)));
         let original = a.editor.project.clone();
-        assert!(a.property_y(a.modeling_properties_start()).is_none());
+        assert!(a.authoring.modeling_tool.is_none());
+        assert_eq!(a.property_sections().len(), 1);
+        assert_eq!(a.property_sections()[0].id, modeling_palette::TOOLS_SECTION);
         let mut u = Ui::new(1.); a.draw_authoring_panel(&mut u, 0., width - properties::RAIL_WIDTH);
         let tools: Vec<_> = u.hits.iter().filter(|h| matches!(h.action, Action::ModelingTool(_))).collect();
         assert_eq!(tools.len(), 29);
@@ -64,10 +66,14 @@ fn icons_reveal_only_the_chosen_properties_without_changing_the_mesh() {
         }
         click(&mut a, Action::ModelingTool(M::Array));
         u = Ui::new(1.); a.draw_authoring_panel(&mut u, 0., width - properties::RAIL_WIDTH);
+        assert!(!u.hits.iter().any(|h| h.action == Action::Author(A::ToolField(2))));
+        u = Ui::new(1.); a.draw_tool_panel(&mut u);
         assert!(u.hits.iter().any(|h| h.action == Action::Author(A::ToolField(2))));
         assert!(!u.hits.iter().any(|h| h.action == Action::Author(A::BridgeSegments)));
         click(&mut a, Action::ModelingTool(M::Bridge));
         u = Ui::new(1.); a.draw_authoring_panel(&mut u, 0., width - properties::RAIL_WIDTH);
+        assert!(!u.hits.iter().any(|h| h.action == Action::Author(A::BridgeSegments)));
+        u = Ui::new(1.); a.draw_tool_panel(&mut u);
         assert!(u.hits.iter().any(|h| h.action == Action::Author(A::BridgeSegments)));
         assert!(!u.hits.iter().any(|h| h.action == Action::Author(A::ToolField(2))));
         assert_eq!(a.editor.project, original); assert_eq!(a.editor.undo_len(), 0);
@@ -82,10 +88,10 @@ fn collapsing_scrolling_and_numeric_entry_preserve_the_same_live_transaction() {
     click(&mut a, Action::ModelingTool(M::Extrude));
     assert!(a.modeling_live.is_some());
     let preview = a.editor.project.clone();
-    click(&mut a, Action::ToggleSection(modeling_palette::PROPERTIES_SECTION));
+    click(&mut a, Action::Author(A::ToolPanelToggle));
     assert!(a.modeling_live.is_some()); assert_eq!(a.editor.project, preview);
-    assert!(a.property_y(a.modeling_properties_start()).is_none());
-    click(&mut a, Action::ToggleSection(modeling_palette::PROPERTIES_SECTION));
+    assert!(a.authoring.workflow.collapsed);
+    click(&mut a, Action::Author(A::ToolPanelToggle));
     a.ui = a.build_ui(); a.mouse = [a.properties_content_rect()[0] + 40., 300.];
     a.scroll(-1.); assert!(a.modeling_live.is_some()); assert_eq!(a.editor.project, preview);
     click(&mut a, Action::Author(A::LiveField(0)));
@@ -168,6 +174,9 @@ fn one_bevel_button_uses_each_selection_context_and_cancels_on_mode_switch() {
         let mut u = Ui::new(1.);
         a.draw_authoring_panel(&mut u, 0., 300.);
         assert_eq!(u.hits.iter().filter(|h| h.action == Action::ModelingTool(M::Bevel)).count(), 1);
+        assert!(!u.hits.iter().any(|h| matches!(h.action, Action::Author(A::LiveField(_)))));
+        u = Ui::new(1.);
+        a.draw_tool_panel(&mut u);
         assert_eq!(u.hits.iter().filter(|h| matches!(h.action, Action::Author(A::LiveField(_)))).count(), fields);
         let target = if mode == S::Face { S::Vertex } else { S::Face };
         click(&mut a, Action::Author(A::SelectMode(target)));

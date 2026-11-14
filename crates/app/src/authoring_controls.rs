@@ -329,7 +329,7 @@ impl App {
             | A::Bridge
             | A::BridgeFaces
             | A::SectionMode(_) | A::SectionSelect(_) | A::SectionDelete
-            | A::ToolField(_) | A::ToolArray | A::ExtrudeMode(_) | A::ToolPanelDrag | A::ToolPanelToggle
+            | A::ToolField(_) | A::ToolArray | A::ExtrudeMode(_) | A::ToolPanelDrag | A::ToolPanelToggle | A::ToolPanelScroll
             | A::BridgeSegments
             | A::Dissolve
             | A::Inspect

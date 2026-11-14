@@ -105,20 +105,12 @@ impl App {
             return false;
         }
         match action {
-            Action::ToggleSection(id)
-                if matches!(
-                    *id,
-                    super::modeling_palette::TOOLS_SECTION
-                        | super::modeling_palette::PROPERTIES_SECTION
-                ) =>
-            {
-                false
-            }
+            Action::ToggleSection(super::modeling_palette::TOOLS_SECTION) => false,
             Action::ScrollPanel(0) | Action::ToggleRightPanel => false,
             a if Self::preview_navigation_action(a) => false,
             Action::Author(A::SnapToggle|A::SnapMode(_)|A::SnapGridStep(_))
                 | Action::DropdownOpen(ui::DropdownKind::SnapMode)|Action::DropdownDismiss=>false,
-            Action::Author(A::SectionMode(_) | A::SectionSelect(_) | A::SectionDelete | A::ToolField(_) | A::LoopPosition | A::ToolPanelDrag | A::ToolPanelToggle | A::LiveBackdrop)=>false,
+            Action::Author(A::SectionMode(_) | A::SectionSelect(_) | A::SectionDelete | A::ToolField(_) | A::LoopPosition | A::ToolPanelDrag | A::ToolPanelToggle | A::ToolPanelScroll | A::LiveBackdrop)=>false,
             Action::Slide(field,_,_) | Action::ResetNumber(field) if Self::workflow_preference_field(field)=>false,
             Action::Author(A::KnifeAccept | A::KnifeCancel | A::KnifeSnap | A::KnifeCloseGap | A::KnifeAngle(_))
             | Action::DropdownOpen(ui::DropdownKind::KnifeAngle)

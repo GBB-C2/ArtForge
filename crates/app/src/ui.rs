@@ -440,7 +440,7 @@ pub enum PrimitiveAction {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AuthorAction {
-    ToolField(u8), ToolArray, ExtrudeMode(u8), ToolPanelDrag, ToolPanelToggle,
+    ToolField(u8), ToolArray, ExtrudeMode(u8), ToolPanelDrag, ToolPanelToggle, ToolPanelScroll,
     SnapMode(u8), SnapStep, SnapToggle, SnapGridStep(f32),
     ModifierPreview,
     KnifeSnap,

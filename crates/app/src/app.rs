@@ -205,6 +205,11 @@ mod modeling_controls;
 #[path = "modeling_palette.rs"]
 mod modeling_palette;
 #[cfg(test)]
+#[path = "modeling_workflow_tests.rs"]
+mod modeling_workflow_tests;
+#[path = "modeling_workflow.rs"]
+mod modeling_workflow;
+#[cfg(test)]
 #[path = "workspace40_tests.rs"]
 mod workspace40_tests;
 #[path = "modeling_live.rs"]
@@ -312,6 +317,7 @@ enum Tool {
 }
 #[derive(Clone)]
 enum Drag {
+    ToolPanel { start: [f32;2], origin: [f32;2], original: Option<[f32;2]> },
     Swatch(color_swatches::SwatchDrag),
     CreationPanel { start: [f32; 2], origin: [f32; 2], original: Option<[f32; 2]>, moved: bool },
     Curve(curve_controls::CurveDrag),
@@ -636,6 +642,7 @@ struct App {
     slider_click: Option<controls::SliderClick>,
     view_axis_press: Option<(u8, [f32; 2])>,
     input: Option<TextEdit>,
+    field_origin:[f32;2],
     color_picker: Option<color_controls::ColorSession>,
     swatches: color_swatches::Swatches,
     text_selecting: bool,
@@ -816,6 +823,7 @@ impl App {
             slider_click: None,
             view_axis_press: None,
             input: None,
+            field_origin:[0.,0.],
             color_picker: None,
             swatches: Default::default(),
             text_selecting: false,
@@ -1431,6 +1439,7 @@ impl App {
             if let Drag::LiveParameter(ref parameter) = drag {
                 self.restore_live_parameter(parameter);
             }
+            if let Drag::ToolPanel { original, .. } = &drag { self.authoring.workflow.panel_position=*original; }
             if let Drag::CreationPanel { original, .. } = &drag {
                 self.preferences.creation_panel_position = *original;
             }
@@ -1446,7 +1455,10 @@ impl App {
             self.cancel_view_navigation(&drag);
             if let Drag::Color(ref color) = drag {
                 self.restore_color_drag(color);
-            } else if !matches!(drag, Drag::ComponentSelection(_) | Drag::LiveParameter(_)) {
+            } else if let Drag::Slider(ref slider) = drag {
+                if !Self::workflow_preference_field(&slider.action) {self.editor.cancel_edit();}
+                self.restore_slider_preferences(slider);
+            } else if !matches!(drag, Drag::ToolPanel {..} | Drag::ComponentSelection(_) | Drag::LiveParameter(_)) {
                 self.editor.cancel_edit();
                 self.restore_animation_drag(&drag);
                 if matches!(drag, Drag::Uv(_) | Drag::Mesh(_) | Drag::Weights(_) | Drag::Curve(_)) {
@@ -1679,6 +1691,7 @@ impl App {
         }
         self.surface.input_error = None;
         self.text_selecting = false;
+        self.field_origin=self.mouse;
         self.input = Some(TextEdit::new(value, purpose));
         if let Some(w) = &self.window {
             w.set_ime_allowed(true);
@@ -4030,6 +4043,7 @@ impl App {
         }
         match self.drag.clone() {
             Some(Drag::Swatch(drag)) => self.update_swatch_drag(drag),
+            Some(Drag::ToolPanel {start,origin,original}) => self.update_tool_panel_drag(start,origin,original),
             Some(Drag::CreationPanel { start, origin, original, moved }) => self.update_creation_panel_drag(start, origin, original, moved),
             Some(Drag::Material(_)) => {}
             Some(Drag::Scene(_)) => self.scroll_scene_drag(),
@@ -4192,6 +4206,7 @@ impl App {
             }
         }
         match drag {
+            Some(Drag::Slider(ref s)) if Self::workflow_preference_field(&s.action) => {},
             Some(Drag::Swatch(drag)) => self.finish_swatch_drag(drag),
             Some(Drag::CreationPanel { moved, .. }) => {
                 if moved { self.persist_preferences(); }
@@ -4639,6 +4654,8 @@ impl App {
         self.draw_primitive_panel(&mut u);
         self.draw_modeling_live(&mut u);
         self.draw_advanced_overlay(&mut u);
+        self.draw_tool_panel(&mut u);
+        self.draw_tool_tooltip(&mut u);
         self.draw_snapping(&mut u);
         self.draw_uv_editor(&mut u);
         self.draw_material_drag(&mut u);

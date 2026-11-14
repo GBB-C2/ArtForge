@@ -311,8 +311,13 @@ pub(crate) fn bridge_options(mesh:&mut Mesh,selection:&BTreeSet<(usize,usize)>,s
     }
     let g = MeshConnectivity::new(mesh);
     let edges = selected_edges(mesh, selection, &g)?;
-    if edges.iter().any(|e| g.edge_faces[e].len() != 1) {
+    if edges.iter().any(|e| g.edge_faces[e].len() > 1) {
         return Err(invalid("Мост соединяет два открытых граничных контура"));
+    }
+    let mut degrees = BTreeMap::<usize,usize>::new();
+    for &(a,b) in &edges { *degrees.entry(a).or_default()+=1; *degrees.entry(b).or_default()+=1; }
+    if degrees.values().any(|&n|n!=2) || edges.iter().any(|e|g.edge_faces[e].is_empty()) {
+        return crate::modeling_workflow::bridge_open(mesh,&edges,segments,twist,smooth);
     }
     let directed: Vec<_> = edges
         .iter()

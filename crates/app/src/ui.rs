@@ -440,6 +440,7 @@ pub enum PrimitiveAction {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AuthorAction {
+    ToolField(u8), ToolArray, ExtrudeMode(u8), ToolPanelDrag, ToolPanelToggle,
     SnapMode(u8), SnapStep,
     ModifierPreview,
     KnifeSnap, KnifeAngle(u8),
@@ -862,7 +863,7 @@ pub enum ModelingTool {
     Extrude, ExtrudeIndividual, Inset, Bevel, LoopCut, Knife, Slide, FillHoles, Triangulate, Separate,
     Merge, Weld, Bridge, BridgeFaces, Dissolve, DeleteFaces, Subdivide,
     Smooth, Flat, Align, Relax, Inspect,
-    Sphere, Circle, Inflate, Twist,
+    Sphere, Circle, Inflate, Twist, Array,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -988,7 +989,7 @@ impl Action {
         matches!(
             self,
             Self::Author(
-                AuthorAction::ProportionalRadius
+                AuthorAction::ToolField(_) | AuthorAction::ProportionalRadius
                     | AuthorAction::LiveField(_)
                     | AuthorAction::WeldDistance
                     | AuthorAction::BridgeSegments | AuthorAction::SnapStep | AuthorAction::BridgeTwist | AuthorAction::BridgeSmooth

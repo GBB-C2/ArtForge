@@ -25,6 +25,7 @@ pub(super) struct LiveOperation {
     faces: BTreeSet<usize>,
     vertices: BTreeSet<usize>,
     kind: Kind,
+    extrude_mode:u8,
     values: [f32; 3],
     defaults: [f32; 3],
     anchor: Vec3,
@@ -100,6 +101,8 @@ impl LiveOperation {
                 inset: v[0] / 100.,
                 shift: if self.kind == Kind::Face { v[1] } else { 0. },
             },
+            Kind::Extrude if self.extrude_mode==1 => MeshEdit::ExtrudeDistributed {faces:self.faces.clone(),distance:v[0]},
+            Kind::Extrude if self.extrude_mode==2 => MeshEdit::Bevel {faces:self.faces.clone(),inset:0.,shift:v[0]},
             Kind::Extrude => MeshEdit::Extrude {
                 faces: self.faces.clone(),
                 distance: v[0],
@@ -136,6 +139,16 @@ pub(super) struct ParameterDrag {
     range: SliderRange,
 }
 impl App {
+    pub(super) fn change_extrude_mode(&mut self,mode:u8) {
+        let previous=self.authoring.workflow.extrude_mode;
+        if let Some(op)=self.modeling_live.as_mut().filter(|op|op.kind==Kind::Extrude) {
+            op.extrude_mode=mode;
+            let result=self.editor.preview_mesh(op.node,&op.original,op.edit(op.values));
+            if let Err(e)=result {op.extrude_mode=previous;op.error=Some(e.to_string());self.status=e.to_string();return;}
+            op.error=None;self.invalidate_geometry();
+        }
+        self.authoring.workflow.extrude_mode=mode;
+    }
     pub(super) fn modeling_live_action(&mut self, a: A) -> bool {
         let mut kind = match a {
             A::Slide => Kind::Slide,
@@ -271,6 +284,7 @@ impl App {
             faces,
             vertices,
             kind,
+            extrude_mode:self.authoring.workflow.extrude_mode,
             values,
             defaults: values,
             anchor,
@@ -293,6 +307,7 @@ impl App {
             self.authoring.edges.clear();
             self.authoring.faces.clear();
         }
+        self.authoring.workflow.collapsed = !op.expanded;
         self.modeling_live = Some(op);
         self.sync_live_selection();
         self.invalidate_geometry();
@@ -405,6 +420,7 @@ impl App {
             return false;
         }
         match a {
+            Action::Author(A::ToolPanelDrag | A::ToolPanelToggle | A::ExtrudeMode(_))=>false,
             Action::ToggleSection(id) if matches!(*id, super::modeling_palette::TOOLS_SECTION | super::modeling_palette::PROPERTIES_SECTION) => false,
             Action::ScrollPanel(0) | Action::ToggleRightPanel => false,
             Action::Author(
@@ -428,7 +444,7 @@ impl App {
                     .hits
                     .iter()
                     .rev()
-                    .find(|h| h.action == *a)
+                    .find(|h| h.action == *a && ui::contains(h.rect,self.mouse))
                     .map(|h| h.rect);
                 self.begin_live_parameter(i as usize, rect);
                 true
@@ -640,6 +656,10 @@ impl App {
             C::NeswResize
         })
     }
+    pub(super) fn modeling_panel_anchor(&self)->Option<[f32;2]> {
+        self.project_point(self.modeling_live.as_ref()?.anchor)
+    }
+    #[allow(dead_code)]
     fn modeling_live_panel_rect(&self, op: &LiveOperation) -> [f32; 4] {
         let v = self.modeling_area();
         let w = 300_f32.min((v[2] - 24.).max(1.));
@@ -654,81 +674,10 @@ impl App {
         let Some(op) = &self.modeling_live else {
             return;
         };
-        let p = u.palette();
-        let [x, y, w, h] = self.modeling_live_panel_rect(op);
         self.draw_live_handles(u, op);
-        if self.modeling_live_in_properties() { return; }
-        let mut bg = p.panel;
-        bg[3] = 0.92;
-        u.outlined_surface([x, y, w, h], bg, p.border);
-        u.rect([x + 1., y + 5., 3., h - 10.], p.accent);
-        u.hits.push(ui::Hit {
-            rect: [x, y, w, h],
-            action: Action::Author(A::LiveBackdrop),
-        });
-        u.hits.push(ui::Hit {
-            rect: [x, y, w - 72., 38.],
-            action: Action::Author(A::LiveToggle),
-        });
-        u.disclosure_button(
-            [x + 7., y + 3., 28., 32.],
-            Some(Action::Author(A::LiveToggle)),
-            op.expanded,
-        );
-        u.fitted_label([x + 38., y + 10., w - 114., 22.], op.label(), 13., p.text);
-        if !op.expanded {
-            u.quiet_icon_button(
-                [x + w - 70., y + 3., 32., 32.],
-                "",
-                Action::Author(A::LiveAccept),
-                false,
-                crate::icons::Icon::Check,
-            );
-            u.quiet_icon_button(
-                [x + w - 35., y + 3., 32., 32.],
-                "",
-                Action::Author(A::LiveCancel),
-                false,
-                crate::icons::Icon::Close,
-            );
-            return;
-        }
-        for i in 0..op.fields() {
-            let (label, _, _, _) = op.spec(i);
-            u.number_field(
-                [x + 14., y + 40. + i as f32 * 38., w - 28., 32.],
-                label,
-                op.values[i] as f64,
-                Action::Author(A::LiveField(i as u8)),
-                self.live_field_range(op, i),
-            );
-        }
-        let row = y + 40. + op.fields() as f32 * 38.;
-        let half = (w - 34.) * 0.5;
-        u.button(
-            [x + 14., row, half, 28.],
-            "Применить ↵",
-            Action::Author(A::LiveAccept),
-            true,
-        );
-        u.quiet_button(
-            [x + 20. + half, row, half, 28.],
-            "Отмена · Esc",
-            Action::Author(A::LiveCancel),
-            false,
-        );
-        u.fitted_label(
-            [x + 14., row + 34., w - 28., 18.],
-            op.error.as_deref().unwrap_or(if op.kind == Kind::Edge {
-                "Колесо — параметр / сегменты кольца"
-            } else {
-                "Shift — точно · Ctrl — шаг"
-            }),
-            10.,
-            p.muted,
-        );
     }
 
+    #[allow(dead_code)]
     fn modeling_live_in_properties(&self) -> bool {
         self.preferences.right_panel && self.surface.tab == 7 && self.authoring.editing.is_some()
     }
@@ -797,7 +746,7 @@ mod tests {
         )));
         a.authoring.faces = BTreeSet::from([0]);
         a.authoring.edges = BTreeSet::from([(0, 1)]);
-        a.action(Action::Author(command));
+        if command==A::LoopCut {a.modeling_live_action(command);}else{a.action(Action::Author(command));}
         assert!(a.modeling_live.is_some(), "{}", a.status);
         a.ui = a.build_ui();
         a
@@ -811,7 +760,7 @@ mod tests {
         a.ui = a.build_ui();
         let rect =
             a.ui.hits
-                .iter()
+                .iter().rev()
                 .find(|h| h.action == Action::Author(action))
                 .unwrap()
                 .rect;
@@ -1037,22 +986,22 @@ mod tests {
         // A hidden inspector retains the floating fallback panel.
         a.preferences.right_panel = false;
         a.action(Action::Author(A::EdgeBevel));
-        if a.modeling_live.as_ref().unwrap().expanded {
-            press(&mut a, A::LiveToggle); a.mouse_up(MouseButton::Left);
+        if !a.authoring.workflow.collapsed {
+            press(&mut a, A::ToolPanelToggle); a.mouse_up(MouseButton::Left);
         }
-        assert!(!a.modeling_live.as_ref().unwrap().expanded);
+        assert!(!!a.authoring.workflow.collapsed);
         let history = a.editor.undo_len();
-        press(&mut a, A::LiveToggle);
+        press(&mut a, A::ToolPanelToggle);
         a.mouse_up(MouseButton::Left);
-        assert!(a.modeling_live.as_ref().unwrap().expanded);
+        assert!(!a.authoring.workflow.collapsed);
         press(&mut a, A::LiveField(1));
         a.mouse_up(MouseButton::Left);
         a.input.as_mut().unwrap().select_all();
         a.input.as_mut().unwrap().insert("6");
         a.action(Action::ConfirmInput);
-        press(&mut a, A::LiveToggle);
+        press(&mut a, A::ToolPanelToggle);
         a.mouse_up(MouseButton::Left);
-        assert!(!a.modeling_live.as_ref().unwrap().expanded);
+        assert!(!!a.authoring.workflow.collapsed);
         assert_eq!(a.modeling_live.as_ref().unwrap().values[1], 6.);
         assert_eq!(a.editor.undo_len(), history);
         press(&mut a, A::LiveAccept);

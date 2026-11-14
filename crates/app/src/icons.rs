@@ -8,7 +8,7 @@ pub enum Icon {
     Connected, InvertSelection, EdgeLoop, EdgeRing,
     Extrude, ExtrudeIndividual, FillHoles, Triangulate, Separate, Inset, Bevel, LoopCut, Knife, SlideEdge,
     Merge, Weld, Bridge, Dissolve, Flatten, Straighten, EqualSpace, Relax,
-    ModelSphere, ModelCircle, Inflate, Twist, Subdivide, InspectMesh, SmoothNormals, FlatNormals, DeleteFaces,
+    ModelSphere, ModelCircle, Inflate, Twist, ModelArray, Subdivide, InspectMesh, SmoothNormals, FlatNormals, DeleteFaces,
     Physics,
     Object,
     Text,
@@ -408,6 +408,9 @@ impl Icon {
                 geometry.arc([12., 5.], [7., 3.], 0., 360.);
                 geometry.arc([12., 20.], [7., 2.5], 0., 360.);
                 geometry.arc([12., 12.], [9., 5.], 280., 390.);
+            }
+            Self::ModelArray => {
+                for (x,y) in [(3.,3.),(13.,3.),(3.,13.),(13.,13.)] {geometry.closed(&[[x,y],[x+7.,y],[x+7.,y+7.],[x,y+7.]]);}
             }
             Self::Subdivide => {
                 geometry.path(&[[9., 3.], [9., 21.]]);
@@ -966,6 +969,7 @@ mod tests {
         Icon::ModelCircle,
         Icon::Inflate,
         Icon::Twist,
+        Icon::ModelArray,
         Icon::Subdivide,
         Icon::InspectMesh,
         Icon::SmoothNormals,

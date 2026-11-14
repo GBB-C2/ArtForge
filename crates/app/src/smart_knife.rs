@@ -404,7 +404,7 @@ impl App {
         let count = cuts.len();
         let result = self
             .editor
-            .preview_mesh(node, &mesh, MeshEdit::KnifeStroke { cuts });
+            .preview_mesh(node, &mesh, MeshEdit::KnifeGap { cuts, width:self.authoring.workflow.values[0] });
         if self.result(result).is_some() {
             let k = self.authoring.knife.as_mut().unwrap();
             k.cuts += count;

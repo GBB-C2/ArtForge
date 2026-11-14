@@ -239,10 +239,10 @@ impl App {
         if tool == ui::ModelingTool::Move {
             let center = self.edit_center();
             for (axis, label) in ["Центр X", "Центр Y", "Центр Z"].into_iter().enumerate() {
-                u.fitted_label([x, y + 5., w * 0.48, 20.], label, 11., p.muted);
-                let r = [x + w * 0.5, y, w * 0.5, 28.];
+                let r = [x, y, w, 32.];
                 if let Some(center) = center {
-                    u.field(r, &ui::number_caption(center[axis] as f64), Action::Author(A::Coordinate(axis as u8)));
+                    let v=center[axis] as f64;
+                    u.number_field(r,label,v,Action::Author(A::Coordinate(axis as u8)),SliderRange::new(v-5.,v+5.,0.01));
                 } else { u.disabled_button(r, "—"); }
                 y += 34.;
             }
@@ -253,15 +253,14 @@ impl App {
             } else {
                 ("Масштаб ×".into(), "1", A::ScaleFactor(self.authoring.constraint.map_or(3, |i| i as u8)))
             };
-            u.fitted_label([x, y + 5., w * 0.55, 20.], &label, 11., p.muted);
-            u.field([x + w * 0.58, y, w * 0.42, 28.], value, Action::Author(command));
+            let value=self.component_slider_value(command,value.parse().unwrap());
+            u.number_field([x,y,w,32.],&label,value,Action::Author(command),if tool==ui::ModelingTool::Rotate{SliderRange::new(-180.,180.,1.)}else{SliderRange::new(0.001,4.,0.01)});
             y += 34.;
         }
         u.checkbox([x, y, w, 26.], "Мягкое выделение · O", Action::Author(A::Proportional), self.authoring.proportional);
         y += 32.;
         if self.authoring.proportional {
-            u.fitted_label([x, y + 5., w * 0.55, 20.], "Радиус, м", 11., p.muted);
-            u.field([x + w * 0.58, y, w * 0.42, 28.], &ui::number_caption(self.authoring.proportional_radius as f64), Action::Author(A::ProportionalRadius));
+            u.number_field([x,y,w,32.],"Радиус, м",self.authoring.proportional_radius as f64,Action::Author(A::ProportionalRadius),SliderRange::new(0.001,10.,0.01));
             y += 34.;
         }
         u.checkbox([x, y, w, 26.], "Сквозное выделение · X-Ray", Action::Author(A::Xray), self.authoring.xray);

@@ -57,19 +57,19 @@ fn icons_reveal_only_the_chosen_properties_without_changing_the_mesh() {
         assert!(a.property_y(a.modeling_properties_start()).is_none());
         let mut u = Ui::new(1.); a.draw_authoring_panel(&mut u, 0., width - properties::RAIL_WIDTH);
         let tools: Vec<_> = u.hits.iter().filter(|h| matches!(h.action, Action::ModelingTool(_))).collect();
-        assert_eq!(tools.len(), 32);
+        assert_eq!(tools.len(), 29);
         for h in tools {
             assert!(h.action.hint().is_some());
             assert!(!u.texts.iter().any(|t| ui::contains(h.rect, [t.x, t.y])));
         }
-        click(&mut a, Action::ModelingTool(M::Weld));
+        click(&mut a, Action::ModelingTool(M::Array));
         u = Ui::new(1.); a.draw_authoring_panel(&mut u, 0., width - properties::RAIL_WIDTH);
-        assert!(u.hits.iter().any(|h| h.action == Action::Author(A::WeldDistance)));
+        assert!(u.hits.iter().any(|h| h.action == Action::Author(A::ToolField(2))));
         assert!(!u.hits.iter().any(|h| h.action == Action::Author(A::BridgeSegments)));
         click(&mut a, Action::ModelingTool(M::Bridge));
         u = Ui::new(1.); a.draw_authoring_panel(&mut u, 0., width - properties::RAIL_WIDTH);
         assert!(u.hits.iter().any(|h| h.action == Action::Author(A::BridgeSegments)));
-        assert!(!u.hits.iter().any(|h| h.action == Action::Author(A::WeldDistance)));
+        assert!(!u.hits.iter().any(|h| h.action == Action::Author(A::ToolField(2))));
         assert_eq!(a.editor.project, original); assert_eq!(a.editor.undo_len(), 0);
     }
 }
@@ -104,13 +104,13 @@ fn collapsing_scrolling_and_numeric_entry_preserve_the_same_live_transaction() {
 fn invalid_numeric_entry_blocks_switching_tools_and_escape_retains_context() {
     let mut a = app();
     click(&mut a, Action::Author(A::SelectMode(S::Vertex)));
-    click(&mut a, Action::ModelingTool(M::Weld));
-    click(&mut a, Action::Author(A::WeldDistance));
+    click(&mut a, Action::ModelingTool(M::Array));
+    click(&mut a, Action::Author(A::ToolField(2)));
     a.input.as_mut().unwrap().select_all(); a.input.as_mut().unwrap().insert("bad");
     a.action(Action::ModelingTool(M::Bridge));
-    assert!(a.input.is_some()); assert_eq!(a.authoring.modeling_tool, Some(M::Weld));
+    assert!(a.input.is_some()); assert_eq!(a.authoring.modeling_tool, Some(M::Array));
     a.action(Action::Cancel); assert!(a.input.is_none());
-    assert_eq!(a.authoring.modeling_tool, Some(M::Weld)); assert_eq!(a.editor.undo_len(), 0);
+    assert_eq!(a.authoring.modeling_tool, Some(M::Array)); assert_eq!(a.editor.undo_len(), 0);
 }
 
 #[test]

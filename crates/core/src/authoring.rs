@@ -8,6 +8,11 @@ pub const MAX_EDIT_TRIANGLES: usize = 131_072;
 
 #[derive(Clone, Debug)]
 pub enum MeshEdit {
+    KnifeGap { cuts: Vec<crate::KnifeCut>, width: f32 },
+    Dissolve { region: crate::MeshRegion },
+    Array { region: crate::MeshRegion, count: u32, offset: Vec3, rotation: Vec3 },
+    ExtrudeDistributed { faces: BTreeSet<usize>, distance: f32 },
+
     KnifeStroke {cuts:Vec<crate::KnifeCut>},
     Topology {region:crate::MeshRegion,edit:crate::TopologyEdit},
     BridgeAdvanced {faces:BTreeSet<usize>,edges:BTreeSet<(usize,usize)>,segments:u32,twist:i32,smooth:f32},
@@ -148,16 +153,16 @@ pub(crate) fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<()
     let preserve_wires = !matches!(operation,
         MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. } | MeshEdit::SubdivideSelected { .. } | MeshEdit::Topology {..}
         | MeshEdit::Transform { .. } | MeshEdit::Translate { .. } | MeshEdit::Slide { .. }
-        | MeshEdit::WeightedTransform { .. } | MeshEdit::Shape { .. } | MeshEdit::Knife { .. } | MeshEdit::KnifeStroke {..} | MeshEdit::Uv(_));
+        | MeshEdit::WeightedTransform { .. } | MeshEdit::Shape { .. } | MeshEdit::Knife { .. } | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::Array {..} | MeshEdit::Uv(_));
     let wires: Vec<_> = if preserve_wires { mesh.topology.iter().flat_map(|t|t.loose_edges.iter())
         .map(|e|(*e,e.map(|v|mesh.vertices[v as usize]))).collect() } else {Vec::new()};
-    if !wires.is_empty() {mesh.topology.as_mut().unwrap().loose_edges.clear();}
+    if !wires.is_empty() && !matches!(operation, MeshEdit::BridgeAdvanced {..} | MeshEdit::Bridge {..}) {mesh.topology.as_mut().unwrap().loose_edges.clear();}
     let remap = !matches!(
         operation,
         MeshEdit::Uv(_)
             | MeshEdit::VertexBevel { .. }
             | MeshEdit::Shape { .. }
-            | MeshEdit::Knife { .. } | MeshEdit::KnifeStroke {..}
+            | MeshEdit::Knife { .. } | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::Array {..}
             | MeshEdit::Transform { .. }
             | MeshEdit::Translate { .. }
             | MeshEdit::Slide { .. }
@@ -243,6 +248,10 @@ pub(crate) fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<()
 }
 fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError> {
     match &operation {
+        MeshEdit::KnifeGap {cuts,width}=>return crate::knife_stroke::apply_gap(mesh,cuts,*width),
+        MeshEdit::Dissolve {region}=>return crate::modeling_workflow::dissolve(mesh,region),
+        MeshEdit::Array {region,count,offset,rotation}=>return crate::modeling_workflow::array(mesh,region,*count,*offset,*rotation),
+        MeshEdit::ExtrudeDistributed {faces,distance}=>return crate::modeling_workflow::extrude(mesh,faces,*distance),
         MeshEdit::KnifeStroke {cuts}=>return crate::knife_stroke::apply(mesh,cuts),
         MeshEdit::Topology {region,edit}=>return crate::mesh_cleanup::apply(mesh,region,*edit),
         MeshEdit::BridgeAdvanced {faces,edges,segments,twist,smooth}=>return if faces.is_empty() {crate::mesh_topology_tools::bridge_options(mesh,edges,*segments,*twist,*smooth)} else {crate::mesh_topology_tools::bridge_faces_options(mesh,faces,*segments,*twist,*smooth)},
@@ -324,7 +333,7 @@ fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), Cor
     let keep_policy = mesh.topology.is_some() || matches!(operation, MeshEdit::SmoothNormals);
     match operation {
         MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. }
-        | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} => unreachable!(),
+        | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::Dissolve {..} | MeshEdit::Array {..} | MeshEdit::ExtrudeDistributed {..} => unreachable!(),
         MeshEdit::Normals { .. }
         | MeshEdit::Shape { .. }
         | MeshEdit::Knife { .. }

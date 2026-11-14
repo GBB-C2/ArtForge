@@ -453,6 +453,7 @@ impl App {
             || self.authoring.knife.is_some()
             || self.primitive_panel.is_some()
             || self.modeling_live.is_some()
+            || (self.authoring.editing.is_some() && self.authoring.modeling_tool.is_some_and(|t| !matches!(t,ui::ModelingTool::Move|ui::ModelingTool::Rotate|ui::ModelingTool::Scale|ui::ModelingTool::Select(_))))
             || self.uv.open
         {
             return;
@@ -464,7 +465,8 @@ impl App {
         let p = u.palette();
         let width = 268_f32.min(area[2]);
         let x = area[0];
-        let y = area[1] + area[3] - 44.;
+        let mut y = area[1] + area[3] - 44.;
+        if let Some(panel)=self.tool_panel_rect() {if intersect_rect([x,y,width,38.],panel).is_some(){if panel[1]-44. < area[1]{return;}y=panel[1]-44.;}}
         u.outlined_surface([x, y, width, 38.], p.panel, p.border);
         u.button(
             [x + 4., y + 4., width - 94., 30.],
@@ -472,11 +474,7 @@ impl App {
             Action::DropdownOpen(DropdownKind::SnapMode),
             self.authoring.snapping.mode != 0,
         );
-        u.field(
-            [x + width - 86., y + 4., 82., 30.],
-            &format!("Шаг {}", ui::number_caption(self.snap_step() as f64)),
-            Action::Author(A::SnapStep),
-        );
+        u.number_field([x+width-86.,y+4.,82.,30.],"Шаг",self.snap_step() as f64,Action::Author(A::SnapStep),ui::SliderRange::new(0.001,1.,0.001));
         if let Some((world, label)) = self.authoring.snapping.feedback {
             if let Some(q) =
                 authoring_controls::project(self.view().view_projection(), self.viewport(), world)

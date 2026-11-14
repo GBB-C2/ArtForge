@@ -84,9 +84,7 @@ impl App {
         let mut navigation = self.view_widget_rect();
         navigation[3] += if self.camera_view.is_some() { 84. } else { 52. };
         let mut obstacles = vec![navigation, self.shading_toolbar_rect()];
-        if !self.modeling_live_in_properties() {
-            obstacles.push(self.modeling_live_panel_rect(op));
-        }
+        if let Some(panel)=self.tool_panel_rect() { obstacles.push(panel); }
         let p = u.palette();
         let fields = if op.kind == Kind::Face { 2 } else { 1 };
         for field in 0..fields {

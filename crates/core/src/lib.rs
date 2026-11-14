@@ -13,6 +13,8 @@ mod modifier_geometry;
 mod advanced_modifiers;
 mod advanced_bridge;
 mod knife_stroke;
+mod modeling_workflow;
+pub use modeling_workflow::loop_cut_path;
 pub use knife_stroke::KnifeCut;
 mod mesh_cleanup;
 pub use mesh_cleanup::{MeshRegion,TopologyEdit,RepairKind};

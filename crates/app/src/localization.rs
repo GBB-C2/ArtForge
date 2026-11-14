@@ -20,6 +20,12 @@ impl Language {
     }
 }
 const LABELS:&[(&str,&str)]=&[
+    ("Мост","Bridge"),("Растворить","Dissolve"),("Зазор, м","Gap, m"),("Массив","Array"),
+    ("Режим экструдирования","Extrusion mode"),("Область","Region"),("По нормалям","Along normals"),("Отдельно","Individual"),
+    ("Копии, включая исходную","Copies, including original"),("Создать массив","Create array"),
+    ("Смещение X, м","Offset X, m"),("Смещение Y, м","Offset Y, m"),("Смещение Z, м","Offset Z, m"),
+    ("Поворот X, °","Rotation X, °"),("Поворот Y, °","Rotation Y, °"),("Поворот Z, °","Rotation Z, °"),
+    ("Смещение и поворот на каждую копию","Offset and rotation per copy"),
     ("Мост из граней","Bridge faces"), ("Подразделить выделение","Subdivide selection"),
     ("Выравнивание","Align"), ("В плоскость","Flatten"), ("В цепочку","Straighten"), ("Равномерный шаг","Even spacing"),
     ("Завершить правку сетки","Finish mesh editing"),

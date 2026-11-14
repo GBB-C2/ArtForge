@@ -6,12 +6,12 @@ pub(super) const TOOLS_SECTION: u16 = 740;
 pub(super) const PROPERTIES_SECTION: u16 = 741;
 const TOOL_PITCH: f32 = 48.;
 const TOOL_SIZE: f32 = 44.;
-const TOOLS: [M; 32] = [
+const TOOLS: [M; 29] = [
     M::Select(0), M::Select(1), M::Select(2), M::Move, M::Rotate, M::Scale,
-    M::Extrude, M::ExtrudeIndividual, M::Inset, M::Bevel, M::LoopCut, M::Knife, M::Slide,
-    M::Merge, M::Weld, M::Bridge, M::BridgeFaces, M::Dissolve, M::DeleteFaces, M::Subdivide, M::FillHoles, M::Triangulate, M::Separate,
+    M::Extrude, M::Inset, M::Bevel, M::LoopCut, M::Knife, M::Slide,
+    M::Merge, M::Bridge, M::Dissolve, M::DeleteFaces, M::Subdivide, M::FillHoles, M::Triangulate, M::Separate,
     M::Smooth, M::Flat, M::Align, M::Relax,
-    M::Sphere, M::Circle, M::Inflate, M::Twist, M::Inspect,
+    M::Sphere, M::Circle, M::Twist, M::Array, M::Inspect,
 ];
 
 impl M {
@@ -27,7 +27,7 @@ impl M {
             Self::LoopCut => "Разрез петлёй · C",
             Self::Knife => "Нож · K", Self::Slide => "Сдвиг по поверхности · J",
             Self::Merge => "Объединить в центре", Self::Weld => "Сварка вершин",
-            Self::Bridge => "Мост между границами", Self::Dissolve => "Растворить рёбра",
+            Self::Bridge => "Мост", Self::Dissolve => "Растворить", Self::Array=>"Массив",
             Self::BridgeFaces => "Мост из граней",
             Self::DeleteFaces => "Удалить", Self::Subdivide => "Подразделить выделение",
             Self::Smooth => "Сгладить нормали", Self::Flat => "Плоские нормали",
@@ -42,7 +42,7 @@ impl M {
             Self::Select(1) => Icon::SelectBox, Self::Select(2) => Icon::SelectLasso,
             Self::Select(_) => Icon::SelectPointer,
             Self::Move => Icon::Move, Self::Rotate => Icon::Rotate, Self::Scale => Icon::Scale,
-            Self::ExtrudeIndividual=>Icon::ExtrudeIndividual,Self::FillHoles=>Icon::FillHoles,Self::Triangulate=>Icon::Triangulate,Self::Separate=>Icon::Separate,
+            Self::Array=>Icon::ModelArray, Self::ExtrudeIndividual=>Icon::ExtrudeIndividual,Self::FillHoles=>Icon::FillHoles,Self::Triangulate=>Icon::Triangulate,Self::Separate=>Icon::Separate,
             Self::Extrude => Icon::Extrude, Self::Inset => Icon::Inset,
             Self::Bevel => Icon::Bevel,
             Self::LoopCut => Icon::LoopCut, Self::Knife => Icon::Knife, Self::Slide => Icon::SlideEdge,
@@ -58,7 +58,7 @@ impl M {
         Some(match self {
             Self::Select(i) => Action::Author(A::SelectTool(i)),
             Self::Move => Action::Move, Self::Rotate => Action::Rotate, Self::Scale => Action::Scale,
-            Self::ExtrudeIndividual=>Action::Author(A::ExtrudeIndividual),Self::FillHoles=>Action::Author(A::FillHoles),Self::Triangulate=>Action::Author(A::Triangulate),Self::Separate=>Action::Author(A::Separate),
+            Self::Array=>Action::Author(A::ToolArray), Self::ExtrudeIndividual=>Action::Author(A::ExtrudeIndividual),Self::FillHoles=>Action::Author(A::FillHoles),Self::Triangulate=>Action::Author(A::Triangulate),Self::Separate=>Action::Author(A::Separate),
             Self::Extrude => Action::Author(A::Extrude), Self::Inset => Action::Author(A::Inset),
             Self::Bevel => Action::Author(A::Bevel),
             Self::LoopCut => Action::Author(A::LoopCut), Self::Knife => Action::Author(A::Knife),
@@ -101,7 +101,7 @@ impl App {
         self.authoring.modeling_tool = Some(tool);
         self.preferences.collapsed_sections.remove(&PROPERTIES_SECTION);
         if let Some(action) = tool.command() {
-            if matches!(tool, M::Select(_) | M::Move | M::Rotate | M::Scale | M::Knife | M::Inspect)
+            if matches!(tool, M::Select(_) | M::Move | M::Rotate | M::Scale | M::Knife | M::LoopCut | M::Inspect)
                 || (tool.live() && self.modeling_tool_ready(tool)) {
                 self.action(action);
             }
@@ -126,8 +126,8 @@ impl App {
             M::Extrude | M::Inset | M::DeleteFaces | M::Subdivide => !self.edit_vertices().is_empty(),
             M::ExtrudeIndividual | M::Triangulate | M::Separate => !self.selected_face_region().is_empty(),
             M::BridgeFaces => self.selected_face_region().len()>=2,
-            M::Bridge | M::Dissolve => self.authoring.selection_mode == S::Edge && !self.authoring.edges.is_empty(),
-            M::LoopCut => self.authoring.selection_mode == S::Edge && self.authoring.edges.len() == 1,
+            M::Bridge | M::Dissolve | M::Array => !self.edit_vertices().is_empty(),
+            M::LoopCut => true,
             M::Slide => !self.edit_vertices().is_empty(),
             M::Sphere | M::Circle => self.edit_vertices().len()>=3,
             M::Inflate | M::Twist | M::Merge | M::Weld | M::Align | M::Relax => self.edit_vertices().len() >= 2,
@@ -157,11 +157,13 @@ impl App {
                 Some(M::Relax) => 202.,
                 Some(M::Bevel) => if self.authoring.selection_mode == S::Face { 160. } else { 100. },
                 Some(M::Inspect) => 380.,
-                Some(M::Knife) => 180.,
+                Some(M::Knife | M::LoopCut) => 242.,
+                Some(M::Array)=>350.,
+                Some(M::Extrude)=>178.,
                 Some(M::Align) => if self.mesh_tools.alignment_mode==0 {146.} else {124.},
                 Some(M::Weld) => 132.,
-                Some(M::Bridge | M::BridgeFaces) => 210.,
-                Some(M::Inset | M::LoopCut) => 104.,
+                Some(M::Bridge | M::BridgeFaces) => 250.,
+                Some(M::Inset) => 104.,
                 _ => 98.,
             }
         };
@@ -191,7 +193,10 @@ impl App {
             u.modeling_icon_button(rect, Action::ModelingTool(tool), tool.icon(), self.authoring.modeling_tool == Some(tool),
                 self.job.is_none() && !self.editor.playing && !self.editor.has_staged());
         }
-        let mut y = self.modeling_properties_start();
+        self.draw_modeling_tool_properties(u,x,self.modeling_properties_start(),w);
+    }
+    pub(super) fn draw_modeling_tool_properties(&self,u:&mut Ui,x:f32,mut y:f32,w:f32) {
+        let p=u.palette();
         let Some(tool) = self.authoring.modeling_tool else { return; };
         u.fitted_label([x, y + 4., w, 20.], tool.title(), 12., p.text);
         y += 30.;
@@ -203,6 +208,7 @@ impl App {
             }, 10., p.muted);
             y += 22.;
         }
+        if tool==M::Extrude { self.draw_extrude_modes(u,x,y,w); y+=58.; }
         if self.modeling_live.is_some() {
             self.draw_modeling_live_properties(u, x, y, w);
             return;
@@ -240,11 +246,14 @@ impl App {
             }
             M::Relax => { self.draw_relax_properties(u, x, y, w); }
             M::Sphere|M::Circle|M::Inflate|M::Twist => self.draw_deform_properties(u,x,y,w,tool),
-            M::Knife if self.authoring.knife.is_some() => {
-                u.fitted_label([x, y, w, 18.], "Продолжайте разрез · Backspace — новая линия", 11., p.muted);
+            M::Array => self.draw_array_properties(u,x,y,w),
+            M::Knife | M::LoopCut if self.authoring.knife.is_some() => {
+                u.fitted_label([x, y, w, 18.], if tool==M::LoopCut {"Щелчок — новая петля · Enter — завершить"}else{"Backspace — новая линия · Enter — завершить"}, 11., p.muted);
                 y+=26.;
-                u.checkbox([x,y,w,26.],"Вершины и середины рёбер",Action::Author(A::KnifeSnap),self.authoring.knife_snap);y+=34.;
-                self.draw_dropdown_button(u,[x,y,w,30.],ui::DropdownKind::KnifeAngle,["Свободный угол","Шаг 15°","Шаг 30°","Шаг 45°","Шаг 90°"][self.authoring.knife_angle as usize]);y+=10.;
+                self.draw_workflow_field(u,x,y,w,if tool==M::LoopCut {1}else{0},38.);y+=46.;
+                if tool==M::LoopCut {u.number_field([x,y,w,38.],"Положение, %",self.authoring.loop_position as f64*100.,Action::Author(A::LoopPosition),SliderRange::new(1.,99.,1.));y+=46.;}
+                if tool==M::Knife {u.checkbox([x,y,w,26.],"Вершины и середины рёбер",Action::Author(A::KnifeSnap),self.authoring.knife_snap);y+=34.;
+                self.draw_dropdown_button(u,[x,y,w,30.],ui::DropdownKind::KnifeAngle,["Свободный угол","Шаг 15°","Шаг 30°","Шаг 45°","Шаг 90°"][self.authoring.knife_angle as usize]);y+=10.;}else{y-=18.;}
                 let half = (w - 6.) * 0.5;
                 u.button([x, y + 28., half, 30.], "Применить", Action::Author(A::KnifeAccept), true);
                 u.quiet_button([x + half + 6., y + 28., half, 30.], "Отмена", Action::Author(A::KnifeCancel), false);
@@ -258,9 +267,9 @@ impl App {
                     M::LoopCut => vec![("Положение, %", self.authoring.loop_position * 100., A::LoopPosition)],
                     _ => vec![],
                 } {
-                    u.fitted_label([x, y + 6., w * 0.55, 20.], label, 11., p.muted);
-                    u.field([x + w * 0.58, y, w * 0.42, 28.], &ui::number_caption(value as f64), Action::Author(action));
-                    y += 34.;
+                    let range=match action {A::BridgeSegments=>SliderRange::new(1.,32.,1.),A::BridgeTwist=>SliderRange::new(-32.,32.,1.),A::BridgeSmooth=>SliderRange::new(0.,100.,1.),A::InsetAmount=>SliderRange::new(0.,95.,0.5),A::LoopPosition=>SliderRange::new(1.,99.,1.),_=>SliderRange::new(-1.,1.,0.01)};
+                    u.number_field([x,y,w,44.],label,value as f64,Action::Author(action),range);
+                    y += 52.;
                 }
                 if let Some(action) = tool.command() {
                     let label = if tool.live() { "Начать предпросмотр" } else { "Применить" };

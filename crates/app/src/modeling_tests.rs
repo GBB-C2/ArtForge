@@ -226,7 +226,11 @@ fn selection_tools_and_polygon_commands_work_from_scrolled_panels_in_both_themes
             a.action(Action::Author(A::SelectMode(S::Edge)));
             a.authoring.edges = BTreeSet::from([(0, 1)]);
             click(&mut a, Action::Author(A::LoopCut));
-            click(&mut a, Action::Author(A::LiveAccept));
+            a.authoring.xray=true;
+            let mesh=a.editor.editable_mesh(1).unwrap();
+            let midpoint=(Vec3::from_array(mesh.vertices[0].position)+Vec3::from_array(mesh.vertices[1].position))*0.5;
+            a.mouse=a.project_point(midpoint).unwrap();a.knife_click();
+            click(&mut a, Action::Author(A::KnifeAccept));
             assert_eq!(a.editor.project.meshes[0].face_count(), 10);
             a.editor.project.validate().unwrap();
             a.action(Action::Mode(0));
@@ -324,7 +328,7 @@ fn live_face_tools_and_loop_preview_from_frozen_mesh_and_cancel_on_tool_change()
             a.authoring.selection_mode = S::Face;
             a.authoring.faces = BTreeSet::from([0]);
         }
-        a.action(Action::Author(command));
+        if command==A::LoopCut {a.modeling_live_action(command);}else{a.action(Action::Author(command));}
         assert!(a.modeling_live.is_some(), "{command:?}: {}", a.status);
         a.authoring_confirm(
             &Action::Author(A::LiveField(0)),

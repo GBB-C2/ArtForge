@@ -19,9 +19,10 @@ pub(super) struct SliderDrag {
     last_pointer: f32,
     fine: bool,
     start_value: f64,
-    last_value: f64,
+    pub(super) last_value: f64,
     start_time: f64,
     transform: Option<Transform>,
+    component: Option<modeling_workflow::ComponentSlider>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -454,7 +455,11 @@ impl App {
             .hits
             .iter()
             .rev()
-            .find(|h| &h.action == action && h.rect[3] >= 22.)
+            .filter(|h| &h.action == action && h.rect[3] >= 22.)
+            .min_by(|a,b| {
+                let distance=|r:[f32;4]|{let p=self.field_origin;let x=p[0]-p[0].clamp(r[0],r[0]+r[2]);let y=p[1]-p[1].clamp(r[1],r[1]+r[3]);x*x+y*y};
+                distance(a.rect).total_cmp(&distance(b.rect))
+            })
             .map(|h| h.rect)
     }
 
@@ -485,6 +490,7 @@ impl App {
         }
         self.surface.input_error = None;
         let drag = SliderDrag {
+            component:self.component_slider_source(&action),
             action,
             range,
             rect,
@@ -500,7 +506,7 @@ impl App {
                 .selected
                 .and_then(|id| self.editing_transform(id)),
         };
-        self.editor.begin_edit("Изменить параметр ползунком");
+        if !Self::workflow_preference_field(&drag.action){self.editor.begin_edit("Изменить параметр ползунком");}
         self.drag = Some(Drag::Slider(drag));
         self.drag_button = Some(MouseButton::Left);
         // Relative dragging works from anywhere on the bar, including the value.
@@ -525,7 +531,8 @@ impl App {
         }
         let integer = matches!(
             drag.action,
-            Action::EditFps
+            Action::Author(ui::AuthorAction::ToolField(2) | ui::AuthorAction::BridgeSegments | ui::AuthorAction::BridgeTwist)
+                | Action::EditFps
                 | Action::EditWidth
                 | Action::EditHeight
                 | Action::EditFrame
@@ -559,7 +566,11 @@ impl App {
         }
         self.slider_click = None;
         let at_start = (value - drag.start_value).abs() <= step.max(1e-9) * 0.49;
-        let result = if at_start {
+        let result = if let Some(component)=&drag.component {
+            self.preview_component_slider(component,&drag.action,value)
+        } else if Self::workflow_preference_field(&drag.action) {
+            self.apply_field_value(drag.action.clone(),&value.to_string())
+        } else if at_start {
             self.editor.cancel_edit();
             self.editor.time = drag.start_time;
             match drag.action {
@@ -611,6 +622,7 @@ impl App {
 
     pub(super) fn restore_slider_preferences(&mut self, drag: &SliderDrag) {
         self.editor.time = drag.start_time;
+        if Self::workflow_preference_field(&drag.action) {let _=self.apply_field_value(drag.action.clone(),&drag.start_value.to_string());return;}
         match drag.action {
             Action::Author(crate::ui::AuthorAction::PaintRadius) => {
                 self.weights.radius = drag.start_value as f32

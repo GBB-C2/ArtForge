@@ -163,12 +163,7 @@ fn fill(mesh: &mut Mesh, region: &MeshRegion) -> Result<(), CoreError> {
     let mut boundaries = Vec::new();
     let mut corners = BTreeMap::new();
     for (&e, fs) in &graph.edge_faces {
-        if fs.len() != 1
-            || (!selected.is_empty() && !selected.contains(&e))
-            || (selected.is_empty()
-                && !vertices.is_empty()
-                && (!vertices.contains(&e.0) || !vertices.contains(&e.1)))
-        {
+        if fs.len() != 1 {
             continue;
         }
         let face = mesh.face_vertices(fs[0]).unwrap();
@@ -183,6 +178,14 @@ fn fill(mesh: &mut Mesh, region: &MeshRegion) -> Result<(), CoreError> {
             }
         }
     }
+    if !vertices.is_empty() || !selected.is_empty() {
+        let mut adjacency=BTreeMap::<usize,Vec<usize>>::new();
+        for &(a,b) in &boundaries {adjacency.entry(a).or_default().push(b);adjacency.entry(b).or_default().push(a);}
+        let mut reached=vertices.clone();reached.extend(selected.iter().flat_map(|&(a,b)|[a,b]));
+        let mut queue:VecDeque<_>=reached.iter().copied().collect();
+        while let Some(v)=queue.pop_front(){if let Some(next)=adjacency.get(&v){for &n in next {if reached.insert(n){queue.push_back(n);}}}}
+        boundaries.retain(|&(a,b)|reached.contains(&a)&&reached.contains(&b));
+    }
     if boundaries.is_empty() {
         return Err(invalid("Выберите замкнутую открытую границу"));
     }
@@ -193,7 +196,11 @@ fn fill(mesh: &mut Mesh, region: &MeshRegion) -> Result<(), CoreError> {
         .and_then(|fs| fs.first())
         .and_then(|&f| mesh.face_material(f));
     let has_materials = !mesh.topology.as_ref().unwrap().face_materials.is_empty();
+    let mut filled = 0;
     for ring in loops {
+        if (!vertices.is_empty() || !selected.is_empty()) && !ring.iter().any(|v| vertices.contains(v))
+            && !(0..ring.len()).any(|i| selected.contains(&edge(ring[i],ring[(i+1)%ring.len()]))) { continue; }
+        filled += 1;
         let face = polygon(mesh, ring.iter().map(|v| corners[v]).collect())?;
         let t = mesh.topology.as_mut().unwrap();
         t.faces.push(face);
@@ -201,6 +208,7 @@ fn fill(mesh: &mut Mesh, region: &MeshRegion) -> Result<(), CoreError> {
             t.face_materials.push(material);
         }
     }
+    if filled == 0 { return Err(invalid("Выберите вершину, ребро или грань у отверстия")); }
     Ok(())
 }
 fn direction(mesh: &Mesh, g: &MeshConnectivity, f: usize, e: Edge) -> bool {

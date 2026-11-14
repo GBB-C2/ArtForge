@@ -4,6 +4,7 @@ use crate::ui::{AuthorAction as A, MeshSelection as S, Ui};
 use poseforge_core::{MeshEdit, SkeletonTemplate};
 
 pub(super) struct AuthoringState {
+    pub workflow: super::modeling_workflow::State,
     pub snapping:super::snapping::State,
     pub modeling_tool: Option<ui::ModelingTool>,
     pub knife: Option<advanced_tools::KnifeState>,
@@ -40,6 +41,7 @@ pub(super) struct AuthoringState {
 impl Default for AuthoringState {
     fn default() -> Self {
         Self {
+            workflow: Default::default(),
             snapping:Default::default(),
             modeling_tool: None,
             knife: None,
@@ -301,7 +303,7 @@ impl App {
         if self.weight_action(command) {
             return;
         }
-        if self.advanced_action(command)
+        if self.workflow_action(command) || self.advanced_action(command)
             || self.topology_action(command)
             || self.modeling_live_action(command)
             || self.modeling_action(command)
@@ -326,6 +328,7 @@ impl App {
             | A::WeldDistance
             | A::Bridge
             | A::BridgeFaces
+            | A::ToolField(_) | A::ToolArray | A::ExtrudeMode(_) | A::ToolPanelDrag | A::ToolPanelToggle
             | A::BridgeSegments
             | A::Dissolve
             | A::Inspect
@@ -596,7 +599,7 @@ impl App {
         text: &str,
     ) -> Result<bool, String> {
         if matches!(action,Action::Author(A::SnapStep)) {self.authoring.snapping.step=surfaces::number(text,0.000001,10000.)?;return Ok(true);}
-        if self.topology_confirm(action, text)?
+        if self.workflow_confirm(action, text)? || self.topology_confirm(action, text)?
             || self.modeling_live_confirm(action, text)?
             || self.modeling_confirm(action, text)?
         {

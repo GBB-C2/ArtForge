@@ -3,7 +3,7 @@ use super::*;
 use crate::ui::{AuthorAction as A, MeshSelection as S};
 use poseforge_core::MeshEdit;
 impl App {
-    fn mesh_region(&self) -> poseforge_core::MeshRegion {
+    pub(super) fn mesh_region(&self) -> poseforge_core::MeshRegion {
         poseforge_core::MeshRegion {
             vertices: if self.authoring.selection_mode == S::Vertex {
                 self.authoring.vertices.clone()
@@ -180,13 +180,13 @@ impl App {
                         distance: self.authoring.weld_distance,
                     },
                     A::Bridge | A::BridgeFaces => MeshEdit::BridgeAdvanced {
-                        faces: if a == A::BridgeFaces {
+                        faces: if a == A::BridgeFaces || self.authoring.selection_mode==S::Face {
                             self.selected_face_region()
                         } else {
                             Default::default()
                         },
                         edges: if a == A::Bridge {
-                            self.authoring.edges.clone()
+                            self.workflow_bridge_edges()
                         } else {
                             Default::default()
                         },
@@ -194,9 +194,7 @@ impl App {
                         twist: self.authoring.bridge_twist,
                         smooth: self.authoring.bridge_smooth,
                     },
-                    _ => MeshEdit::DissolveEdges {
-                        edges: self.authoring.edges.clone(),
-                    },
+                    _ => MeshEdit::Dissolve {region:self.mesh_region()},
                 };
                 let result = self.editor.edit_mesh(id, operation);
                 if self.result(result).is_some() {

@@ -271,6 +271,22 @@ pub fn loop_cut_path(
     if !g.edge_faces.contains_key(&seed) {
         return Err(invalid("Наведите указатель на ребро поверхности"));
     }
+    let first = *g.edge_faces[&seed]
+        .first()
+        .ok_or_else(|| invalid("Наведите указатель на ребро поверхности"))?;
+    let component = g.connected_faces(first);
+    if g.edge_faces
+        .values()
+        .any(|fs| fs.len() > 2 && fs.iter().any(|f| component.contains(f)))
+    {
+        return Err(invalid("У петли есть неманифолдное ребро"));
+    }
+    if component
+        .iter()
+        .any(|&f| mesh.face_vertices(f).unwrap().len() != 4)
+    {
+        return plane_loop_path(mesh, &component, seed, position);
+    }
     let mut cuts = BTreeMap::from([(seed, position)]);
     let mut queue = VecDeque::from([seed]);
     let mut seen = BTreeMap::new();
@@ -325,6 +341,106 @@ pub fn loop_cut_path(
     }
     if result.is_empty() {
         return Err(invalid("Для петли нужна полоса четырёхугольников"));
+    }
+    Ok(result)
+}
+// At poles and n-gons there is no unique opposite edge. Continue the visible
+// section through the connected surface instead of silently dropping the cut.
+fn plane_loop_path(
+    mesh: &Mesh,
+    faces: &BTreeSet<usize>,
+    seed: (usize, usize),
+    t: f32,
+) -> Result<Vec<KnifeCut>, CoreError> {
+    let a = Vec3::from_array(mesh.vertices[seed.0].position);
+    let b = Vec3::from_array(mesh.vertices[seed.1].position);
+    let origin = a.lerp(b, t);
+    let n = (b - a).normalize();
+    let mut result = Vec::new();
+    for &f in faces {
+        let ring = mesh.face_vertices(f).unwrap();
+        let start = result.len();
+        for triangle in crate::triangulate::triangulate(mesh, ring)?.chunks_exact(3) {
+            let mut points = Vec::new();
+            for i in 0..3 {
+                let p = Vec3::from_array(mesh.vertices[triangle[i] as usize].position);
+                let q = Vec3::from_array(mesh.vertices[triangle[(i + 1) % 3] as usize].position);
+                let x = (p - origin).dot(n);
+                let y = (q - origin).dot(n);
+                if x.abs() < 1e-6 {
+                    points.push(p);
+                }
+                if x * y < -1e-12 {
+                    points.push(if p.to_array() < q.to_array() {
+                        p.lerp(q, x / (x - y))
+                    } else {
+                        q.lerp(p, y / (y - x))
+                    });
+                }
+            }
+            let mut unique = Vec::<Vec3>::new();
+            for p in points {
+                if unique.iter().all(|q| q.distance_squared(p) > 1e-12) {
+                    unique.push(p);
+                }
+            }
+            if unique.len() == 2 {
+                result.push(KnifeCut {
+                    face: f,
+                    first: unique[0].to_array(),
+                    second: unique[1].to_array(),
+                });
+            }
+        }
+        // Triangulation diagonals are not surface boundaries. Join their
+        // intervals before applying the knife to a planar n-gon so the same
+        // interior endpoint is not repeatedly inserted into adjacent triangles.
+        let face_normal = crate::polygon_edit::face_normal(mesh, ring).normalize_or_zero();
+        let face_origin = Vec3::from_array(mesh.vertices[ring[0] as usize].position);
+        if result.len() > start + 1
+            && ring.iter().all(|&v| {
+                (Vec3::from_array(mesh.vertices[v as usize].position) - face_origin)
+                    .dot(face_normal)
+                    .abs()
+                    < 1e-6
+            })
+        {
+            let direction = n.cross(face_normal).normalize_or_zero();
+            let mut intervals: Vec<_> = result
+                .drain(start..)
+                .map(|cut| {
+                    let a = Vec3::from_array(cut.first);
+                    let b = Vec3::from_array(cut.second);
+                    let ta = a.dot(direction);
+                    let tb = b.dot(direction);
+                    if ta < tb {
+                        (ta, tb, a, b)
+                    } else {
+                        (tb, ta, b, a)
+                    }
+                })
+                .collect();
+            intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let mut joined: Vec<(f32, f32, Vec3, Vec3)> = Vec::new();
+            for interval in intervals {
+                if let Some(last) = joined.last_mut().filter(|last| interval.0 <= last.1 + 1e-6) {
+                    if interval.1 > last.1 {
+                        last.1 = interval.1;
+                        last.3 = interval.3;
+                    }
+                } else {
+                    joined.push(interval);
+                }
+            }
+            result.extend(joined.into_iter().map(|(_, _, a, b)| KnifeCut {
+                face: f,
+                first: a.to_array(),
+                second: b.to_array(),
+            }));
+        }
+    }
+    if result.is_empty() {
+        return Err(invalid("Плоскость петли не пересекает поверхность"));
     }
     Ok(result)
 }

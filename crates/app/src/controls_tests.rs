@@ -198,6 +198,9 @@ fn double_click_anywhere_on_a_bar_edits_without_jumping_or_losing_precision() {
                 assert!(app.input.is_none());
                 assert_eq!(app.editor.undo_len(), 0);
                 rebuild_ui(&mut app);
+                // The gesture is two immediate clicks; CPU raster preparation
+                // is not user delay. Timeout behavior has its own clock test.
+                app.slider_click.as_mut().unwrap().refresh_time();
                 app.mouse_down(MouseButton::Left);
                 app.mouse_up(MouseButton::Left);
                 let input = app.input.as_ref().expect("Double click opens exact entry");
@@ -223,6 +226,7 @@ fn double_click_tolerates_pointer_jitter_without_changing_the_number() {
     assert_eq!(app.editor.project, before);
     app.mouse_up(MouseButton::Left);
     rebuild_ui(&mut app);
+    app.slider_click.as_mut().unwrap().refresh_time();
     app.mouse_down(MouseButton::Left);
     app.mouse_up(MouseButton::Left);
     assert_eq!(app.input.as_ref().unwrap().purpose, Action::EditTransform(0));

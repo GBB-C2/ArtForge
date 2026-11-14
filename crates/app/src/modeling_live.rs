@@ -27,8 +27,8 @@ pub(super) struct LiveOperation {
     vertices: BTreeSet<usize>,
     kind: Kind,
     extrude_mode:u8,
-    values: [f32; 3],
-    defaults: [f32; 3],
+    values: [f32; 4],
+    defaults: [f32; 4],
     anchor: Vec3,
     direction: Vec3,
     scale: f32,
@@ -57,7 +57,7 @@ impl LiveOperation {
     fn fields(&self) -> usize {
         match self.kind {
             Kind::Edge | Kind::Bridge => 3,
-            Kind::Face => 2,
+            Kind::Face => 4,
             _ => 1,
         }
     }
@@ -69,7 +69,8 @@ impl LiveOperation {
             (Kind::Vertex | Kind::VertexInset, 0) => ("Срез угла, %", 0., 45., 0.25),
             (Kind::Edge, 0) => ("Ширина, м", 0., 1000., self.scale * 0.002),
             (Kind::Edge, 1) => ("Сегменты", 1., 32., 0.1),
-            (Kind::Edge, 2) => ("Профиль, %", 0., 100., 0.5),
+            (Kind::Edge, 2) | (Kind::Face, 3) => ("Профиль, %", -100., 100., 0.5),
+            (Kind::Face,2)=>("Сегменты",1.,32.,1.),
             (Kind::Face | Kind::Inset, 0) => ("Отступ, %", 0., 95., 0.25),
             (Kind::Slide, 0) => ("Сдвиг, %", -99., 99., 0.25),
             (Kind::Cut, 0) => ("Положение, %", 1., 99., 0.25),
@@ -87,7 +88,7 @@ impl LiveOperation {
             (min, max)
         }
     }
-    fn edit(&self, v: [f32; 3]) -> MeshEdit {
+    fn edit(&self, v: [f32; 4]) -> MeshEdit {
         match self.kind {
             Kind::Bridge=>MeshEdit::BridgeAdvanced{faces:self.faces.clone(),edges:self.selection.edges.clone(),segments:v[0] as u32,twist:v[1] as i32,smooth:v[2]/100.},
             Kind::Individual=>MeshEdit::Bevel {faces:self.faces.clone(),inset:0.,shift:v[0]},
@@ -102,10 +103,11 @@ impl LiveOperation {
                 segments: v[1] as u32,
                 profile: v[2] / 100.,
             },
-            Kind::Face | Kind::Inset => MeshEdit::Bevel {
+            Kind::Face => MeshEdit::FaceBevel{faces:self.faces.clone(),inset:v[0]/100.,shift:v[1],segments:v[2] as u32,profile:v[3]/100.},
+            Kind::Inset => MeshEdit::Bevel {
                 faces: self.faces.clone(),
                 inset: v[0] / 100.,
-                shift: if self.kind == Kind::Face { v[1] } else { 0. },
+                shift: 0.,
             },
             Kind::Extrude if self.extrude_mode==3 => MeshEdit::ExtrudeManifold {faces:self.faces.clone(),distance:v[0]},
             Kind::Extrude if self.extrude_mode==1 => MeshEdit::ExtrudeDistributed {faces:self.faces.clone(),distance:v[0]},
@@ -132,7 +134,7 @@ impl LiveOperation {
 }
 #[derive(Clone)]
 pub(super) struct ParameterDrag {
-    start: [f32; 3],
+    start: [f32; 4],
     pointer: [f32; 2],
     value: f32,
     field: usize,
@@ -141,7 +143,7 @@ pub(super) struct ParameterDrag {
     snap_origin: f32,
     step: f32,
     direction: [f32; 2],
-    requested: [f32; 3],
+    requested: [f32; 4],
     viewport: bool,
     range: SliderRange,
 }
@@ -278,14 +280,14 @@ impl App {
             }
         }
         let values = match kind {
-            Kind::Bridge => [self.authoring.bridge_segments as f32,self.authoring.bridge_twist as f32,self.authoring.bridge_smooth*100.],
-            Kind::Vertex | Kind::VertexInset => [15., 0., 0.],
-            Kind::Edge => [scale * 0.025, 3., 100.],
-            Kind::Face => [self.authoring.inset * 100., self.authoring.bevel_height, 0.],
-            Kind::Inset => [self.authoring.inset * 100., 0., 0.],
-            Kind::Extrude | Kind::Individual | Kind::VertexExtrude => [scale * 0.05, 0., 0.],
-            Kind::Cut => [self.authoring.loop_position * 100., 0., 0.],
-            Kind::Slide => [0., 0., 0.],
+            Kind::Bridge => [self.authoring.bridge_segments as f32,self.authoring.bridge_twist as f32,self.authoring.bridge_smooth*100.,0.],
+            Kind::Vertex | Kind::VertexInset => [15., 0., 0., 0.],
+            Kind::Edge => [scale * 0.025, 3., 100., 0.],
+            Kind::Face => [self.authoring.inset * 100., self.authoring.bevel_height, 3., 0.],
+            Kind::Inset => [self.authoring.inset * 100., 0., 0., 0.],
+            Kind::Extrude | Kind::Individual | Kind::VertexExtrude => [scale * 0.05, 0., 0., 0.],
+            Kind::Cut => [self.authoring.loop_position * 100., 0., 0., 0.],
+            Kind::Slide => [0., 0., 0., 0.],
         };
         let mut selection=SelectionSnapshot::capture(&self.authoring);
         if kind==Kind::Bridge {selection.edges=self.workflow_bridge_edges();}
@@ -327,7 +329,7 @@ impl App {
             "Предпросмотр · Enter — применить · Esc — отменить · Shift — точно · Ctrl — шаг".into();
         true
     }
-    fn preview_live_values(&mut self, values: [f32; 3]) -> Result<(), String> {
+    fn preview_live_values(&mut self, values: [f32; 4]) -> Result<(), String> {
         let op = self.modeling_live.as_ref().ok_or("Предпросмотр закрыт")?;
         if values == op.values {
             self.modeling_live.as_mut().unwrap().error = None;
@@ -393,7 +395,7 @@ impl App {
         }
         let (_, min, max, _) = op.spec(i);
         let v = surfaces::number(text, min, max)?;
-        if ((op.kind == Kind::Edge && i == 1) || (op.kind==Kind::Bridge && i<2)) && v.fract() != 0. {
+        if (((op.kind == Kind::Edge && i == 1)||(op.kind==Kind::Face && i==2)) || (op.kind==Kind::Bridge && i<2)) && v.fract() != 0. {
             return Err("Число сегментов должно быть целым".into());
         }
         let mut values = op.values;
@@ -561,7 +563,7 @@ impl App {
         d.value = d.value.clamp(min, max);
         let mut values = op.values;
         let mut value = d.value;
-        if (op.kind == Kind::Edge && d.field == 1) || (op.kind==Kind::Bridge && d.field<2) {
+        if ((op.kind == Kind::Edge && d.field == 1)||(op.kind==Kind::Face && d.field==2)) || (op.kind==Kind::Bridge && d.field<2) {
             value = value.round();
         } else if snapped {
             let step = if matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Cut | Kind::Inset | Kind::Slide)
@@ -719,7 +721,7 @@ impl App {
             if drag.field == field { return drag.range; }
         }
         let (min, max) = op.slider_bounds(field);
-        let step = if (op.kind == Kind::Edge && field == 1) || (op.kind==Kind::Bridge && field<2) { 1. } else { op.spec(field).3 };
+        let step = if ((op.kind == Kind::Edge && field == 1)||(op.kind==Kind::Face && field==2)) || (op.kind==Kind::Bridge && field<2) { 1. } else { op.spec(field).3 };
         SliderRange::new(min as f64, max as f64, step as f64)
     }
     pub(super) fn live_slider_ui_range(&self) -> Option<(Action, SliderRange)> {

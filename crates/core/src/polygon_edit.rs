@@ -63,7 +63,7 @@ pub(crate) fn apply(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreErro
     let shading_only = matches!(operation, MeshEdit::SmoothNormals | MeshEdit::FlatNormals);
     match operation {
         MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. }
-        | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::KnifeGapClosed {..} | MeshEdit::Dissolve {..} | MeshEdit::Array {..} | MeshEdit::ExtrudeDistributed {..} | MeshEdit::ExtrudeManifold {..} => unreachable!(),
+        | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::KnifeGapClosed {..} | MeshEdit::Dissolve {..} | MeshEdit::Array {..} | MeshEdit::ExtrudeDistributed {..} | MeshEdit::ExtrudeManifold {..} | MeshEdit::FaceBevel {..} => unreachable!(),
         MeshEdit::Normals { .. }
         | MeshEdit::Shape { .. }
         | MeshEdit::Knife { .. }

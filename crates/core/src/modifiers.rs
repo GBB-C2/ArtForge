@@ -164,7 +164,7 @@ impl ModifierSettings {
                     && (0. ..=1000.).contains(&width)
                     && (1..=32).contains(&segments)
                     && profile.is_finite()
-                    && (0. ..=1.).contains(&profile)
+                    && (-1. ..=1.).contains(&profile)
                     && angle.is_finite()
                     && (0. ..=std::f32::consts::PI).contains(&angle)
             }

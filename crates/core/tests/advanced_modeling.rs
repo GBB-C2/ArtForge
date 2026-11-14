@@ -68,7 +68,7 @@ fn closed(m: &Mesh) {
 #[test]
 fn bevel_is_reversible_parameterized_and_preserves_source() {
     for segments in [1, 3, 8] {
-        for profile in [0.2, 0.5, 0.8] {
+        for profile in [-1., -0.5, 0.2, 0.5, 0.8] {
             let mut e = editor();
             let original = e.project.meshes[0].clone();
             let id = e.add_modifier(1, ModifierKind::Bevel).unwrap();

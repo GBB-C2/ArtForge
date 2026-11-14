@@ -13,6 +13,7 @@ mod modifier_geometry;
 mod advanced_modifiers;
 mod advanced_bridge;
 mod knife_stroke;
+mod knife_caps;
 mod knife_interior;
 mod extrude_manifold;
 mod modeling_workflow;
@@ -86,6 +87,7 @@ pub use triangulate::MAX_FACE_CORNERS;
 mod mesh_topology_tools;
 pub use mesh_topology_tools::{inspect_topology, select_edge_path, TopologyReport};
 mod edge_bevel;
+mod face_bevel;
 mod vertex_bevel;
 
 mod uv_edit;

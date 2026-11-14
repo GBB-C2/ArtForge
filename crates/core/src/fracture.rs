@@ -372,3 +372,170 @@ mod tests {
         assert!(exterior>0 && cuts>0 && painted>0);assert_eq!(mesh,before);
     }
 }
+
+/// Deterministic kerfs on explicitly selected closed components. Each new cap
+/// participates in the next clipping operation, including crossing sections.
+pub(crate) fn section_gaps(
+    mesh: &mut Mesh,
+    components: &[std::collections::BTreeSet<usize>],
+    planes: &[(Vec3, f32, std::collections::BTreeSet<usize>)],
+    width: f32,
+) -> Result<(), String> {
+    let source = mesh.clone();
+    let cancel = AtomicBool::new(false);
+    let mut output = Vec::new();
+    let mut cap_planes = Vec::new();
+    for component in components {
+        let selected = planes
+            .iter()
+            .any(|(_, _, faces)| !component.is_disjoint(faces));
+        let mut polygons = Vec::new();
+        for &f in component {
+            let ring = source.face_vertices(f).unwrap();
+            let vertices = ring
+                .iter()
+                .map(|&i| source.vertices[i as usize])
+                .collect::<Vec<_>>();
+            let n = normal(&vertices);
+            let origin = position(&vertices[0]);
+            let convex = (0..vertices.len()).all(|i| {
+                let a = position(&vertices[i]);
+                let b = position(&vertices[(i + 1) % vertices.len()]);
+                let c = position(&vertices[(i + 2) % vertices.len()]);
+                (b - a).cross(c - b).dot(n) >= -1e-8
+            });
+            let planar = vertices
+                .iter()
+                .all(|v| (position(v) - origin).dot(n).abs() < 1e-5);
+            if !selected || (convex && planar) {
+                polygons.push(Polygon {
+                    vertices,
+                    material: source.face_material(f),
+                });
+            } else {
+                for tri in crate::triangulate::triangulate(&source, ring)
+                    .map_err(|e| e.to_string())?
+                    .chunks_exact(3)
+                {
+                    polygons.push(Polygon {
+                        vertices: tri.iter().map(|&i| source.vertices[i as usize]).collect(),
+                        material: source.face_material(f),
+                    });
+                }
+            }
+        }
+        let solid = Solid(polygons);
+        let (lo, hi) = solid.bounds();
+        let epsilon = (hi - lo).max_element().max(0.01) * 1e-6;
+        let mut pieces = vec![solid];
+        for (n, d, faces) in planes {
+            if component.is_disjoint(faces) {
+                continue;
+            }
+            let material = faces
+                .iter()
+                .find(|f| component.contains(f))
+                .and_then(|&f| source.face_material(f))
+                .or(source.material);
+            let mut next = Vec::new();
+            for piece in pieces {
+                for (n, d) in [(*n, *d - width * 0.5), (-*n, -*d - width * 0.5)] {
+                    let has_inside = piece
+                        .0
+                        .iter()
+                        .flat_map(|f| &f.vertices)
+                        .any(|v| n.dot(position(v)) - d < -epsilon);
+                    if !has_inside {
+                        continue;
+                    }
+                    let clipped = piece
+                        .clip(n, d, epsilon, material, 0., &cancel)?
+                        .ok_or("Не удалось замкнуть разрез; исходная сетка сохранена")?;
+                    if clipped.volume() > epsilon.powi(3) {
+                        next.push(clipped);
+                    }
+                }
+            }
+            if next.is_empty() {
+                return Err("Зазор удаляет всю выбранную часть сетки".into());
+            }
+            if next
+                .iter()
+                .map(|s| s.0.iter().map(|f| f.vertices.len()).sum::<usize>())
+                .sum::<usize>()
+                > crate::MAX_EDIT_VERTICES
+            {
+                return Err("Зазор превышает предел сетки".into());
+            }
+            pieces = next;
+            cap_planes.extend([(*n, *d - width * 0.5), (*n, *d + width * 0.5)]);
+        }
+        output.extend(pieces.into_iter().flat_map(|s| s.0));
+    }
+    let mut vertices = Vec::new();
+    let mut faces = Vec::new();
+    let mut materials = Vec::new();
+    for p in output {
+        let start = vertices.len() as u32;
+        faces.push((start..start + p.vertices.len() as u32).collect());
+        materials.push(p.material);
+        vertices.extend(p.vertices);
+    }
+    // Surface clipping must not consume isolated points or wire endpoints.
+    // The authoring wrapper restores loose edges by their original positions.
+    let surface_vertices: std::collections::BTreeSet<_> = (0..source.face_count())
+        .flat_map(|f| source.face_vertices(f).unwrap().iter().copied())
+        .collect();
+    let detached:Vec<_>=source.vertices.iter().enumerate()
+        .filter(|(i, _)| !surface_vertices.contains(&(*i as u32)))
+        .map(|(_,v)|*v).collect();
+    if vertices.len() > crate::MAX_EDIT_VERTICES {
+        return Err("Зазор превышает предел вершин сетки".into());
+    }
+    mesh.vertices = vertices.into();
+    mesh.topology = Some(MeshTopology {
+        faces: faces.into(),
+        face_materials: materials.into(),
+        smooth_normals: source.smooth_normals_enabled(),
+        loose_edges: Vec::new(),
+        uv_seams: Vec::new(),
+        primitive: None,
+    });
+    mesh.rebuild_polygon_indices().map_err(|e| e.to_string())?;
+    if mesh.indices.len() / 3 > crate::MAX_EDIT_TRIANGLES {
+        return Err("Зазор превышает предел треугольников сетки".into());
+    }
+    let g = crate::MeshConnectivity::new(mesh);
+    let edges = g
+        .edge_faces
+        .iter()
+        .filter_map(|(&e, fs)| {
+            if fs.len() != 2 || mesh.face_material(fs[0]) != mesh.face_material(fs[1]) {
+                return None;
+            }
+            cap_planes
+                .iter()
+                .any(|&(n, d)| {
+                    fs.iter().all(|&f| {
+                        mesh.face_vertices(f).unwrap().iter().all(|&i| {
+                            (Vec3::from_array(mesh.vertices[i as usize].position).dot(n) - d).abs()
+                                < 1e-5
+                        })
+                    })
+                })
+                .then_some(e)
+        })
+        .collect();
+    let mut candidate = mesh.clone();
+    if crate::mesh_topology_tools::dissolve(&mut candidate, &edges).is_ok() {
+        *mesh = candidate;
+    }
+    crate::recompute_normals(mesh, source.smooth_normals_enabled());
+    // Dissolving cap diagonals compacts the surface. Restore detached vertices
+    // afterwards, with their original attributes.
+    if mesh.vertices.len()+detached.len()>crate::MAX_EDIT_VERTICES {
+        return Err("Зазор превышает предел вершин сетки".into());
+    }
+    mesh.vertices.extend(detached);
+    mesh.validate_topology().map_err(|e| e.to_string())
+}

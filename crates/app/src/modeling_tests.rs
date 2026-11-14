@@ -221,7 +221,10 @@ fn selection_tools_and_polygon_commands_work_from_scrolled_panels_in_both_themes
             a.authoring.faces = BTreeSet::from([0]);
             click(&mut a, Action::Author(A::Bevel));
             click(&mut a, Action::Author(A::LiveAccept));
-            assert_eq!(a.editor.project.meshes[0].face_count(), 10);
+            // Four edge strips with three segments, without extra side patches.
+            assert_eq!(a.editor.project.meshes[0].face_count(), 18);
+            let report=poseforge_core::inspect_topology(&a.editor.project.meshes[0]);
+            assert_eq!((report.boundary_edges,report.nonmanifold_edges),(0,0));
             a.action(Action::Undo);
             a.action(Action::Author(A::SelectMode(S::Edge)));
             a.authoring.edges = BTreeSet::from([(0, 1)]);

@@ -14,7 +14,7 @@ fn detach(mesh: &mut Mesh, smooth: bool) {
         t.primitive = None;
     }
 }
-fn finish(mesh: &mut Mesh, smooth: bool) -> Result<(), CoreError> {
+pub(crate) fn finish(mesh: &mut Mesh, smooth: bool) -> Result<(), CoreError> {
     let vertices = mesh.vertices.clone();
     if let Some(topology) = &mut mesh.topology {
         for face in &mut topology.faces {
@@ -275,6 +275,9 @@ fn inset_center(mesh: &Mesh, face: &[u32], center: Vec3, normal: Vec3) -> Result
         return Ok(center);
     }
     let p = kernel.iter().copied().sum::<DVec2>() / kernel.len() as f64;
+    if !(0..points.len()).all(|i|sign*(points[(i+1)%points.len()]-points[i]).perp_dot(p-points[i])>eps) {
+        return Err(invalid("Область вставки схлопнулась; нужен отступ от рёбер"));
+    }
     let mut result = center;
     result[x] = p.x as f32;
     result[y] = p.y as f32;

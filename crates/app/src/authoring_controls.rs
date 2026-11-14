@@ -71,7 +71,7 @@ impl Default for AuthoringState {
             pivot_origin: false,
             constraint: None,
             inset: 0.15,
-            bevel_height: 0.1,
+            bevel_height: 0.,
             loop_position: 0.5,
             cache: Default::default(),
         }

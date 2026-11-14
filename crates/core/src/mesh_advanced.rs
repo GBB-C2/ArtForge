@@ -326,7 +326,9 @@ pub(crate) fn knife(
             if one.len()<3 || two.len()<3 { return Err(error("Разрез совпадает с существующим ребром")); }
             let area = |r: &[u32]| crate::polygon_edit::face_normal(mesh, r).length();
             let original_area = area(ring);
-            if (area(&one) + area(&two) - original_area).abs() > original_area.max(1e-8) * 0.001 {
+            let one_area=area(&one);let two_area=area(&two);
+            if one_area<=original_area.max(1e-8)*1e-7 || two_area<=original_area.max(1e-8)*1e-7
+                || (one_area + two_area - original_area).abs() > original_area.max(1e-8) * 0.001 {
                 return Err(error("Разрез выходит за грань; выберите другой отрезок"));
             }
             output.extend([one, two]);

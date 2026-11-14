@@ -356,7 +356,13 @@ pub(crate) fn bridge_faces_options(mesh:&mut Mesh,selection:&BTreeSet<usize>,seg
             let face=mesh.face_vertices(f).unwrap();
             for i in 0..face.len() {
                 let a=g.canonical[face[i] as usize]; let b=g.canonical[face[(i+1)%face.len()] as usize];
-                if g.edge_faces[&(a.min(b),a.max(b))].iter().filter(|f|group.contains(f)).count()==1 {
+                // Connectivity omits sides whose corners weld to the same position.
+                if a == b {
+                    continue;
+                }
+                let incident = g.edge_faces.get(&(a.min(b), a.max(b)))
+                    .ok_or_else(|| invalid("У грани нарушены связи рёбер"))?;
+                if incident.iter().filter(|f|group.contains(f)).count()==1 {
                     // The cap is removed, so its adjacent surface runs in the reverse direction.
                     boundary.push((b,a));
                 }
@@ -432,8 +438,14 @@ pub(crate) fn dissolve(
             for j in 0..face.len() {
                 let a = g.canonical[face[j] as usize];
                 let b = g.canonical[face[(j + 1) % face.len()] as usize];
+                // Match the position-welded graph, including near-coincident corners.
+                if a == b {
+                    continue;
+                }
                 let edge = (a.min(b), a.max(b));
-                if g.edge_faces[&edge]
+                let incident = g.edge_faces.get(&edge)
+                    .ok_or_else(|| invalid("У грани нарушены связи рёбер"))?;
+                if incident
                     .iter()
                     .filter(|f| group.contains(f))
                     .count()

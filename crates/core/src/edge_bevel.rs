@@ -34,9 +34,9 @@ pub(crate) fn apply(
         || !(0.0..=1000.).contains(&width)
         || !(1..=32).contains(&segments)
         || !profile.is_finite()
-        || !(0.0..=1.0).contains(&profile)
+        || !(-1.0..=1.0).contains(&profile)
     {
-        return Err(invalid("Ширина: 0–1000 м; сегменты: 1–32; профиль: 0–100%"));
+        return Err(invalid("Ширина: 0–1000 м; сегменты: 1–32; профиль: −100–100%"));
     }
     if width == 0. {
         return Ok(());
@@ -115,24 +115,29 @@ pub(crate) fn apply(
                 .ok_or_else(|| invalid("Нулевое ребро"))?;
             let left = selection.contains(&edge(before, v));
             let right = selection.contains(&edge(v, after));
-            if incoming.cross(outgoing).dot(normal) <= 0.00001 {
-                return Err(invalid(
-                    "Угол грани рядом с фаской должен быть выпуклым и ненулевым",
-                ));
-            }
             if !left && !right {
                 continue;
+            }
+            let straight = left && right && incoming.dot(outgoing) > 0.99999;
+            if !straight && incoming.cross(outgoing).dot(normal).abs() <= 0.00001 {
+                return Err(invalid(
+                    "Угол грани рядом с фаской должен быть ненулевым",
+                ));
             }
             let ni = normal.cross(incoming);
             let no = normal.cross(outgoing);
             let cosine = ni.dot(no);
             let determinant = 1. - cosine * cosine;
-            if determinant < 1e-8 {
+            if determinant < 1e-8 && !straight {
                 return Err(invalid("Слишком острый угол для устойчивой фаски"));
             }
             let wi = if left { width } else { 0. };
             let wo = if right { width } else { 0. };
-            let delta = (ni * (wi - cosine * wo) + no * (wo - cosine * wi)) / determinant;
+            let delta = if straight {
+                ni * width
+            } else {
+                (ni * (wi - cosine * wo) + no * (wo - cosine * wi)) / determinant
+            };
             if delta.length()
                 > positions[before]
                     .distance(p)
@@ -231,10 +236,12 @@ pub(crate) fn apply(
                     id
                 } else {
                     let d = q - p;
-                    let a =
-                        (d.dot(va) * vb.length_squared() - d.dot(vb) * va.dot(vb)) / determinant;
-                    let b =
-                        (d.dot(vb) * va.length_squared() - d.dot(va) * va.dot(vb)) / determinant;
+                    let (a, b) = if determinant.abs() > 1e-12 {
+                        ((d.dot(va) * vb.length_squared() - d.dot(vb) * va.dot(vb)) / determinant,
+                         (d.dot(vb) * va.length_squared() - d.dot(va) * va.dot(vb)) / determinant)
+                    } else {
+                        (d.dot(va) / va.length_squared().max(1e-12), 0.)
+                    };
                     for axis in 0..2 {
                         vertex.uv[axis] = original_uv[axis]
                             + a * (uv_a[axis] - original_uv[axis])

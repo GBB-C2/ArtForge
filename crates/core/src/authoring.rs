@@ -75,6 +75,7 @@ pub enum MeshEdit {
         vertices: BTreeSet<usize>,
         matrix: crate::Mat4,
     },
+    FaceBevel { faces: BTreeSet<usize>, inset:f32, shift:f32, segments:u32, profile:f32 },
     Bevel {
         faces: BTreeSet<usize>,
         inset: f32,
@@ -155,7 +156,7 @@ pub(crate) fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<()
     let preserve_wires = !matches!(operation,
         MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. } | MeshEdit::SubdivideSelected { .. } | MeshEdit::Topology {..}
         | MeshEdit::Transform { .. } | MeshEdit::Translate { .. } | MeshEdit::Slide { .. }
-        | MeshEdit::WeightedTransform { .. } | MeshEdit::Shape { .. } | MeshEdit::Knife { .. } | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::KnifeGapClosed {..} | MeshEdit::Array {..} | MeshEdit::Uv(_));
+        | MeshEdit::WeightedTransform { .. } | MeshEdit::Shape { .. } | MeshEdit::Knife { .. } | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::Array {..} | MeshEdit::Uv(_));
     let wires: Vec<_> = if preserve_wires { mesh.topology.iter().flat_map(|t|t.loose_edges.iter())
         .map(|e|(*e,e.map(|v|mesh.vertices[v as usize]))).collect() } else {Vec::new()};
     if !wires.is_empty() && !matches!(operation, MeshEdit::BridgeAdvanced {..} | MeshEdit::Bridge {..}) {mesh.topology.as_mut().unwrap().loose_edges.clear();}
@@ -164,7 +165,7 @@ pub(crate) fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<()
         MeshEdit::Uv(_)
             | MeshEdit::VertexBevel { .. }
             | MeshEdit::Shape { .. }
-            | MeshEdit::Knife { .. } | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::KnifeGapClosed {..} | MeshEdit::Array {..}
+            | MeshEdit::Knife { .. } | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::Array {..}
             | MeshEdit::Transform { .. }
             | MeshEdit::Translate { .. }
             | MeshEdit::Slide { .. }
@@ -250,6 +251,7 @@ pub(crate) fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<()
 }
 fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError> {
     match &operation {
+        MeshEdit::FaceBevel{faces,inset,shift,segments,profile}=>return crate::face_bevel::apply(mesh,faces,*inset,*shift,*segments,*profile),
         MeshEdit::KnifeGapClosed {cuts,width}=>return crate::knife_stroke::apply_gap_closed(mesh,cuts,*width),
         MeshEdit::KnifeGap {cuts,width}=>return crate::knife_stroke::apply_gap(mesh,cuts,*width),
         MeshEdit::Dissolve {region}=>return crate::modeling_workflow::dissolve(mesh,region),
@@ -337,7 +339,7 @@ fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), Cor
     let keep_policy = mesh.topology.is_some() || matches!(operation, MeshEdit::SmoothNormals);
     match operation {
         MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. }
-        | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::KnifeGapClosed {..} | MeshEdit::Dissolve {..} | MeshEdit::Array {..} | MeshEdit::ExtrudeDistributed {..} | MeshEdit::ExtrudeManifold {..} => unreachable!(),
+        | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::KnifeGapClosed {..} | MeshEdit::Dissolve {..} | MeshEdit::Array {..} | MeshEdit::ExtrudeDistributed {..} | MeshEdit::ExtrudeManifold {..} | MeshEdit::FaceBevel {..} => unreachable!(),
         MeshEdit::Normals { .. }
         | MeshEdit::Shape { .. }
         | MeshEdit::Knife { .. }

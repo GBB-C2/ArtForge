@@ -518,7 +518,7 @@ impl App {
                 }
                 S::Bevel { width, .. } if field == 1 => *width = number(0., 1000.)?,
                 S::Bevel { segments, .. } if field == 2 => *segments = integer(32.)? as u32,
-                S::Bevel { profile, .. } if field == 3 => *profile = number(0., 100.)? / 100.,
+                S::Bevel { profile, .. } if field == 3 => *profile = number(-100., 100.)? / 100.,
                 S::Bevel { angle, .. } if field == 4 => *angle = number(0., 180.)?.to_radians(),
                 S::Subdivision { levels, .. } if field == 1 => *levels = integer(4.)? as u8,
                 S::Solidify { thickness, .. } if field == 1 => *thickness = number(0., 10000.)?,

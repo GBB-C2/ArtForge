@@ -204,7 +204,7 @@ impl App {
             u.fitted_label([x, y, w, 18.], match self.authoring.selection_mode {
                 S::Vertex => "Вершины · срез углов",
                 S::Edge => "Рёбра · ширина, сегменты, профиль",
-                S::Face => "Грани · отступ и высота",
+                S::Face => "Грани · сегменты и профиль",
             }, 10., p.muted);
             y += 22.;
         }

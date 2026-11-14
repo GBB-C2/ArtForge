@@ -73,19 +73,61 @@ pub(crate) fn apply(mesh: &mut Mesh, cuts: &[KnifeCut]) -> Result<(), CoreError>
     apply_tracked(mesh, cuts).map(|_| ())
 }
 fn apply_tracked(mesh: &mut Mesh, cuts: &[KnifeCut]) -> Result<Vec<usize>, CoreError> {
-    let mut origins: Vec<_> = (0..mesh.face_count()).collect();
+    let source = mesh.clone();
+    let mut origins = Vec::new();
     if cuts.is_empty()
         || cuts.len() > 2048
         || cuts.iter().any(|c| {
             c.face >= mesh.face_count()
                 || !Vec3::from_array(c.first).is_finite()
                 || !Vec3::from_array(c.second).is_finite()
+                || Vec3::from_array(c.first).distance_squared(Vec3::from_array(c.second)) < 1e-14
         })
     {
         return Err(CoreError::Invalid(
             "Нож: нет пересечённых граней или слишком длинный разрез".into(),
         ));
     }
+    let mut faces = Vec::new();
+    let mut materials = Vec::new();
+    let mut projection = Vec::new();
+    for f in 0..source.face_count() {
+        let ring = source.face_vertices(f).unwrap();
+        let normal = crate::polygon_edit::face_normal(&source, ring).normalize_or_zero();
+        let origin = Vec3::from_array(source.vertices[ring[0] as usize].position);
+        let warped = cuts.iter().any(|c| c.face == f)
+            && ring.iter().any(|&v| {
+                (Vec3::from_array(source.vertices[v as usize].position) - origin)
+                    .dot(normal)
+                    .abs()
+                    > 1e-5
+            });
+        projection.push(warped.then_some(normal));
+        if warped {
+            for cut in cuts.iter().filter(|c| c.face == f) {
+                if !crate::knife_interior::contains(&source, f, Vec3::from_array(cut.first))
+                    || !crate::knife_interior::contains(&source, f, Vec3::from_array(cut.second))
+                {
+                    return Err(CoreError::Invalid(
+                        "Концы разреза должны лежать на поверхности".into(),
+                    ));
+                }
+            }
+            for tri in crate::triangulate::triangulate(&source, ring)?.chunks_exact(3) {
+                faces.push(tri.to_vec());
+                origins.push(f);
+                materials.push(source.face_material(f));
+            }
+        } else {
+            faces.push(ring.to_vec());
+            origins.push(f);
+            materials.push(source.face_material(f));
+        }
+    }
+    crate::component_mesh::ensure_topology(mesh);
+    mesh.topology.as_mut().unwrap().faces = faces.into();
+    mesh.topology.as_mut().unwrap().face_materials = materials.into();
+    mesh.rebuild_polygon_indices()?;
     let mut cuts = cuts.to_vec();
     cuts.sort_by_key(|c| std::cmp::Reverse(c.face));
     for cut in cuts {
@@ -96,10 +138,21 @@ fn apply_tracked(mesh: &mut Mesh, cuts: &[KnifeCut]) -> Result<Vec<usize>, CoreE
             .map(|(f, _)| f)
             .rev()
             .collect();
-        let mut changed = false;
+        let mut covered = false;
         for f in candidates {
-            let a = Vec3::from_array(cut.first);
-            let b = Vec3::from_array(cut.second);
+            let mut a = Vec3::from_array(cut.first);
+            let mut b = Vec3::from_array(cut.second);
+            if let Some(direction) = projection[cut.face] {
+                let ring = mesh.face_vertices(f).unwrap();
+                let n = crate::polygon_edit::face_normal(mesh, ring).normalize_or_zero();
+                let origin = Vec3::from_array(mesh.vertices[ring[0] as usize].position);
+                let denominator = direction.dot(n);
+                if denominator.abs() < 1e-6 {
+                    continue;
+                }
+                a -= direction * ((a - origin).dot(n) / denominator);
+                b -= direction * ((b - origin).dot(n) / denominator);
+            }
             let pieces = segments(mesh, f, a, b);
             let mut end = f;
             for (a, b) in pieces.into_iter().rev() {
@@ -110,6 +163,15 @@ fn apply_tracked(mesh: &mut Mesh, cuts: &[KnifeCut]) -> Result<Vec<usize>, CoreE
                     let graph = MeshConnectivity::new(mesh);
                     let first = hits(mesh, &graph, current, a);
                     let second = hits(mesh, &graph, current, b);
+                    // At a vertex both incident edges are hits. Recognize an
+                    // already present side before trying the other edge pair.
+                    if first
+                        .iter()
+                        .any(|x| second.iter().any(|y| x.edge == y.edge))
+                    {
+                        covered = true;
+                        continue;
+                    }
                     let mut applied = None;
                     'pairs: for x in &first {
                         for y in &second {
@@ -125,12 +187,6 @@ fn apply_tracked(mesh: &mut Mesh, cuts: &[KnifeCut]) -> Result<Vec<usize>, CoreE
                         }
                     }
                     if applied.is_none() {
-                        if first
-                            .iter()
-                            .any(|x| second.iter().any(|y| x.edge == y.edge))
-                        {
-                            continue;
-                        }
                         let mut candidate = mesh.clone();
                         if crate::knife_interior::cut(&mut candidate, current, a, b).is_ok() {
                             applied = Some(candidate);
@@ -143,14 +199,14 @@ fn apply_tracked(mesh: &mut Mesh, cuts: &[KnifeCut]) -> Result<Vec<usize>, CoreE
                             std::iter::repeat_n(origins[current], added),
                         );
                         *mesh = candidate;
-                        changed = true;
+                        covered = true;
                         end += added;
                         break;
                     }
                 }
             }
         }
-        if !changed {
+        if !covered {
             return Err(CoreError::Invalid(
                 "Линия проходит вне грани или совпадает с ребром".into(),
             ));
@@ -274,6 +330,9 @@ pub(crate) fn apply_gap_closed(
 ) -> Result<(), CoreError> {
     if width == 0. {
         return apply(mesh, cuts);
+    }
+    if crate::knife_caps::apply(mesh, cuts, width)? {
+        return Ok(());
     }
     let original = mesh.clone();
     let graph = MeshConnectivity::new(&original);

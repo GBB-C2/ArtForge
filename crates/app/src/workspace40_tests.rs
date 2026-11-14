@@ -155,7 +155,7 @@ fn mesh_modes_are_fixed_below_creation_and_divider_follows_geometry() {
 
 #[test]
 fn one_bevel_button_uses_each_selection_context_and_cancels_on_mode_switch() {
-    for (mode, fields) in [(S::Vertex, 1), (S::Edge, 3), (S::Face, 2)] {
+    for (mode, fields) in [(S::Vertex, 1), (S::Edge, 3), (S::Face, 4)] {
         let mut a = app();
         click(&mut a, Action::Author(A::SelectMode(mode)));
         a.authoring.vertices = BTreeSet::from([0]);

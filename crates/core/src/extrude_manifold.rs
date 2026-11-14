@@ -107,14 +107,42 @@ pub(crate) fn apply(
             }
             let a = Vec3::from_array(source.vertices[a].position);
             let b = Vec3::from_array(source.vertices[b].position);
-            if !crate::knife_interior::contains(&source, other, a + delta * 1.0001)
-                || !crate::knife_interior::contains(&source, other, b + delta * 1.0001)
-            {
+            // The neighbour can be a tessellated wall. Trim its whole coplanar
+            // connected patch, not just the triangle incident to the source edge.
+            let mut wall = BTreeSet::from([other]);
+            let mut pending = vec![other];
+            while let Some(f) = pending.pop() {
+                for &next in &graph.face_neighbors[f] {
+                    if selected.contains(&next) || wall.contains(&next) {
+                        continue;
+                    }
+                    let ring = source.face_vertices(next).unwrap();
+                    let nn = crate::polygon_edit::face_normal(&source, ring).normalize_or_zero();
+                    if nn.dot(n) > 0.99999
+                        && ring.iter().all(|&i| {
+                            (Vec3::from_array(source.vertices[i as usize].position) - a)
+                                .dot(n)
+                                .abs()
+                                < 1e-5
+                        })
+                    {
+                        wall.insert(next);
+                        pending.push(next);
+                    }
+                }
+            }
+            if [a, b, a.lerp(b, 0.5)].iter().any(|&p| {
+                !wall
+                    .iter()
+                    .any(|&f| crate::knife_interior::contains(&source, f, p + delta * 1.0001))
+            }) {
                 return Err(invalid(
                     "Распределительный экструд достигает противоположного края; уменьшите глубину",
                 ));
             }
-            trims.entry(other).or_default().push((a, b));
+            for f in wall {
+                trims.entry(f).or_default().push((a, b));
+            }
         }
     }
     crate::authoring::apply_mesh_edit(

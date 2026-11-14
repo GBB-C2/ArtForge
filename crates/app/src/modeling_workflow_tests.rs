@@ -412,7 +412,7 @@ fn color_popup_excludes_underlying_diagonal_strokes() {
 fn viewport_update_capture() {
     let dir=PathBuf::from(std::env::var_os("ARTFORGE_UI_CAPTURE_DIR").unwrap());std::fs::create_dir_all(&dir).unwrap();
     for theme in [ui::Theme::Dark,ui::Theme::Light] {for width in [900.,1440.] {
-        for case in ["camera","settings","color","knife","loop","extrude","ribbon","new"] {
+        for case in ["camera","settings","color","knife","loop","extrude","ribbon","new","bevel-in","bevel-out"] {
             let mut a=app();a.width=width;a.preferences.theme=theme;
             match case {
                 "camera"=>{a.action(Action::Author(A::ToggleEdit));a.action(Action::CreateCamera);
@@ -423,6 +423,7 @@ fn viewport_update_capture() {
                 "knife"=>a.action(Action::ModelingTool(M::Knife)),
                 "loop"=>a.action(Action::ModelingTool(M::LoopCut)),
                 "extrude"=>{a.action(Action::ModelingTool(M::Extrude));a.action(Action::Author(A::ExtrudeMode(3)));},
+                "bevel-in"|"bevel-out"=>{a.action(Action::ModelingTool(M::Bevel));a.modeling_live_confirm(&Action::Author(A::LiveField(2)),"5").unwrap();a.modeling_live_confirm(&Action::Author(A::LiveField(3)),if case=="bevel-in" {"-75"} else {"75"}).unwrap();},
                 "ribbon"=>{a.action(Action::Author(A::ToggleEdit));a.create_curve(0);a.curve_action(ui::CurveAction::AddGeometry);a.curve_action(ui::CurveAction::Profile(1));},
                 _=>{a.dirty=true;a.action(Action::New);}
             }
@@ -461,4 +462,17 @@ fn mesh_color_context_undo_redo_restores_preferences_without_undoing_the_scene()
         assert_eq!(a.preferences.mesh_color,expected);
         assert_eq!(a.editor.project,project);assert_eq!(a.editor.undo_len(),undo);
     }
+}
+
+#[test]
+fn polygon_bevel_has_signed_profile_segments_and_exact_undo() {
+ let mut a=app();let original=a.editor.project.clone();let history=a.editor.undo_len();
+ a.action(Action::ModelingTool(M::Bevel));assert!(a.modeling_live.is_some());
+ for (field,value) in [(2,"5"),(3,"-75"),(1,"0")] {
+   a.action(Action::Author(A::LiveField(field)));a.input.as_mut().unwrap().value=value.into();a.confirm_input();assert!(a.input.is_none());
+ }
+ let inward=a.editor.project.clone();
+ a.action(Action::Author(A::LiveField(3)));a.input.as_mut().unwrap().value="75".into();a.confirm_input();assert_ne!(a.editor.project,inward);
+ a.ui=a.build_ui();for i in 0..4 {assert!(a.ui.hits.iter().any(|h|h.action==Action::Author(A::LiveField(i))));}
+ a.action(Action::Author(A::LiveAccept));assert_eq!(a.editor.undo_len(),history+1);a.action(Action::Undo);assert_eq!(a.editor.project,original);
 }

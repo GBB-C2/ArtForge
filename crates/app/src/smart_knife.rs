@@ -244,6 +244,9 @@ impl App {
         self.redraw();
     }
     pub(crate) fn knife_pointer_up(&mut self) -> bool {
+        if let Some(k)=self.authoring.knife.as_mut().filter(|k|k.loop_mode) {
+            let handled=k.section_drag.take().is_some();k.press=None;return handled;
+        }
         let Some(start) = self.authoring.knife.as_ref().and_then(|k| k.press) else {
             return false;
         };

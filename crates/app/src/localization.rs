@@ -20,6 +20,24 @@ impl Language {
     }
 }
 const LABELS:&[(&str,&str)]=&[
+    ("Разрез","Cut"),
+    ("Создать","Create"),
+    ("Редактировать","Edit"),
+    ("Количество линий","Line count"),
+    ("Всего плоскостей","Total planes"),
+    ("Смещение плоскости, м","Plane offset, m"),
+    ("Наклон X, °","Tilt X, °"),
+    ("Наклон Y, °","Tilt Y, °"),
+    ("Закрыть торцы зазора","Cap gap ends"),
+    ("Выберите панель · потяните для смещения","Select a panel · drag to offset"),
+    ("Щелчок по поверхности — новый разрез","Click the surface — create a cut"),
+    ("Создайте разрез в режиме «Создать»","Add a cut in Create mode"),
+    ("Ctrl + колесо","Ctrl + wheel"),
+    ("Удалить выбранный разрез · Delete","Delete selected cut · Delete"),
+    ("Выбрать и изменить отдельную плоскость разреза","Select and edit an individual cut plane"),
+    ("Добавить новые плоскости разреза щелчком по поверхности","Click the surface to add cut planes"),
+    ("Выбрать плоскость разреза · Ctrl + колесо переключает плоскости","Select a cut plane · Ctrl + wheel cycles planes"),
+
     ("Мост","Bridge"),("Растворить","Dissolve"),("Зазор, м","Gap, m"),("Массив","Array"),
     ("Режим экструдирования","Extrusion mode"),("Область","Region"),("По нормалям","Along normals"),("Отдельно","Individual"),
     ("Копии, включая исходную","Copies, including original"),("Создать массив","Create array"),

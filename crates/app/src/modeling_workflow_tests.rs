@@ -412,7 +412,7 @@ fn color_popup_excludes_underlying_diagonal_strokes() {
 fn viewport_update_capture() {
     let dir=PathBuf::from(std::env::var_os("ARTFORGE_UI_CAPTURE_DIR").unwrap());std::fs::create_dir_all(&dir).unwrap();
     for theme in [ui::Theme::Dark,ui::Theme::Light] {for width in [900.,1440.] {
-        for case in ["camera","settings","color","knife","loop","extrude","ribbon","new","bevel-in","bevel-out"] {
+        for case in ["camera","settings","color","knife","loop","extrude","ribbon","new","bevel-in","bevel-out","sections-edit"] {
             let mut a=app();a.width=width;a.preferences.theme=theme;
             match case {
                 "camera"=>{a.action(Action::Author(A::ToggleEdit));a.action(Action::CreateCamera);
@@ -422,6 +422,7 @@ fn viewport_update_capture() {
                 "settings"|"color"=>{a.set_properties_tab(9);if case=="color"{a.action(Action::MeshColor);}},
                 "knife"=>a.action(Action::ModelingTool(M::Knife)),
                 "loop"=>a.action(Action::ModelingTool(M::LoopCut)),
+                "sections-edit"=>{create_two_sections(&mut a);a.action(Action::Author(A::SectionMode(true)));a.apply_field_value(Action::Author(A::ToolField(1)),"0.08").unwrap();a.action(Action::Author(A::KnifeCloseGap));},
                 "extrude"=>{a.action(Action::ModelingTool(M::Extrude));a.action(Action::Author(A::ExtrudeMode(3)));},
                 "bevel-in"|"bevel-out"=>{a.action(Action::ModelingTool(M::Bevel));a.modeling_live_confirm(&Action::Author(A::LiveField(2)),"5").unwrap();a.modeling_live_confirm(&Action::Author(A::LiveField(3)),if case=="bevel-in" {"-75"} else {"75"}).unwrap();},
                 "ribbon"=>{a.action(Action::Author(A::ToggleEdit));a.create_curve(0);a.curve_action(ui::CurveAction::AddGeometry);a.curve_action(ui::CurveAction::Profile(1));},
@@ -512,4 +513,79 @@ fn face_bevel_preview_applies_to_a_new_knife_face_with_profile_and_undo() {
     assert_ne!(after,before);assert_eq!(a.editor.undo_len(),history+1);
     a.action(Action::Undo);assert_eq!(a.editor.project,before);
     a.action(Action::Redo);assert_eq!(a.editor.project,after);
+}
+
+fn create_two_sections(a:&mut App) {
+    a.authoring.xray=true;a.action(Action::ModelingTool(M::LoopCut));
+    a.apply_field_value(Action::Author(A::ToolField(9)),"2").unwrap();
+    let m=a.editor.editable_mesh(1).unwrap();
+    let p=Vec3::from_array(m.vertices[0].position).lerp(Vec3::from_array(m.vertices[1].position),0.5);
+    a.mouse=a.project_point(p).unwrap();a.knife_click();
+    assert!(a.editor.project.meshes[0].face_count()>6,"{}",a.status);
+}
+#[test]
+fn section_modes_edit_individual_planes_and_commit_one_undo_step() {
+    let mut a=app();let original=a.editor.project.clone();create_two_sections(&mut a);
+    click(&mut a,Action::Author(A::SectionMode(true)));
+    a.action(Action::Author(A::SectionSelect(0)));
+    a.apply_field_value(Action::Author(A::ToolField(10)),"0.1").unwrap();
+    a.apply_field_value(Action::Author(A::ToolField(11)),"15").unwrap();
+    a.apply_field_value(Action::Author(A::ToolField(1)),"0.04").unwrap();
+    a.action(Action::Author(A::KnifeCloseGap));
+    let first=a.editor.project.clone();assert_eq!(a.section_value(10),Some(0.1));
+    a.action(Action::Author(A::SectionSelect(1)));
+    assert_eq!(a.section_value(10),Some(0.));assert_eq!(a.section_value(1),Some(0.));
+    a.apply_field_value(Action::Author(A::ToolField(12)),"-12").unwrap();
+    assert_ne!(a.editor.project,first);
+    let valid=a.editor.project.clone();
+    assert!(a.apply_field_value(Action::Author(A::ToolField(1)),"1000").is_err());
+    assert_eq!(a.editor.project,valid);assert_eq!(a.section_value(1),Some(0.));
+    a.action(Action::Author(A::SectionSelect(0)));assert_eq!(a.section_value(10),Some(0.1));
+    a.action(Action::ResetNumber(Box::new(Action::Author(A::ToolField(10)))));assert_eq!(a.section_value(10),Some(0.));
+    assert_eq!(a.editor.undo_len(),0);assert!(a.editor.has_active_edit());
+    let after=a.editor.project.clone();a.action(Action::Author(A::KnifeAccept));assert_eq!(a.editor.undo_len(),1);
+    a.action(Action::Undo);assert_eq!(a.editor.project,original);a.action(Action::Redo);assert_eq!(a.editor.project,after);
+}
+#[test]
+fn section_delete_last_restores_source_and_cancel_restores_selection() {
+    let mut a=app();let original=a.editor.project.clone();create_two_sections(&mut a);
+    a.action(Action::Author(A::SectionMode(true)));
+    a.action(Action::Author(A::SectionDelete));assert!(a.authoring.knife.is_some());
+    a.action(Action::Author(A::SectionDelete));assert_eq!(a.editor.project,original);
+    a.action(Action::Author(A::KnifeCancel));assert_eq!(a.authoring.faces,BTreeSet::from([0]));assert_eq!(a.editor.undo_len(),0);
+}
+#[test]
+fn section_editing_keeps_navigation_and_both_theme_controls_available() {
+    for theme in [ui::Theme::Dark,ui::Theme::Light] {for scale in [1.,2.] {
+        let mut a=app();a.scale=scale;a.preferences.theme=theme;create_two_sections(&mut a);
+        click(&mut a,Action::Author(A::SectionMode(true)));
+        let u=a.build_ui();
+        assert!(u.rects.iter().any(|r|r.triangle.is_some()&&r.color[3]>0.&&r.color[3]<0.2));
+        for field in [1,10,11,12] {assert!(u.hits.iter().any(|h|h.action==Action::Author(A::ToolField(field))));}
+        let before=a.editor.project.clone();let area=a.modeling_area();let point=[area[0]+area[2]*0.7,area[1]+area[3]*0.65];
+        for button in [MouseButton::Right,MouseButton::Middle] {a.mouse=point;a.mouse_down(button);a.mouse_move([point[0]+20.,point[1]+10.]);a.mouse_up(button);assert!(a.authoring.knife.is_some());assert_eq!(a.editor.project,before);}
+        a.mouse=point;let distance=a.distance;a.scroll(1.);assert_ne!(a.distance,distance);assert_eq!(a.editor.project,before);
+        a.action(Action::Author(A::KnifeCancel));
+    }}
+}
+
+#[test]
+fn selected_section_plane_drags_without_adding_cuts_or_undo_entries() {
+    let mut a=app();let before=a.editor.project.clone();create_two_sections(&mut a);
+    a.action(Action::Author(A::SectionMode(true)));a.mouse=a.project_point(Vec3::ZERO).unwrap();
+    a.knife_click();assert!(a.authoring.knife.as_ref().unwrap().press.is_some());
+    let faces=a.editor.project.meshes[0].face_count();let start=a.mouse;
+    a.mouse_down(MouseButton::Right);assert!(a.authoring.knife.is_some());assert!(a.drag.is_none());
+    a.mouse_move([start[0]+30.,start[1]+10.]);assert_ne!(a.section_value(10),Some(0.));
+    a.mouse_up(MouseButton::Left);assert!(a.authoring.knife.as_ref().unwrap().press.is_none());
+    assert_eq!(a.editor.project.meshes[0].face_count(),faces);assert_eq!(a.editor.undo_len(),0);
+    a.action(Action::Author(A::KnifeCancel));assert_eq!(a.editor.project,before);
+}
+#[test]
+fn face_bevel_legacy_action_respects_face_mode_on_an_open_surface() {
+    let mut a=app();a.editor.project.meshes[0]=poseforge_core::PrimitiveSettings::new(poseforge_core::PrimitiveKind::Plane).mesh(2,None).unwrap();
+    a.authoring.faces=BTreeSet::from([0]);a.authoring.selection_mode=S::Face;
+    let before=a.editor.project.clone();a.action(Action::Author(A::EdgeBevel));
+    assert!(a.modeling_live.is_some(),"{}",a.status);assert_ne!(a.editor.project,before);
+    a.action(Action::Author(A::LiveCancel));assert_eq!(a.editor.project,before);
 }

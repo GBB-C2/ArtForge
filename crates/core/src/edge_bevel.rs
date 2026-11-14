@@ -1,5 +1,5 @@
 //! Selected-edge bevel with bounded miter offsets, segmented profiles and end caps.
-use crate::mesh_topology_tools::{faces, finish, invalid, loops};
+use crate::mesh_topology_tools::{faces, finish, invalid};
 use crate::{
     CoreError, Mesh, MeshConnectivity, MeshTopology, Vec3, Vertex, MAX_EDIT_TRIANGLES,
     MAX_EDIT_VERTICES,
@@ -15,6 +15,39 @@ fn add(mesh: &mut Mesh, tags: &mut Vec<usize>, vertex: Vertex, position: Vec3, t
     mesh.vertices.push(v);
     tags.push(tag);
     id
+}
+// A near-flat miter may have several cap contours touching at one corner.
+// Walk directed boundary cycles rather than rejecting every valence above two.
+fn corner_cycles(edges: &[(usize, usize)]) -> Result<Vec<Vec<usize>>, CoreError> {
+    let mut remaining: BTreeSet<_> = edges.iter().copied().collect();
+    let mut cycles = Vec::new();
+    while let Some(&(start, _)) = remaining.first() {
+        let mut path = vec![start];
+        let mut cursor = start;
+        loop {
+            let next = remaining
+                .range((cursor, 0)..=(cursor, usize::MAX))
+                .next()
+                .copied();
+            let Some(e) = next else {
+                if path.len() != 1 {
+                    return Err(invalid("Не удалось соединить контур угла фаски"));
+                }
+                break;
+            };
+            remaining.remove(&e);
+            cursor = e.1;
+            if let Some(i) = path.iter().position(|&v| v == cursor) {
+                if path.len() - i >= 3 {
+                    cycles.push(path[i..].to_vec());
+                }
+                path.truncate(i + 1);
+            } else {
+                path.push(cursor);
+            }
+        }
+    }
+    Ok(cycles)
 }
 pub(crate) fn apply(
     mesh: &mut Mesh,
@@ -36,7 +69,9 @@ pub(crate) fn apply(
         || !profile.is_finite()
         || !(-1.0..=1.0).contains(&profile)
     {
-        return Err(invalid("Ширина: 0–1000 м; сегменты: 1–32; профиль: −100–100%"));
+        return Err(invalid(
+            "Ширина: 0–1000 м; сегменты: 1–32; профиль: −100–100%",
+        ));
     }
     if width == 0. {
         return Ok(());
@@ -77,19 +112,59 @@ pub(crate) fn apply(
         .iter()
         .map(|v| Vec3::from_array(v.position))
         .collect();
+    // Each corner has its own collision limit. A tiny edge must not shrink
+    // every bevel on an otherwise large selection.
+    let mut widths: BTreeMap<usize, f32> = affected.iter().map(|&v| (v, width)).collect();
+    for &(a, b) in &g.edges {
+        let limit = positions[a].distance(positions[b]) * 0.2;
+        for v in [a, b] {
+            if let Some(w) = widths.get_mut(&v) {
+                *w = w.min(limit);
+            }
+        }
+    }
+    for face in &source {
+        let normal = crate::polygon_edit::face_normal(mesh, face).normalize_or_zero();
+        for i in 0..face.len() {
+            let v = g.canonical[face[i] as usize];
+            if !affected.contains(&v) {
+                continue;
+            }
+            let a = g.canonical[face[(i + face.len() - 1) % face.len()] as usize];
+            let b = g.canonical[face[(i + 1) % face.len()] as usize];
+            let left = selection.contains(&edge(a, v));
+            let right = selection.contains(&edge(v, b));
+            if !left && !right {
+                continue;
+            }
+            let incoming = (positions[v] - positions[a]).normalize();
+            let outgoing = (positions[b] - positions[v]).normalize();
+            let ni = normal.cross(incoming);
+            let no = normal.cross(outgoing);
+            let cosine = ni.dot(no);
+            let det = 1. - cosine * cosine;
+            if det > 1e-8 {
+                let wi = if left { 1. } else { 0. };
+                let wo = if right { 1. } else { 0. };
+                let miter = (ni * (wi - cosine * wo) + no * (wo - cosine * wi)) / det;
+                let limit = positions[a]
+                    .distance(positions[v])
+                    .min(positions[b].distance(positions[v]))
+                    * 0.2
+                    / miter.length().max(1.);
+                *widths.get_mut(&v).unwrap() = widths[&v].min(limit);
+            }
+        }
+    }
     let mut cuts = BTreeMap::<(usize, usize), f32>::new();
     for &(a, b) in &g.edges {
-        let length = positions[a].distance(positions[b]);
         if affected.contains(&a) || affected.contains(&b) {
-            if width > length * 0.45 {
-                return Err(invalid("Фаска слишком широка для соседнего ребра"));
-            }
             if !selection.contains(&edge(a, b)) {
                 if affected.contains(&a) {
-                    cuts.insert((a, b), width);
+                    cuts.insert((a, b), widths[&a]);
                 }
                 if affected.contains(&b) {
-                    cuts.insert((b, a), width);
+                    cuts.insert((b, a), widths[&b]);
                 }
             }
         }
@@ -124,9 +199,7 @@ pub(crate) fn apply(
             // parallel offset lines.
             let straight = incoming.dot(outgoing) > 0.99999;
             if !straight && incoming.cross(outgoing).dot(normal).abs() <= 0.00001 {
-                return Err(invalid(
-                    "Угол грани рядом с фаской должен быть ненулевым",
-                ));
+                return Err(invalid("Угол грани рядом с фаской должен быть ненулевым"));
             }
             let ni = normal.cross(incoming);
             let no = normal.cross(outgoing);
@@ -135,6 +208,7 @@ pub(crate) fn apply(
             if determinant < 1e-8 && !straight {
                 return Err(invalid("Слишком острый угол для устойчивой фаски"));
             }
+            let width = widths[&v];
             let wi = if left { width } else { 0. };
             let wo = if right { width } else { 0. };
             let delta = if straight {
@@ -216,6 +290,12 @@ pub(crate) fn apply(
             }
             if left || right {
                 let mut q = anchors[&(f, v)];
+                // At a partial bevel, both incident faces must end at the same
+                // point of the untouched edge. Keeping each miter's own distance
+                // creates a backtracking spike in the neighbouring polygon.
+                if left != right && (-va).normalize().dot(vb.normalize()) < 0.99999 {
+                    q = cut_point(v, if left { after } else { before });
+                }
                 if !left {
                     let c = cut_point(v, before);
                     if q.distance(c) <= width.max(0.001) * 1e-5 {
@@ -241,8 +321,12 @@ pub(crate) fn apply(
                 } else {
                     let d = q - p;
                     let (a, b) = if determinant.abs() > 1e-12 {
-                        ((d.dot(va) * vb.length_squared() - d.dot(vb) * va.dot(vb)) / determinant,
-                         (d.dot(vb) * va.length_squared() - d.dot(va) * va.dot(vb)) / determinant)
+                        (
+                            (d.dot(va) * vb.length_squared() - d.dot(vb) * va.dot(vb))
+                                / determinant,
+                            (d.dot(vb) * va.length_squared() - d.dot(va) * va.dot(vb))
+                                / determinant,
+                        )
                     } else {
                         (d.dot(va) / va.length_squared().max(1e-12), 0.)
                     };
@@ -329,7 +413,56 @@ pub(crate) fn apply(
             ]);
         }
     }
-    mesh.topology = Some(MeshTopology { loose_edges: Vec::new(),
+    // Miter paths on almost coplanar faces can coincide to f32 precision.
+    // Weld only samples belonging to the SAME original corner, then remove
+    // backtracking boundary spurs; otherwise tiny caps form false branches.
+    let mut corner_samples = BTreeMap::<usize, Vec<Vec3>>::new();
+    for (i, v) in mesh.vertices.iter_mut().enumerate().skip(positions.len()) {
+        let tolerance = (widths[&tags[i]] * 0.002).max(1e-6);
+        let p = Vec3::from_array(v.position);
+        let samples = corner_samples.entry(tags[i]).or_default();
+        if let Some(&q) = samples
+            .iter()
+            .find(|q| q.distance_squared(p) < tolerance * tolerance)
+        {
+            v.position = q.to_array();
+        } else {
+            samples.push(p);
+        }
+    }
+    for face in &mut output {
+        let same = |a: u32, b: u32| {
+            crate::position_key(mesh.vertices[a as usize].position)
+                == crate::position_key(mesh.vertices[b as usize].position)
+        };
+        loop {
+            let duplicate = (0..face.len()).find(|&i| same(face[i], face[(i + 1) % face.len()]));
+            if let Some(i) = duplicate {
+                face.remove(i);
+                continue;
+            }
+            let spur = (0..face.len()).find(|&i| {
+                same(
+                    face[(i + face.len() - 1) % face.len()],
+                    face[(i + 1) % face.len()],
+                )
+            });
+            if let Some(i) = spur {
+                face.remove(i);
+                continue;
+            }
+            break;
+        }
+    }
+    if output[..source.len()].iter().any(|f| f.len() < 3) {
+        return Err(invalid("Фаска поглощает исходную грань"));
+    }
+    output.retain(|f| {
+        f.len() >= 3
+            && crate::polygon_edit::face_normal(mesh, f).length_squared() > f32::MIN_POSITIVE
+    });
+    mesh.topology = Some(MeshTopology {
+        loose_edges: Vec::new(),
         face_materials: {
             let mut materials = source_materials;
             if !materials.is_empty() {
@@ -361,13 +494,16 @@ pub(crate) fn apply(
             }
         }
     }
-    for edges in cap_edges.values() {
-        for mut cap in loops(edges)? {
+    for (tag, edges) in &cap_edges {
+        let width = widths[tag];
+        for mut cap in corner_cycles(edges)? {
             cap.reverse();
             // A straight profile subdivides the neighbouring face's cut edge.
             // Stitch those samples into that face instead of adding a zero-area cap.
             let polygon: Vec<u32> = cap.iter().map(|&i| i as u32).collect();
-            if crate::polygon_edit::face_normal(mesh, &polygon).length_squared() < 1e-14 {
+            if crate::polygon_edit::face_normal(mesh, &polygon).length_squared()
+                < (width * width * 1e-5).powi(2)
+            {
                 let k = (0..cap.len())
                     .max_by(|&a, &b| {
                         let length = |i: usize| {

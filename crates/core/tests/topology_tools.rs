@@ -69,7 +69,7 @@ fn bevel_rejects_invalid_width_boundary_and_budget_atomically() {
     let before = e.project.clone();
     for (width, segments, profile) in [
         (f32::NAN, 3, 1.),
-        (2., 3, 1.),
+        (1001., 3, 1.),
         (0.1, 0, 1.),
         (0.1, 33, 1.),
         (0.1, 3, 2.),

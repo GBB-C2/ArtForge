@@ -8,6 +8,10 @@ pub(super) struct SliderClick {
     point: [f32; 2],
     time: Instant,
 }
+#[cfg(test)]
+impl SliderClick {
+    pub(super) fn refresh_time(&mut self) { self.time = Instant::now(); }
+}
 
 #[derive(Clone)]
 pub(super) struct SliderDrag {
@@ -226,6 +230,14 @@ impl App {
     }
 
     pub(super) fn apply_field_value(&mut self, action: Action, value: &str) -> Result<(), String> {
+        if action == Action::MeshOpacity {
+            self.preferences.mesh_opacity = surfaces::number(value, 0., 100.)? / 100.;
+            self.persist_preferences(); return Ok(());
+        }
+        if action == Action::CameraEffectSearch {
+            if value.chars().count()>128 || value.chars().any(char::is_control) {return Err("Поиск: до 128 символов".into());}
+            self.camera_effects.query=value.into(); self.camera_effects.scroll=0.; return Ok(());
+        }
         if self.bone_size_confirm(&action, value)? { return Ok(()); }
         if self.modifier_confirm(&action,value)? {return Ok(());}
         if action == Action::Collision(crate::ui::CollisionAction::Search) {

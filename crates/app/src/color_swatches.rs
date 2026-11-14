@@ -6,6 +6,8 @@ use crate::color_picker::{ColorControl, ColorDraft};
 pub(super) struct Swatches {
     menu: Option<SwatchMenu>,
     copied: Option<[f32; 4]>,
+    mesh_undo: Vec<[f32; 3]>,
+    mesh_redo: Vec<[f32; 3]>,
 }
 struct SwatchMenu {
     source: Action,
@@ -23,7 +25,16 @@ pub(super) struct SwatchDrag {
 }
 
 impl App {
+    pub(super) fn remember_mesh_color(&mut self, previous: [f32; 3]) {
+        if previous != self.preferences.mesh_color {
+            self.swatches.mesh_undo.push(previous);
+            if self.swatches.mesh_undo.len() > 64 { self.swatches.mesh_undo.remove(0); }
+            self.swatches.mesh_redo.clear();
+        }
+    }
+
     pub(super) fn swatch_value(&self, source: &Action) -> Option<[f32; 4]> {
+        if *source==Action::MeshColor {let c=self.preferences.mesh_color;return Some([c[0],c[1],c[2],1.]);}
         let mut alpha = 1.;
         let rgb = match *source {
             Action::BoneDisplay(
@@ -278,6 +289,8 @@ impl App {
         }
         match index {
             0 | 3 => true,
+            1 if menu.source == Action::MeshColor => !self.swatches.mesh_undo.is_empty(),
+            2 if menu.source == Action::MeshColor => !self.swatches.mesh_redo.is_empty(),
             1 => self.editor.undo_len() > 0,
             2 => self.editor.can_redo(),
             4 => menu.paste.is_some(),
@@ -293,6 +306,17 @@ impl App {
             let menu = self.swatches.menu.take().unwrap();
             match index {
                 0 => self.reset_color(menu.source),
+                1 | 2 if menu.source == Action::MeshColor => {
+                    let previous = if index == 1 {
+                        self.swatches.mesh_redo.push(self.preferences.mesh_color);
+                        self.swatches.mesh_undo.pop().unwrap()
+                    } else {
+                        self.swatches.mesh_undo.push(self.preferences.mesh_color);
+                        self.swatches.mesh_redo.pop().unwrap()
+                    };
+                    self.preferences.mesh_color = previous;
+                    self.persist_preferences();
+                }
                 1 => self.action(Action::Undo),
                 2 => self.action(Action::Redo),
                 3 => {

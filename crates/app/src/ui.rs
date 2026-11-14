@@ -441,9 +441,10 @@ pub enum PrimitiveAction {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AuthorAction {
     ToolField(u8), ToolArray, ExtrudeMode(u8), ToolPanelDrag, ToolPanelToggle,
-    SnapMode(u8), SnapStep,
+    SnapMode(u8), SnapStep, SnapToggle, SnapGridStep(f32),
     ModifierPreview,
-    KnifeSnap, KnifeAngle(u8),
+    KnifeSnap,
+    KnifeCloseGap, KnifeAngle(u8),
     BridgeTwist, BridgeSmooth, FillHoles, Triangulate, Separate, ExtrudeIndividual,
     RepairMode(u8), SelectIssue, RepairIssue,
     BridgeFaces,
@@ -654,6 +655,11 @@ pub enum Action {
     ToggleBodyMenu,
     DismissMenu,
     New,
+    ConfirmNew,
+    MeshColor,
+    MeshOpacity,
+    CameraEffectSearch,
+    CameraEffectScroll,
     Open,
     Save,
     SaveAs,
@@ -951,6 +957,7 @@ impl Action {
     }
 
     pub fn is_field(&self) -> bool {
+        if matches!(self, Self::MeshOpacity | Self::CameraEffectSearch) { return true; }
         if matches!(self, Self::BoneDisplay(BoneDisplayAction::BodyColor | BoneDisplayAction::JointColor | BoneDisplayAction::Size(_))) { return true; }
         if matches!(self,Self::Modifier(ModifierAction::Field(..))) {return true;}
         if matches!(self,Self::Fx(FxAction::Field(_)|FxAction::Color|FxAction::KeyColor(_)|FxAction::SmokeColor)) {return true;}
@@ -1290,6 +1297,7 @@ impl Action {
             Self::Author(AuthorAction::SelectMode(MeshSelection::Vertex)) => Some("Вершина · 1 в режиме сетки · Shift: добавить или снять выбор · потяните выделение"),
             Self::Author(AuthorAction::SelectMode(MeshSelection::Edge)) => Some("Ребро · 2 в режиме сетки · Shift: добавить или снять выбор · потяните выделение"),
             Self::Author(AuthorAction::SelectMode(MeshSelection::Face)) => Some("Грань · 3 в режиме сетки · Shift: добавить или снять выбор · E: экструдировать"),
+            Self::Author(AuthorAction::SnapToggle) => Some("Привязка · магнит включает последнюю цель; стрелка выбирает цель"),
             Self::Author(_) => Some("Редактирование геометрии и скелета с Undo/Redo"),
             Self::SurfaceTab(1) => Some("Материал выбранного объекта · цвет, карты, стекло и ткань · Ctrl+PageUp/PageDown — вкладки"),
             Self::SurfaceTab(2) => Some("Добавление источников света и настройка рендера в реальном времени"),
@@ -1358,6 +1366,8 @@ impl Action {
             Self::DetectBlender => Some("Проверить путь к Blender для импорта .blend"),
             Self::ToggleBlendImportAnimations => Some("Готовые клипы из .blend; модель, текстуры и скелет загружаются всегда · Tab / Пробел"),
             Self::New => Some("Новая пустая сцена"),
+            Self::MeshColor => Some("Цвет рёбер и невыделенных вершин"),
+            Self::MeshOpacity => Some("Непрозрачность сетки в режиме редактирования"),
             Self::Open => Some("Открыть проект · Ctrl+O"),
             Self::Save => Some("Сохранить проект · Ctrl+S"),
             Self::SaveAs => Some("Сохранить проект в новый файл · Ctrl+Shift+S"),

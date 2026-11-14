@@ -172,8 +172,9 @@ fn primitives_ignore_the_panned_view_target() {
 fn view_controls_fit_both_themes_and_dpi_without_overlapping() {
     for theme in [ui::Theme::Dark, ui::Theme::Light] {
         for scale in [1., 2.] {
+          for width in [900.,1100.,1440.] {
             let mut a = app();
-            a.width = 1100.;
+            a.width = width;
             a.height = 760.;
             a.scale = scale;
             a.preferences.theme = theme;
@@ -187,6 +188,13 @@ fn view_controls_fit_both_themes_and_dpi_without_overlapping() {
             }
             for pair in rects.windows(2) { assert!(pair[0][0] + pair[0][2] < pair[1][0]); }
             assert_eq!(a.view_menu_rect()[2], 26.);
+            for action in [Action::Author(ui::AuthorAction::SnapToggle),Action::DropdownOpen(ui::DropdownKind::SnapMode),Action::ToggleViewMenu] {
+                let r=u.hits.iter().find(|h|h.action==action).unwrap().rect;
+                assert!(intersect_rect(r,a.left_panel_rect()).is_none());
+                assert!(intersect_rect(r,a.rail_rect()).is_none());
+                assert!(intersect_rect(r,a.view_widget_rect()).is_none());
+            }
+          }
         }
     }
 }

@@ -17,10 +17,19 @@ pub(super) enum CurveDrag {
     Stroke { points: Vec<Vec3>, last: [f32; 2], origin: Vec3, normal: Vec3 },
 }
 fn move_point(curve: &mut CurveData, index: usize, p: [f32; 3]) {
+    let delta = Vec3::from_array(p) - Vec3::from_array(curve.points[index]);
     curve.points[index] = p;
-    if curve.closed && curve.interpolation == I::Bezier {
+    if curve.interpolation == I::Bezier && index.is_multiple_of(3) {
         let last = curve.points.len() - 1;
-        if index == 0 { curve.points[last] = p; } else if index == last { curve.points[0] = p; }
+        let mut handles = Vec::new();
+        if index > 0 { handles.push(index - 1); }
+        if index < last { handles.push(index + 1); }
+        if curve.closed && (index == 0 || index == last) {
+            curve.points[0] = p; curve.points[last] = p;
+            handles.extend([1, last - 1]);
+        }
+        handles.sort_unstable(); handles.dedup();
+        for i in handles { curve.points[i] = (Vec3::from_array(curve.points[i]) + delta).to_array(); }
     }
 }
 fn plane_point(view: &poseforge_render::View, viewport: [f32; 4], pixel: [f32; 2], origin: Vec3, normal: Vec3) -> Option<Vec3> {
@@ -137,6 +146,7 @@ impl App {
             3 => (c.resolution as f32, 1., 64., "Детализация кривой"),
             4 => (c.geometry?.radius, 0.001, 1000., "Радиус / полуширина, м"),
             5 => (c.geometry?.sides as f32, 3., 32., "Стороны сечения"),
+            6 => (c.geometry?.rotation, -3600., 3600., "Вращение ленты, °"),
             _ => return None,
         })
     }
@@ -152,6 +162,7 @@ impl App {
             3 => curve.resolution = value as u32,
             4 => curve.geometry.as_mut().unwrap().radius = value,
             5 => curve.geometry.as_mut().unwrap().sides = value as u32,
+            6 => curve.geometry.as_mut().unwrap().rotation = value,
             _ => return Err("Неизвестное поле кривой".into()),
         }
         self.editor.set_curve(id, curve).map_err(|e| e.to_string())?;
@@ -212,11 +223,14 @@ impl App {
                     Action::Curve(C::Profile(i as u8)), (i == 0) == (g.profile == CurveProfile::Tube));
             }
             row += 36.;
-            u.number_field([left, row, if g.profile == CurveProfile::Tube { half } else { width }, 44.],
+            u.number_field([left, row, half, 44.],
                 "Радиус, м", g.radius as f64, Action::Curve(C::Field(4)), SliderRange::new(0.001, 2_f64.max(g.radius as f64), 0.001));
             if g.profile == CurveProfile::Tube {
                 u.number_field([left + half + 6., row, half, 44.], "Стороны", g.sides as f64,
                     Action::Curve(C::Field(5)), SliderRange::new(3., 32., 1.));
+            } else {
+                u.number_field([left + half + 6., row, half, 44.], "Вращение, °", g.rotation as f64,
+                    Action::Curve(C::Field(6)), SliderRange::new(-180., 180., 1.));
             }
             row += 50.;
             if g.profile == CurveProfile::Tube {
@@ -263,7 +277,11 @@ impl App {
                 u.quiet_icon_button([x + i as f32 * (half + 6.), 858., half, 30.], label, Action::Curve(C::Profile(i as u8)),
                     (i == 0) == (g.profile == CurveProfile::Tube), if i == 0 { Icon::CurveCircle } else { Icon::Plane });
             }
-            u.number_field([x, 902., w, 44.], "Радиус / полуширина, м", g.radius as f64, Action::Curve(C::Field(4)), SliderRange::new(0.001, 2., 0.001));
+            u.number_field([x, 902., if g.profile == CurveProfile::Ribbon {half} else {w}, 44.], "Радиус, м", g.radius as f64, Action::Curve(C::Field(4)), SliderRange::new(0.001, 2., 0.001));
+            if g.profile == CurveProfile::Ribbon {
+                u.number_field([x + half + 6., 902., half, 44.], "Вращение, °", g.rotation as f64,
+                    Action::Curve(C::Field(6)), SliderRange::new(-180.,180.,1.));
+            }
             if g.profile == CurveProfile::Tube {
                 u.number_field([x, 952., w, 44.], "Стороны сечения", g.sides as f64, Action::Curve(C::Field(5)), SliderRange::new(3., 32., 1.));
                 u.checkbox([x, 1006., w, 28.], "Закрыть торцы", Action::Curve(C::Caps), g.caps);
@@ -405,5 +423,24 @@ impl App {
             u.fitted_label([viewport[0] + 18., viewport[1] + viewport[3] - 30., viewport[2] - 36., 22.],
                 "Рисуйте ЛКМ · отпустите для создания кривой · Esc — отмена", 12., palette.accent);
         }
+    }
+}
+
+#[cfg(test)]
+mod anchor_motion_tests {
+    use super::*;
+    #[test]
+    fn bezier_anchor_translates_both_handles_and_closed_seam_once() {
+        let mut c=CurvePreset::Circle.curve();let source=c.clone();let delta=Vec3::new(0.4,0.7,-0.2);
+        move_point(&mut c,3,(Vec3::from_array(source.points[3])+delta).to_array());
+        for i in 0..c.points.len() {
+            let expected=Vec3::from_array(source.points[i])+if (2..=4).contains(&i) {delta} else {Vec3::ZERO};
+            assert!(Vec3::from_array(c.points[i]).distance(expected)<1e-6);
+        }
+        let mut c=source.clone();let last=c.points.len()-1;
+        move_point(&mut c,last,(Vec3::from_array(source.points[0])+delta).to_array());
+        for i in [0,1,last-1,last] {assert!(Vec3::from_array(c.points[i]).distance(Vec3::from_array(source.points[i])+delta)<1e-6);}
+        c.validate().unwrap();
+        let handles=c.clone();move_point(&mut c,1,[0.,0.,0.]);assert_eq!(c.points[0],handles.points[0]);assert_eq!(c.points[last-1],handles.points[last-1]);
     }
 }

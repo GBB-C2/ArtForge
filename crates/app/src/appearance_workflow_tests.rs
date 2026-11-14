@@ -397,7 +397,7 @@ fn appearance_creation_panel_moves_clamps_cancels_and_click_collapses() {
 }
 
 #[test]
-fn appearance_settings_only_offer_theme_accent_and_language() {
+fn appearance_settings_offer_theme_accent_language_and_mesh_appearance() {
     let a = app();
     let mut u = Ui::new(1.);
     a.draw_program_settings(&mut u, 100., 320.);
@@ -406,6 +406,8 @@ fn appearance_settings_only_offer_theme_accent_and_language() {
         Action::InterfaceTheme(_)
             | Action::Language(_)
             | Action::DropdownOpen(ui::DropdownKind::Accent)
+            | Action::MeshColor | Action::MeshOpacity | Action::OpenColorPicker(_)
+            | Action::ResetColor(_) | Action::ResetNumber(_) | Action::Slide(..)
     )));
     assert!(!a.welcome.open);
 }

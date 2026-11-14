@@ -313,7 +313,7 @@ impl App {
             return;
         }
         match command {
-            A::SnapMode(_) | A::SnapStep | A::ModifierPreview | A::BridgeTwist | A::BridgeSmooth | A::FillHoles | A::Triangulate | A::Separate | A::ExtrudeIndividual | A::RepairMode(_) | A::SelectIssue | A::RepairIssue | A::KnifeSnap | A::KnifeAngle(_)
+            A::SnapMode(_) | A::SnapStep | A::SnapToggle | A::SnapGridStep(_) | A::ModifierPreview | A::BridgeTwist | A::BridgeSmooth | A::FillHoles | A::Triangulate | A::Separate | A::ExtrudeIndividual | A::RepairMode(_) | A::SelectIssue | A::RepairIssue | A::KnifeSnap | A::KnifeCloseGap | A::KnifeAngle(_)
             | A::Knife
             | A::KnifeAccept
             | A::KnifeCancel
@@ -1135,7 +1135,7 @@ impl App {
         let edge_step = g.edges.len().div_ceil(24_000).max(1);
         for &(a, b) in g.edges.iter().step_by(edge_step) {
             if let (Some(pa), Some(pb)) = (points[a], points[b]) {
-                u.depth_mesh_segment(pa, pb, 0.8, [0.5, 0.55, 0.6, 0.5], edge_depth(a, b));
+                u.depth_mesh_segment(pa, pb, 0.8, [self.preferences.mesh_color[0], self.preferences.mesh_color[1], self.preferences.mesh_color[2], self.preferences.mesh_opacity], edge_depth(a, b));
             }
         }
         if preview {
@@ -1159,7 +1159,7 @@ impl App {
                 u.depth_mesh_segment(pa, pb, 2., p.accent, edge_depth(a, b));
             }
         }
-        if self.authoring.selection_mode != S::Face && !uv_selection {
+        if self.authoring.selection_mode == S::Vertex && !uv_selection {
             let selected = self.edit_vertices();
             let keys: BTreeSet<_> = selected
                 .iter()
@@ -1177,11 +1177,11 @@ impl App {
                         continue;
                     }
                     let size = if selected { 6. } else { 4. };
-                    u.rect(
-                        [x - size / 2., y - size / 2., size, size],
-                        if selected { p.accent } else { p.text },
-                    );
-                    u.rects.last_mut().unwrap().depth = edge_depth(i, i);
+                    let start = u.rects.len();
+                    let c=self.preferences.mesh_color;
+                    u.rounded_rect([x-size/2., y-size/2., size, size],
+                        if selected {p.accent} else {[c[0],c[1],c[2],self.preferences.mesh_opacity]}, size/2.);
+                    for r in &mut u.rects[start..] { r.depth = edge_depth(i,i); }
                 }
             }
         }

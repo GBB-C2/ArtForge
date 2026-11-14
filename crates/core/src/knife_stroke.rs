@@ -41,6 +41,34 @@ fn hits(mesh: &Mesh, g: &MeshConnectivity, face: usize, point: Vec3) -> Vec<Edge
     }
     result
 }
+fn segments(mesh: &Mesh, face: usize, a: Vec3, b: Vec3) -> Vec<(Vec3, Vec3)> {
+    let Some(ring) = mesh.face_vertices(face) else {
+        return Vec::new();
+    };
+    let n = crate::polygon_edit::face_normal(mesh, ring).normalize_or_zero();
+    let d = b - a;
+    let mut ts = vec![0., 1.];
+    for i in 0..ring.len() {
+        let p = Vec3::from_array(mesh.vertices[ring[i] as usize].position);
+        let q = Vec3::from_array(mesh.vertices[ring[(i + 1) % ring.len()] as usize].position);
+        let e = q - p;
+        let div = d.cross(e).dot(n);
+        if div.abs() < 1e-10 {
+            continue;
+        }
+        let t = (p - a).cross(e).dot(n) / div;
+        let u = (p - a).cross(d).dot(n) / div;
+        if (0. ..=1.).contains(&t) && (-1e-5..=1.00001).contains(&u) {
+            ts.push(t);
+        }
+    }
+    ts.sort_by(f32::total_cmp);
+    ts.dedup_by(|x, y| (*x - *y).abs() < 1e-6);
+    ts.windows(2)
+        .filter(|t| crate::knife_interior::contains(mesh, face, a + d * (t[0] + t[1]) * 0.5))
+        .map(|t| (a + d * t[0], a + d * t[1]))
+        .collect()
+}
 pub(crate) fn apply(mesh: &mut Mesh, cuts: &[KnifeCut]) -> Result<(), CoreError> {
     apply_tracked(mesh, cuts).map(|_| ())
 }
@@ -60,39 +88,73 @@ fn apply_tracked(mesh: &mut Mesh, cuts: &[KnifeCut]) -> Result<Vec<usize>, CoreE
     }
     let mut cuts = cuts.to_vec();
     cuts.sort_by_key(|c| std::cmp::Reverse(c.face));
-    let mut previous = None;
-    let mut parts = 0;
     for cut in cuts {
-        if previous != Some(cut.face) {
-            previous = Some(cut.face);
-            parts = 0;
-        }
-        let graph = MeshConnectivity::new(mesh);
-        let mut applied = None;
-        'faces: for f in cut.face..=cut.face + parts {
-            let first = hits(mesh, &graph, f, Vec3::from_array(cut.first));
-            let second = hits(mesh, &graph, f, Vec3::from_array(cut.second));
-            for a in &first {
-                for b in &second {
-                    if a.edge == b.edge {
+        let candidates: Vec<_> = origins
+            .iter()
+            .enumerate()
+            .filter(|(_, origin)| **origin == cut.face)
+            .map(|(f, _)| f)
+            .rev()
+            .collect();
+        let mut changed = false;
+        for f in candidates {
+            let a = Vec3::from_array(cut.first);
+            let b = Vec3::from_array(cut.second);
+            let pieces = segments(mesh, f, a, b);
+            let mut end = f;
+            for (a, b) in pieces.into_iter().rev() {
+                for current in f..=end {
+                    if !crate::knife_interior::contains(mesh, current, (a + b) * 0.5) {
                         continue;
                     }
-                    let mut candidate = mesh.clone();
-                    if crate::mesh_advanced::knife(&mut candidate, f, *a, *b).is_ok() {
-                        applied = Some((candidate, f));
-                        break 'faces;
+                    let graph = MeshConnectivity::new(mesh);
+                    let first = hits(mesh, &graph, current, a);
+                    let second = hits(mesh, &graph, current, b);
+                    let mut applied = None;
+                    'pairs: for x in &first {
+                        for y in &second {
+                            if x.edge == y.edge {
+                                continue;
+                            }
+                            let mut candidate = mesh.clone();
+                            if crate::mesh_advanced::knife(&mut candidate, current, *x, *y).is_ok()
+                            {
+                                applied = Some(candidate);
+                                break 'pairs;
+                            }
+                        }
+                    }
+                    if applied.is_none() {
+                        if first
+                            .iter()
+                            .any(|x| second.iter().any(|y| x.edge == y.edge))
+                        {
+                            continue;
+                        }
+                        let mut candidate = mesh.clone();
+                        if crate::knife_interior::cut(&mut candidate, current, a, b).is_ok() {
+                            applied = Some(candidate);
+                        }
+                    }
+                    if let Some(candidate) = applied {
+                        let added = candidate.face_count() - mesh.face_count();
+                        origins.splice(
+                            current + 1..current + 1,
+                            std::iter::repeat_n(origins[current], added),
+                        );
+                        *mesh = candidate;
+                        changed = true;
+                        end += added;
+                        break;
                     }
                 }
             }
         }
-        let (candidate, f) = applied.ok_or_else(|| {
-            CoreError::Invalid(
-                "Линия проходит вне грани или совпадает с существующим ребром".into(),
-            )
-        })?;
-        *mesh = candidate;
-        origins.insert(f + 1, origins[f]);
-        parts += 1;
+        if !changed {
+            return Err(CoreError::Invalid(
+                "Линия проходит вне грани или совпадает с ребром".into(),
+            ));
+        }
     }
     Ok(origins)
 }
@@ -117,15 +179,22 @@ pub(crate) fn apply_gap(mesh: &mut Mesh, cuts: &[KnifeCut], width: f32) -> Resul
             .cross(b - a)
             .try_normalize()
             .ok_or_else(|| CoreError::Invalid("Слишком короткий разрез".into()))?;
-        bands.push((cut.face, a, side));
-        for shift in [-width * 0.5, width * 0.5] {
+        let along = (b - a).normalize();
+        let length = a.distance(b);
+        bands.push((cut.face, a, side, along, length));
+        for (axis, shift, required) in [
+            (side, -width * 0.5, true),
+            (side, width * 0.5, true),
+            (along, 0., false),
+            (along, length, false),
+        ] {
             let mut points = Vec::new();
             for i in 0..ring.len() {
                 let p = Vec3::from_array(mesh.vertices[ring[i] as usize].position);
                 let q =
                     Vec3::from_array(mesh.vertices[ring[(i + 1) % ring.len()] as usize].position);
-                let u = (p - a).dot(side) - shift;
-                let v = (q - a).dot(side) - shift;
+                let u = (p - a).dot(axis) - shift;
+                let v = (q - a).dot(axis) - shift;
                 if u.abs() < 1e-6 {
                     points.push(p);
                 }
@@ -133,14 +202,29 @@ pub(crate) fn apply_gap(mesh: &mut Mesh, cuts: &[KnifeCut], width: f32) -> Resul
                     points.push(p.lerp(q, u / (u - v)));
                 }
             }
-            points.sort_by(|p, q| ((*p - a).dot(b - a)).total_cmp(&((*q - a).dot(b - a))));
+            let tangent = normal.cross(axis);
+            points.sort_by(|p, q| ((*p - a).dot(tangent)).total_cmp(&((*q - a).dot(tangent))));
             points.dedup_by(|p, q| p.distance_squared(*q) < 1e-12);
+            if !required && (points.len() < 2 || points.len() % 2 != 0) {
+                continue;
+            }
             if points.len() < 2 || points.len() % 2 != 0 {
                 return Err(CoreError::Invalid(
                     "Зазор выходит за границы грани — уменьшите ширину".into(),
                 ));
             }
             for pair in points.chunks_exact(2) {
+                if !required {
+                    let g = MeshConnectivity::new(mesh);
+                    let first = hits(mesh, &g, cut.face, pair[0]);
+                    let second = hits(mesh, &g, cut.face, pair[1]);
+                    if first
+                        .iter()
+                        .any(|x| second.iter().any(|y| x.edge == y.edge))
+                    {
+                        continue;
+                    }
+                }
                 boundaries.push(KnifeCut {
                     face: cut.face,
                     first: pair[0].to_array(),
@@ -154,13 +238,13 @@ pub(crate) fn apply_gap(mesh: &mut Mesh, cuts: &[KnifeCut], width: f32) -> Resul
     let mut materials = Vec::new();
     for (f, origin) in origins.into_iter().enumerate() {
         let ring = mesh.face_vertices(f).unwrap();
-        let remove = bands.iter().any(|&(old, a, side)| {
+        let remove = bands.iter().any(|&(old, a, side, along, length)| {
             old == origin
                 && ring.iter().all(|&v| {
-                    (Vec3::from_array(mesh.vertices[v as usize].position) - a)
-                        .dot(side)
-                        .abs()
-                        <= width * 0.5 + 1e-6
+                    let d = Vec3::from_array(mesh.vertices[v as usize].position) - a;
+                    d.dot(side).abs() <= width * 0.5 + 1e-6
+                        && d.dot(along) >= -1e-6
+                        && d.dot(along) <= length + 1e-6
                 })
         });
         if !remove {
@@ -180,4 +264,88 @@ pub(crate) fn apply_gap(mesh: &mut Mesh, cuts: &[KnifeCut], width: f32) -> Resul
     mesh.rebuild_polygon_indices()?;
     crate::recompute_normals(mesh, mesh.smooth_normals_enabled());
     mesh.validate_topology()
+}
+
+/// Cap only boundaries created by this cut, preserving pre-existing openings.
+pub(crate) fn apply_gap_closed(
+    mesh: &mut Mesh,
+    cuts: &[KnifeCut],
+    width: f32,
+) -> Result<(), CoreError> {
+    if width == 0. {
+        return apply(mesh, cuts);
+    }
+    let original = mesh.clone();
+    let graph = MeshConnectivity::new(&original);
+    let old: Vec<_> = graph
+        .edge_faces
+        .iter()
+        .filter(|(_, fs)| fs.len() == 1)
+        .map(|(&(a, b), _)| {
+            (
+                Vec3::from_array(original.vertices[a].position),
+                Vec3::from_array(original.vertices[b].position),
+            )
+        })
+        .collect();
+    apply_gap(mesh, cuts, width)?;
+    let graph = MeshConnectivity::new(mesh);
+    let edges = graph
+        .edge_faces
+        .iter()
+        .filter(|(_, fs)| fs.len() == 1)
+        .filter_map(|(&edge, _)| {
+            let p = Vec3::from_array(mesh.vertices[edge.0].position);
+            let q = Vec3::from_array(mesh.vertices[edge.1].position);
+            let existed = old.iter().any(|&(a, b)| {
+                let d = b - a;
+                [p, q].iter().all(|p| {
+                    let t = (*p - a).dot(d) / d.length_squared();
+                    (-1e-5..=1.00001).contains(&t) && p.distance_squared(a + d * t) < 1e-10
+                })
+            });
+            (!existed).then_some(edge)
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let boundaries: std::collections::BTreeSet<_> = graph
+        .edge_faces
+        .iter()
+        .filter(|(_, fs)| fs.len() == 1)
+        .map(|(&e, _)| e)
+        .collect();
+    let mut remaining = boundaries.clone();
+    let mut closed = std::collections::BTreeSet::new();
+    while let Some(&seed) = remaining.first() {
+        let mut component = std::collections::BTreeSet::from([seed]);
+        let mut vertices = std::collections::BTreeSet::from([seed.0, seed.1]);
+        loop {
+            let connected: Vec<_> = remaining
+                .iter()
+                .filter(|e| vertices.contains(&e.0) || vertices.contains(&e.1))
+                .copied()
+                .collect();
+            if connected.is_empty() {
+                break;
+            }
+            for e in connected {
+                remaining.remove(&e);
+                component.insert(e);
+                vertices.extend([e.0, e.1]);
+            }
+        }
+        if component.iter().all(|e| edges.contains(e)) {
+            closed.extend(component);
+        }
+    }
+    if !closed.is_empty() {
+        crate::mesh_cleanup::apply(
+            mesh,
+            &crate::MeshRegion {
+                edges: closed,
+                ..Default::default()
+            },
+            crate::TopologyEdit::FillHoles,
+        )?;
+    }
+    Ok(())
 }

@@ -13,6 +13,8 @@ mod modifier_geometry;
 mod advanced_modifiers;
 mod advanced_bridge;
 mod knife_stroke;
+mod knife_interior;
+mod extrude_manifold;
 mod modeling_workflow;
 pub use modeling_workflow::loop_cut_path;
 pub use knife_stroke::KnifeCut;

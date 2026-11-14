@@ -129,6 +129,8 @@ pub struct Preferences {
     pub recent_projects: Vec<PathBuf>,
     pub theme: Theme,
     pub accent: Accent,
+    pub mesh_color: [f32; 3],
+    pub mesh_opacity: f32,
     pub left_width: Option<f32>,
     pub right_width: Option<f32>,
     pub creation_panel_position: Option<[f32; 2]>,
@@ -158,6 +160,8 @@ impl Default for Preferences {
             recent_projects: Vec::new(),
             theme: Theme::Dark,
             accent: Accent::default(),
+            mesh_color: [0.5,0.55,0.6],
+            mesh_opacity: 0.5,
             left_width: None,
             right_width: None,
             creation_panel_position: None,
@@ -210,6 +214,11 @@ impl Preferences {
                 .filter(|p|!p.is_empty()).take(6).map(PathBuf::from).collect(),
             theme: Theme::from_name(value["theme"].as_str().unwrap_or("dark")),
             accent: Accent::from_name(value["accent"].as_str().unwrap_or("blue")),
+            mesh_color: value["mesh_color"].as_array().filter(|v|v.len()==3).and_then(|v|{
+                let c=[v[0].as_f64()? as f32,v[1].as_f64()? as f32,v[2].as_f64()? as f32];
+                c.iter().all(|x|x.is_finite()&&(0. ..=1.).contains(x)).then_some(c)
+            }).unwrap_or(d.mesh_color),
+            mesh_opacity: value["mesh_opacity"].as_f64().filter(|x|x.is_finite()&&(0. ..=1.).contains(x)).map_or(d.mesh_opacity,|x|x as f32),
             left_width: value["left_width"]
                 .as_f64()
                 .filter(|v| v.is_finite() && (220. ..=520.).contains(v))
@@ -267,6 +276,7 @@ impl Preferences {
             "version": 1, "interface_version": INTERFACE_VERSION,
             "language": self.language.as_str(), "recent_projects": self.recent_projects,
             "theme": self.theme.as_str(), "accent": self.accent.as_str(),
+            "mesh_color": self.mesh_color, "mesh_opacity": self.mesh_opacity,
             "left_width":self.left_width,"right_width":self.right_width,
             "creation_panel_position":self.creation_panel_position,
             "tools_expanded": self.tools_expanded,

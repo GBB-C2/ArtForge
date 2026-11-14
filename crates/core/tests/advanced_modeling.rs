@@ -327,8 +327,10 @@ fn knife_stroke_crosses_adjacent_faces_without_t_junctions_and_undoes_atomically
                     },
                     KnifeCut {
                         face: 0,
-                        first: [0.2, 0.5, 0.],
-                        second: [1., 0.5, 0.]
+                        // Interior endpoints are valid; an off-surface segment
+                        // must still roll back the whole multi-face stroke.
+                        first: [0.2, 0.5, 1.],
+                        second: [1., 0.5, 1.]
                     }
                 ]
             }

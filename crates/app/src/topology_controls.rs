@@ -69,6 +69,7 @@ impl App {
     }
 
     pub(super) fn topology_action(&mut self, a: A) -> bool {
+        if matches!(a,A::Bridge|A::BridgeFaces) {return false;}
         if self.snap_action(a) {
             return true;
         }

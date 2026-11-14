@@ -14,11 +14,13 @@ pub enum CurveProfile { #[default] Tube, Ribbon }
 pub struct CurveGeometry {
     pub profile: CurveProfile,
     pub radius: f32,
+    /// Cross-section rotation in degrees, transported along the entire curve.
+    pub rotation: f32,
     pub sides: u32,
     pub caps: bool,
 }
 impl Default for CurveGeometry {
-    fn default() -> Self { Self { profile: CurveProfile::Tube, radius: 0.05, sides: 8, caps: true } }
+    fn default() -> Self { Self { profile: CurveProfile::Tube, radius: 0.05, rotation: 0., sides: 8, caps: true } }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
@@ -91,7 +93,7 @@ impl CurveData {
         }
         if self.closed && self.points.len() < 3 { return Err(invalid("Замкнутой кривой нужны три точки")); }
         if let Some(g) = self.geometry {
-            if !g.radius.is_finite() || !(0.001..=1000.).contains(&g.radius) || !(3..=32).contains(&g.sides) {
+            if !g.rotation.is_finite() || g.rotation.abs() > 3600. || !g.radius.is_finite() || !(0.001..=1000.).contains(&g.radius) || !(3..=32).contains(&g.sides) {
                 return Err(invalid("Геометрия кривой: радиус 0,001–1000 м; 3–32 стороны"));
             }
         }
@@ -163,7 +165,7 @@ impl CurveData {
         let mut length = vec![0.; centers.len()];
         for i in 1..centers.len() { length[i] = length[i - 1] + centers[i].distance(centers[i - 1]); }
         for i in 0..=steps {
-            let normal = frames[i]; let binormal = tangents[i].cross(normal);
+            let normal = crate::Quat::from_axis_angle(tangents[i], g.rotation.to_radians()) * frames[i]; let binormal = tangents[i].cross(normal);
             for j in 0..=sides {
                 let radial = if g.profile == CurveProfile::Ribbon { normal * if j == 0 { -1. } else { 1. } }
                     else { let a = if j == sides { 0. } else { j as f32 / sides as f32 * std::f32::consts::TAU };

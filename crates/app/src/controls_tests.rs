@@ -13,7 +13,13 @@ impl App {
             .is_some_and(|r| ui::contains(r, self.mouse));
         let clicks = if numeric && !editing { 2 } else { 1 };
         self.slider_click = None;
-        for _ in 0..clicks {
+        for click in 0..clicks {
+            // CPU-only UI construction can exceed the double-click window.
+            // Keep synthetic input timing independent of rendering cost;
+            // raw pointer and timeout tests continue to exercise real timing.
+            if click > 0 {
+                if let Some(previous) = &mut self.slider_click { previous.refresh_time(); }
+            }
             self.mouse_down(MouseButton::Left);
             self.mouse_up(MouseButton::Left);
             self.ui = self.build_ui();

@@ -5,6 +5,7 @@ use poseforge_core::AlphaMode;
 
 #[derive(Clone, Copy, Debug)]
 enum ColorTarget {
+    Mesh,
     Bone(u64, bool),
     Material(u64, bool),
     Absorption(u64),
@@ -50,7 +51,7 @@ pub(super) struct ColorDrag {
 fn color_source(action: &Action) -> bool {
     matches!(
         action,
-        Action::SurfaceMaterialColor(_)
+        Action::MeshColor | Action::SurfaceMaterialColor(_)
             | Action::SurfaceAttenuationColor
             | Action::SurfaceNprColor(_)
             | Action::SurfaceLightColor
@@ -79,6 +80,7 @@ impl App {
         let light = poseforge_core::Light::default();
         let render = poseforge_core::RenderSettings::default();
         match target {
+            ColorTarget::Mesh => self.preferences.mesh_color = Preferences::default().mesh_color,
             ColorTarget::Material(id, emissive) => {
                 let m = self.editor.project.materials.iter_mut().find(|m| m.id == id).unwrap();
                 if emissive { m.emissive = material.emissive; }
@@ -120,6 +122,7 @@ impl App {
             return;
         }
         let (target, original_rgb, alpha, alpha_mode, title) = match source {
+            Action::MeshColor => (ColorTarget::Mesh,self.preferences.mesh_color,1.,AlphaMode::Opaque,"Цвет сетки"),
             Action::BoneDisplay(kind @ (ui::BoneDisplayAction::BodyColor | ui::BoneDisplayAction::JointColor)) => {
                 if !self.bone_display_editable() { return; }
                 let node = self.bone_display_node().unwrap();
@@ -255,7 +258,7 @@ impl App {
                 self.right_width() - 36.,
                 30.,
             ]);
-        let display = if matches!(target, ColorTarget::Bone(..)) {
+        let display = if matches!(target, ColorTarget::Bone(..) | ColorTarget::Mesh) {
             original_rgb
         } else if matches!(target, ColorTarget::Material(_, true)) {
             surfaces::emissive_tint(original_rgb)
@@ -284,7 +287,7 @@ impl App {
         let original_bone_displays = if matches!(target, ColorTarget::Bone(..)) {
             self.bone_display_ids().into_iter().map(|id| (id, self.editor.project.node(id).unwrap().bone_display)).collect()
         } else { Vec::new() };
-        self.editor.begin_edit(title);
+        if !matches!(target, ColorTarget::Mesh) { self.editor.begin_edit(title); }
         self.color_picker = Some(ColorSession {
             picker,
             target,
@@ -316,6 +319,7 @@ impl App {
             return false;
         };
         match session.target {
+            ColorTarget::Mesh => true,
             ColorTarget::Bone(id,_) => self.editor.selected == Some(id) && self.bone_display_editable()
                 && self.bone_display_ids() == session.original_bone_displays.iter().map(|(id,_)| *id).collect(),
             ColorTarget::Material(id, _)
@@ -350,6 +354,7 @@ impl App {
             session.original_rgb
         };
         match session.target {
+            ColorTarget::Mesh => { self.preferences.mesh_color = [rgba[0],rgba[1],rgba[2]]; }
             ColorTarget::Bone(_,joint) => {
                 for (id, original) in &session.original_bone_displays {
                     let node = self.editor.project.node_mut(*id).ok_or("Кость удалена.")?;
@@ -667,12 +672,17 @@ impl App {
         }
         self.release_color_pointer();
         let session = self.color_picker.take().unwrap();
-        let result = self.editor.commit_edit();
+        let result = if matches!(session.target,ColorTarget::Mesh) {
+                self.remember_mesh_color(session.original_rgb);
+                self.persist_preferences(); Ok(()) }
+            else { self.editor.commit_edit() };
         self.end_input();
         self.update_dirty();
         match result {
             Ok(()) => {
-                self.status = format!("{} применён · Ctrl+Z — отменить", session.title);
+                self.status = if matches!(session.target, ColorTarget::Mesh) {
+                    "Цвет сетки применён · ПКМ по цвету — отменить или вернуть".into()
+                } else { format!("{} применён · Ctrl+Z — отменить", session.title) };
                 true
             }
             Err(error) => {
@@ -688,8 +698,8 @@ impl App {
         };
         self.release_color_pointer();
         self.end_input();
-        self.editor.cancel_edit();
-        self.editor.modified = session.was_modified;
+        if matches!(session.target, ColorTarget::Mesh) { self.preferences.mesh_color=session.original_rgb; }
+        else { self.editor.cancel_edit(); self.editor.modified = session.was_modified; }
         self.update_dirty();
         self.status = "Выбор цвета отменён.".into();
     }
@@ -755,6 +765,19 @@ impl App {
         };
         u.hits.clear();
         let [x, y, w, h] = layout.panel.map(|v| v * u.scale);
+        // Exclude scene strokes from the popup, including depth-tested mesh
+        // overlays. Keep their original geometry and clip only their coverage.
+        let previous=std::mem::take(&mut u.rects);
+        for rect in previous {
+            if (rect.segment.is_some() || rect.triangle.is_some()) && intersect_rect(rect.rect,[x,y,w,h]).is_some() {
+                let [rx,ry,rw,rh]=rect.rect;
+                for bounds in [[rx,ry,rw,(y-ry).max(0.)],[rx,(y+h).max(ry),rw,(ry+rh-(y+h).max(ry)).max(0.)],
+                    [rx,ry.max(y),(x-rx).max(0.),(ry+rh).min(y+h)-ry.max(y)],
+                    [(x+w).max(rx),ry.max(y),(rx+rw-(x+w).max(rx)).max(0.),(ry+rh).min(y+h)-ry.max(y)]] {
+                    if let Some(clip)=intersect_rect(rect.rect,bounds) {let mut part=rect.clone();part.rect=clip;u.rects.push(part);}
+                }
+            } else {u.rects.push(rect);}
+        }
         u.texts.retain(|text| {
             let width = text.text.chars().count() as f32 * text.size;
             text.x >= x + w

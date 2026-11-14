@@ -62,6 +62,7 @@ fn arrow(strokes: &mut Vec<Segment>, center: Vec2, axis: Vec2, sign: f32, length
 
 impl App {
     pub(super) fn draw_live_handles(&self, u: &mut Ui, op: &LiveOperation) {
+        if op.kind==Kind::Bridge {return;}
         let mut world = op.anchor;
         if matches!(op.kind,Kind::Extrude|Kind::Individual|Kind::VertexExtrude) {
             world += op.direction * op.values[0];
@@ -205,7 +206,7 @@ impl App {
                 if let Some(field) = field.filter(|i| *i < op.fields()) {
                     let mut values = op.values;
                     let (_,min,max,step) = op.spec(field);
-                    let integer = op.kind == Kind::Edge && field == 1;
+                    let integer = (op.kind == Kind::Edge && field == 1) || (op.kind==Kind::Bridge && field<2);
                     let step = if integer { 1. } else {
                         let step = if self.modifiers.control_key() {
                             if op.spec(field).0.ends_with('%') { 5. } else { op.scale*0.01 }

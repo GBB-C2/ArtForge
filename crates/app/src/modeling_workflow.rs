@@ -1,12 +1,13 @@
 //! Floating tool properties and explicit component construction settings.
 use super::*;
 use crate::ui::{AuthorAction as A, MeshSelection as S, ModelingTool as M};
-pub(super) const DEFAULTS: [f32; 9] = [0., 0., 3., 1., 0., 0., 0., 0., 0.];
+pub(super) const DEFAULTS: [f32; 10] = [0., 0., 3., 1., 0., 0., 0., 0., 0., 1.];
 pub(super) struct State {
-    pub values: [f32; 9],
+    pub values: [f32; 10],
     pub extrude_mode: u8,
     pub panel_position: Option<[f32; 2]>,
     pub collapsed: bool,
+    pub close_gap: bool,
 }
 impl Default for State {
     fn default() -> Self {
@@ -15,11 +16,13 @@ impl Default for State {
             extrude_mode: 0,
             panel_position: None,
             collapsed: false,
+            close_gap: false,
         }
     }
 }
 impl App {
     pub(super) fn workflow_preference_field(a: &Action) -> bool {
+        if *a == Action::MeshOpacity { return true; }
         matches!(
             a,
             Action::Author(
@@ -42,7 +45,7 @@ impl App {
                     self.input(Action::Author(a), ui::number_caption(*v as f64));
                 }
             }
-            A::ExtrudeMode(mode) => self.change_extrude_mode(mode.min(2)),
+            A::ExtrudeMode(mode) => self.change_extrude_mode(mode.min(3)),
             A::ToolPanelToggle => {
                 self.authoring.workflow.collapsed = !self.authoring.workflow.collapsed
             }
@@ -87,15 +90,20 @@ impl App {
         let (min, max) = match i {
             0 | 1 => (0., 1000.),
             2 => (2., 128.),
+            9 => (1.,16.),
             3..=5 => (-10000., 10000.),
             6..=8 => (-3600., 3600.),
             _ => return Err("Неизвестный параметр".into()),
         };
         let value = surfaces::number(text, min, max)?;
-        if i == 2 && value.fract() != 0. {
+        if matches!(i,2|9) && value.fract() != 0. {
             return Err("Количество копий должно быть целым".into());
         }
+        let previous=self.authoring.workflow.values[i as usize];
         self.authoring.workflow.values[i as usize] = value;
+        if matches!(i,0|1|9) {
+            if let Err(e)=self.preview_knife_geometry() { self.authoring.workflow.values[i as usize]=previous; return Err(e); }
+        }
         Ok(true)
     }
     pub(super) fn workflow_bridge_edges(&self) -> BTreeSet<(usize, usize)> {
@@ -125,6 +133,7 @@ impl App {
     pub(super) fn draw_workflow_field(&self, u: &mut Ui, x: f32, y: f32, w: f32, i: u8, h: f32) {
         let (label, min, max, step): (&str, f64, f64, f64) = match i {
             0 | 1 => ("Зазор, м", 0., 1., 0.001),
+            9 => ("Количество линий",1.,16.,1.),
             2 => ("Копии, включая исходную", 2., 32., 1.),
             3 => ("Смещение X, м", -10., 10., 0.01),
             4 => ("Смещение Y, м", -10., 10., 0.01),
@@ -171,11 +180,11 @@ impl App {
             11.,
             u.palette().muted,
         );
-        let width = (w - 8.) / 3.;
-        for (i, label) in ["Область", "Нормали", "Отдельно"].into_iter().enumerate()
+        let width = (w - 4.) / 2.;
+        for (i, label) in ["Область", "По нормалям", "Отдельно", "Распределительное"].into_iter().enumerate()
         {
             u.quiet_button(
-                [x + i as f32 * (width + 4.), y + 22., width, 28.],
+                [x + (i%2) as f32 * (width + 4.), y + 22. + (i/2) as f32*32., width, 28.],
                 label,
                 Action::Author(A::ExtrudeMode(i as u8)),
                 self.authoring.workflow.extrude_mode == i as u8,
@@ -198,14 +207,7 @@ impl App {
             38.
         } else {
             (self.modeling_panel_bottom() - self.modeling_properties_start()
-                + 16.
-                + if self.modeling_live.is_some()
-                    && self.authoring.modeling_tool == Some(M::Extrude)
-                {
-                    58.
-                } else {
-                    0.
-                })
+                + 16.)
             .min(area[3])
         };
         let mut default = [area[0], area[1] + area[3] - h];

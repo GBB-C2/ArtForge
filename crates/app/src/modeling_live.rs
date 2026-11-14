@@ -7,6 +7,7 @@ use poseforge_core::{Mesh, MeshEdit};
 mod handles;
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
+    Bridge,
     Individual,
     VertexExtrude,
     VertexInset,
@@ -40,6 +41,7 @@ impl LiveOperation {
     }
     fn label(&self) -> &'static str {
         match self.kind {
+            Kind::Bridge=>"Мост",
             Kind::Individual=>"Индивидуальный экструд",
             Kind::VertexExtrude => "Экструдирование точек",
             Kind::VertexInset => "Вставка вокруг точек",
@@ -54,13 +56,16 @@ impl LiveOperation {
     }
     fn fields(&self) -> usize {
         match self.kind {
-            Kind::Edge => 3,
+            Kind::Edge | Kind::Bridge => 3,
             Kind::Face => 2,
             _ => 1,
         }
     }
     fn spec(&self, i: usize) -> (&'static str, f32, f32, f32) {
         match (self.kind, i) {
+            (Kind::Bridge,0)=>("Сегменты",1.,32.,1.),
+            (Kind::Bridge,1)=>("Скручивание, шаги",-32.,32.,1.),
+            (Kind::Bridge,2)=>("Плавность, %",0.,100.,1.),
             (Kind::Vertex | Kind::VertexInset, 0) => ("Срез угла, %", 0., 45., 0.25),
             (Kind::Edge, 0) => ("Ширина, м", 0., 1000., self.scale * 0.002),
             (Kind::Edge, 1) => ("Сегменты", 1., 32., 0.1),
@@ -84,6 +89,7 @@ impl LiveOperation {
     }
     fn edit(&self, v: [f32; 3]) -> MeshEdit {
         match self.kind {
+            Kind::Bridge=>MeshEdit::BridgeAdvanced{faces:self.faces.clone(),edges:self.selection.edges.clone(),segments:v[0] as u32,twist:v[1] as i32,smooth:v[2]/100.},
             Kind::Individual=>MeshEdit::Bevel {faces:self.faces.clone(),inset:0.,shift:v[0]},
             Kind::VertexExtrude => MeshEdit::ExtrudeVertices { vertices:self.vertices.clone(), distance:v[0] },
             Kind::Vertex | Kind::VertexInset => MeshEdit::VertexBevel {
@@ -101,6 +107,7 @@ impl LiveOperation {
                 inset: v[0] / 100.,
                 shift: if self.kind == Kind::Face { v[1] } else { 0. },
             },
+            Kind::Extrude if self.extrude_mode==3 => MeshEdit::ExtrudeManifold {faces:self.faces.clone(),distance:v[0]},
             Kind::Extrude if self.extrude_mode==1 => MeshEdit::ExtrudeDistributed {faces:self.faces.clone(),distance:v[0]},
             Kind::Extrude if self.extrude_mode==2 => MeshEdit::Bevel {faces:self.faces.clone(),inset:0.,shift:v[0]},
             Kind::Extrude => MeshEdit::Extrude {
@@ -145,12 +152,13 @@ impl App {
             op.extrude_mode=mode;
             let result=self.editor.preview_mesh(op.node,&op.original,op.edit(op.values));
             if let Err(e)=result {op.extrude_mode=previous;op.error=Some(e.to_string());self.status=e.to_string();return;}
-            op.error=None;self.invalidate_geometry();
+            op.error=None;self.sync_live_selection();self.invalidate_geometry();
         }
         self.authoring.workflow.extrude_mode=mode;
     }
     pub(super) fn modeling_live_action(&mut self, a: A) -> bool {
         let mut kind = match a {
+            A::Bridge | A::BridgeFaces => Kind::Bridge,
             A::Slide => Kind::Slide,
             A::EdgeBevel => Kind::Edge,
             A::Bevel => match self.authoring.selection_mode {
@@ -196,13 +204,14 @@ impl App {
         let Some(node) = self.authoring.editing else {
             return true;
         };
-        let faces=self.selected_face_region();
+        let faces=if kind==Kind::Bridge && self.authoring.selection_mode!=S::Face {BTreeSet::new()} else {self.selected_face_region()};
         let vertices=self.edit_vertices();
         if faces.is_empty() && self.authoring.selection_mode!=S::Face {
             if kind==Kind::Extrude {kind=Kind::VertexExtrude;}
             if kind==Kind::Inset {kind=Kind::VertexInset;}
         }
         let valid = match kind {
+            Kind::Bridge => faces.len()>=2 || self.workflow_bridge_edges().len()>=2,
             Kind::VertexExtrude | Kind::VertexInset => !vertices.is_empty(),
             Kind::Vertex => self.authoring.selection_mode == S::Vertex && !self.authoring.vertices.is_empty(),
             Kind::Slide => {
@@ -269,6 +278,7 @@ impl App {
             }
         }
         let values = match kind {
+            Kind::Bridge => [self.authoring.bridge_segments as f32,self.authoring.bridge_twist as f32,self.authoring.bridge_smooth*100.],
             Kind::Vertex | Kind::VertexInset => [15., 0., 0.],
             Kind::Edge => [scale * 0.025, 3., 100.],
             Kind::Face => [self.authoring.inset * 100., self.authoring.bevel_height, 0.],
@@ -277,10 +287,12 @@ impl App {
             Kind::Cut => [self.authoring.loop_position * 100., 0., 0.],
             Kind::Slide => [0., 0., 0.],
         };
+        let mut selection=SelectionSnapshot::capture(&self.authoring);
+        if kind==Kind::Bridge {selection.edges=self.workflow_bridge_edges();}
         let op = LiveOperation {
             node,
             original,
-            selection: SelectionSnapshot::capture(&self.authoring),
+            selection,
             faces,
             vertices,
             kind,
@@ -347,10 +359,24 @@ impl App {
             op.selection.restore(&mut self.authoring);
             return;
         }
-        if op.kind==Kind::VertexExtrude {
+        if op.kind==Kind::Bridge {
+            self.authoring.selection_mode=S::Face;self.authoring.vertices.clear();self.authoring.edges.clear();
+            self.authoring.faces.clear();
+        } else if op.kind==Kind::VertexExtrude {
             self.authoring.selection_mode=S::Vertex;
             self.authoring.vertices=(op.original.vertices.len()..self.editor.editable_mesh(op.node).map_or(0,|m|m.vertices.len())).collect();
             self.authoring.edges.clear();self.authoring.faces.clear();
+        } else if op.kind==Kind::Extrude && op.extrude_mode==3 {
+            let mesh=self.editor.editable_mesh(op.node).unwrap();
+            let mut n=Vec3::ZERO;
+            for &f in &op.faces {let ring=op.original.face_vertices(f).unwrap();let p=|i|Vec3::from_array(op.original.vertices[ring[i] as usize].position);
+                for i in 1..ring.len()-1 {n+=(p(i)-p(0)).cross(p(i+1)-p(0));}}
+            let delta=n.normalize_or_zero()*op.values[0];
+            let caps:Vec<Vec<_>>=op.faces.iter().map(|&f|op.original.face_vertices(f).unwrap().iter()
+                .map(|&v|Vec3::from_array(op.original.vertices[v as usize].position)+delta).collect()).collect();
+            self.authoring.faces=(0..mesh.face_count()).filter(|&f|caps.iter().any(|cap|cap.iter().all(|p|mesh.face_vertices(f).unwrap().iter()
+                .any(|&v|Vec3::from_array(mesh.vertices[v as usize].position).distance_squared(*p)<1e-10)))).collect();
+            self.authoring.selection_mode=S::Face;self.authoring.vertices.clear();self.authoring.edges.clear();
         } else if matches!(op.kind,Kind::Face|Kind::Inset|Kind::Extrude|Kind::Individual) {
             self.authoring.selection_mode=S::Face;
             self.authoring.faces=op.faces.clone();self.authoring.vertices.clear();self.authoring.edges.clear();
@@ -367,7 +393,7 @@ impl App {
         }
         let (_, min, max, _) = op.spec(i);
         let v = surfaces::number(text, min, max)?;
-        if op.kind == Kind::Edge && i == 1 && v.fract() != 0. {
+        if ((op.kind == Kind::Edge && i == 1) || (op.kind==Kind::Bridge && i<2)) && v.fract() != 0. {
             return Err("Число сегментов должно быть целым".into());
         }
         let mut values = op.values;
@@ -415,11 +441,18 @@ impl App {
             self.redraw();
         }
     }
+    pub(super) fn preview_navigation_action(a:&Action)->bool {
+        matches!(a,Action::Front|Action::Side|Action::Top|Action::Perspective|Action::ToggleGrid|Action::ViewAxis(_)|Action::ViewOrbit|Action::ViewPan|Action::ViewZoom|Action::ViewShading(_)|Action::FrameSelected|Action::ToggleViewMenu|Action::CameraExitView)
+    }
     pub(super) fn route_live_action(&mut self, a: &Action) -> bool {
         if self.modeling_live.is_none() {
             return false;
         }
         match a {
+            a if Self::preview_navigation_action(a) => false,
+            Action::Author(A::SnapToggle|A::SnapMode(_)|A::SnapGridStep(_))
+                | Action::DropdownOpen(ui::DropdownKind::SnapMode)|Action::DropdownChoose(_)|Action::DropdownDismiss=>false,
+            Action::ResetNumber(field) if matches!(**field,Action::Author(A::LiveField(_)))=>false,
             Action::Author(A::ToolPanelDrag | A::ToolPanelToggle | A::ExtrudeMode(_))=>false,
             Action::ToggleSection(id) if matches!(*id, super::modeling_palette::TOOLS_SECTION | super::modeling_palette::PROPERTIES_SECTION) => false,
             Action::ScrollPanel(0) | Action::ToggleRightPanel => false,
@@ -528,7 +561,7 @@ impl App {
         d.value = d.value.clamp(min, max);
         let mut values = op.values;
         let mut value = d.value;
-        if op.kind == Kind::Edge && d.field == 1 {
+        if (op.kind == Kind::Edge && d.field == 1) || (op.kind==Kind::Bridge && d.field<2) {
             value = value.round();
         } else if snapped {
             let step = if matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Cut | Kind::Inset | Kind::Slide)
@@ -686,7 +719,7 @@ impl App {
             if drag.field == field { return drag.range; }
         }
         let (min, max) = op.slider_bounds(field);
-        let step = if op.kind == Kind::Edge && field == 1 { 1. } else { op.spec(field).3 };
+        let step = if (op.kind == Kind::Edge && field == 1) || (op.kind==Kind::Bridge && field<2) { 1. } else { op.spec(field).3 };
         SliderRange::new(min as f64, max as f64, step as f64)
     }
     pub(super) fn live_slider_ui_range(&self) -> Option<(Action, SliderRange)> {

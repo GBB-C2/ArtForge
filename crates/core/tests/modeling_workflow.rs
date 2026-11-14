@@ -359,3 +359,59 @@ fn workflow_array_of_vertex_pair_keeps_connecting_edges() {
     assert_eq!(mesh(&e).topology.as_ref().unwrap().loose_edges.len(), 2);
     assert_eq!(&mesh(&e).vertices[..4], original.as_slice());
 }
+
+#[test]
+fn finite_knife_inside_face_and_crossing_strokes_keep_area_and_endpoints() {
+    let mut e=quad(); let before=e.project.clone();
+    let cuts=vec![KnifeCut{face:0,first:[0.4,0.7,0.],second:[1.6,1.2,0.]},
+        KnifeCut{face:0,first:[1.,0.,0.],second:[1.,2.,0.]}];
+    apply(&mut e,MeshEdit::KnifeStroke{cuts});
+    assert!(mesh(&e).vertices.iter().any(|v|Vec3::from_array(v.position).distance(Vec3::new(0.4,0.7,0.))<1e-5));
+    let area:f32=mesh(&e).indices.chunks_exact(3).map(|t|{let p=|i|Vec3::from_array(mesh(&e).vertices[t[i] as usize].position);
+        (p(1)-p(0)).cross(p(2)-p(0)).length()*0.5}).sum();
+    assert!((area-4.).abs()<1e-4,"area {area}");
+    assert_eq!(inspect_topology(mesh(&e)).nonmanifold_edges,0);
+    assert!(e.undo());assert_eq!(e.project,before);
+}
+fn cube_editor()->Editor {
+    let mut e=quad();e.project.meshes[0]=PrimitiveSettings::new(PrimitiveKind::Cube).mesh(2,None).unwrap();e
+}
+#[test]
+fn manifold_extrude_trims_inward_walls_and_dissolves_outward_coplanar_edges() {
+    for distance in [-0.4,0.4] {
+        let mut e=cube_editor();let before=e.project.clone();
+        let top=(0..mesh(&e).face_count()).find(|&f|mesh(&e).face_vertices(f).unwrap().iter().all(|&v|mesh(&e).vertices[v as usize].position[1]>0.9)).unwrap();
+        apply(&mut e,MeshEdit::ExtrudeManifold{faces:BTreeSet::from([top]),distance});
+        let report=inspect_topology(mesh(&e));
+        assert_eq!(report.boundary_edges,0,"{report:?}");assert_eq!(report.nonmanifold_edges,0,"{report:?}");
+        let max=mesh(&e).vertices.iter().map(|v|v.position[1]).fold(f32::NEG_INFINITY,f32::max);
+        assert!((max-(1.+distance)).abs()<1e-5,"max {max}");
+        assert_eq!(mesh(&e).face_count(),6,"coplanar walls must merge");
+        assert!(e.undo());assert_eq!(e.project,before);assert!(e.redo());e.project.validate().unwrap();
+    }
+}
+#[test]
+fn closed_loop_gap_creates_two_watertight_shells_and_preserves_materials() {
+    let mut e=cube_editor();let graph=MeshConnectivity::new(mesh(&e));
+    let edge=*graph.edges.iter().find(|&&(a,b)| {
+        let p=Vec3::from_array(mesh(&e).vertices[a].position);let q=Vec3::from_array(mesh(&e).vertices[b].position);(p-q).y.abs()>1.
+    }).unwrap();
+    let cuts=loop_cut_path(mesh(&e),edge,0.5).unwrap();
+    apply(&mut e,MeshEdit::KnifeGapClosed{cuts,width:0.2});
+    let report=inspect_topology(mesh(&e));assert_eq!(report.boundary_edges,0,"{report:?}");
+    assert_eq!(report.nonmanifold_edges,0);assert_eq!(mesh(&e).face_count(),12);
+}
+#[test]
+fn ribbon_rotation_changes_cross_section_and_legacy_files_default_to_zero() {
+    let mut curve=CurvePreset::Line.curve();curve.geometry=Some(CurveGeometry{profile:CurveProfile::Ribbon,..Default::default()});
+    let first=curve.mesh(42,None).unwrap();curve.geometry.as_mut().unwrap().rotation=90.;let rotated=curve.mesh(42,None).unwrap();
+    assert_ne!(first.vertices,rotated.vertices);assert_eq!(first.indices,rotated.indices);
+    let mut json=serde_json::to_value(&curve).unwrap();json["geometry"].as_object_mut().unwrap().remove("rotation");
+    let legacy:CurveData=serde_json::from_value(json).unwrap();assert_eq!(legacy.geometry.unwrap().rotation,0.);
+}
+#[test]
+fn finite_gap_stops_at_the_two_interior_endpoints() {
+    let mut e=quad();apply(&mut e,MeshEdit::KnifeGap{cuts:vec![KnifeCut{face:0,first:[0.5,1.,0.],second:[1.5,1.,0.]}],width:0.2});
+    let m=mesh(&e);let area:f32=m.indices.chunks_exact(3).map(|t|{let p=|i|Vec3::from_array(m.vertices[t[i] as usize].position);
+        (p(1)-p(0)).cross(p(2)-p(0)).length()*0.5}).sum();assert!((area-3.8).abs()<1e-4,"area {area}");
+}

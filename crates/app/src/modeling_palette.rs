@@ -74,7 +74,7 @@ impl M {
         })
     }
     fn live(self) -> bool {
-        matches!(self, Self::Extrude | Self::ExtrudeIndividual | Self::Inset | Self::Bevel | Self::LoopCut | Self::Slide)
+        matches!(self, Self::Bridge | Self::BridgeFaces | Self::Extrude | Self::ExtrudeIndividual | Self::Inset | Self::Bevel | Self::LoopCut | Self::Slide)
     }
 }
 
@@ -145,7 +145,7 @@ impl App {
         if self.authoring.editing.is_none() { return if self.selected_primitive().is_some() || self.selected_curve().is_some() { 268. } else { 222. }; }
         let height = if self.modeling_live.is_some() {
             self.modeling_live_properties_height() + 30.
-                + if self.authoring.modeling_tool == Some(M::Bevel) { 22. } else { 0. }
+                + if self.authoring.modeling_tool == Some(M::Bevel) { 22. } else if self.authoring.modeling_tool==Some(M::Extrude) {90.} else { 0. }
         } else {
             match self.authoring.modeling_tool {
                 None => 32.,
@@ -157,9 +157,9 @@ impl App {
                 Some(M::Relax) => 202.,
                 Some(M::Bevel) => if self.authoring.selection_mode == S::Face { 160. } else { 100. },
                 Some(M::Inspect) => 380.,
-                Some(M::Knife | M::LoopCut) => 242.,
+                Some(M::Knife | M::LoopCut) => 310.,
                 Some(M::Array)=>350.,
-                Some(M::Extrude)=>178.,
+                Some(M::Extrude)=>210.,
                 Some(M::Align) => if self.mesh_tools.alignment_mode==0 {146.} else {124.},
                 Some(M::Weld) => 132.,
                 Some(M::Bridge | M::BridgeFaces) => 250.,
@@ -208,7 +208,7 @@ impl App {
             }, 10., p.muted);
             y += 22.;
         }
-        if tool==M::Extrude { self.draw_extrude_modes(u,x,y,w); y+=58.; }
+        if tool==M::Extrude { self.draw_extrude_modes(u,x,y,w); y+=90.; }
         if self.modeling_live.is_some() {
             self.draw_modeling_live_properties(u, x, y, w);
             return;
@@ -251,7 +251,9 @@ impl App {
                 u.fitted_label([x, y, w, 18.], if tool==M::LoopCut {"Щелчок — новая петля · Enter — завершить"}else{"Backspace — новая линия · Enter — завершить"}, 11., p.muted);
                 y+=26.;
                 self.draw_workflow_field(u,x,y,w,if tool==M::LoopCut {1}else{0},38.);y+=46.;
-                if tool==M::LoopCut {u.number_field([x,y,w,38.],"Положение, %",self.authoring.loop_position as f64*100.,Action::Author(A::LoopPosition),SliderRange::new(1.,99.,1.));y+=46.;}
+                u.checkbox([x,y,w,26.],"Закрыть торцы зазора",Action::Author(A::KnifeCloseGap),self.authoring.workflow.close_gap);y+=34.;
+                if tool==M::LoopCut {self.draw_workflow_field(u,x,y,w,9,38.);y+=46.;
+                    u.fitted_label([x,y,w,18.],&format!("Линий: {} · Ctrl + колесо",self.authoring.workflow.values[9] as u32),11.,p.muted);y+=24.;}
                 if tool==M::Knife {u.checkbox([x,y,w,26.],"Вершины и середины рёбер",Action::Author(A::KnifeSnap),self.authoring.knife_snap);y+=34.;
                 self.draw_dropdown_button(u,[x,y,w,30.],ui::DropdownKind::KnifeAngle,["Свободный угол","Шаг 15°","Шаг 30°","Шаг 45°","Шаг 90°"][self.authoring.knife_angle as usize]);y+=10.;}else{y-=18.;}
                 let half = (w - 6.) * 0.5;
@@ -264,10 +266,10 @@ impl App {
                     M::Bridge | M::BridgeFaces => vec![("Сегменты", self.authoring.bridge_segments as f32, A::BridgeSegments),("Скручивание, шаги",self.authoring.bridge_twist as f32,A::BridgeTwist),("Плавность, %",self.authoring.bridge_smooth*100.,A::BridgeSmooth)],
                     M::Inset => vec![("Отступ, %", self.authoring.inset * 100., A::InsetAmount)],
                     M::Bevel if self.authoring.selection_mode == S::Face => vec![("Отступ, %", self.authoring.inset * 100., A::InsetAmount), ("Высота, м", self.authoring.bevel_height, A::BevelHeight)],
-                    M::LoopCut => vec![("Положение, %", self.authoring.loop_position * 100., A::LoopPosition)],
+                    M::LoopCut => vec![("Количество линий", self.authoring.workflow.values[9], A::ToolField(9))],
                     _ => vec![],
                 } {
-                    let range=match action {A::BridgeSegments=>SliderRange::new(1.,32.,1.),A::BridgeTwist=>SliderRange::new(-32.,32.,1.),A::BridgeSmooth=>SliderRange::new(0.,100.,1.),A::InsetAmount=>SliderRange::new(0.,95.,0.5),A::LoopPosition=>SliderRange::new(1.,99.,1.),_=>SliderRange::new(-1.,1.,0.01)};
+                    let range=match action {A::BridgeSegments=>SliderRange::new(1.,32.,1.),A::BridgeTwist=>SliderRange::new(-32.,32.,1.),A::BridgeSmooth=>SliderRange::new(0.,100.,1.),A::InsetAmount=>SliderRange::new(0.,95.,0.5),A::LoopPosition=>SliderRange::new(1.,99.,1.),A::ToolField(9)=>SliderRange::new(1.,16.,1.),_=>SliderRange::new(-1.,1.,0.01)};
                     u.number_field([x,y,w,44.],label,value as f64,Action::Author(action),range);
                     y += 52.;
                 }

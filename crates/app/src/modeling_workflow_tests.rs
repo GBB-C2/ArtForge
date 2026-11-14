@@ -476,3 +476,40 @@ fn polygon_bevel_has_signed_profile_segments_and_exact_undo() {
  a.ui=a.build_ui();for i in 0..4 {assert!(a.ui.hits.iter().any(|h|h.action==Action::Author(A::LiveField(i))));}
  a.action(Action::Author(A::LiveAccept));assert_eq!(a.editor.undo_len(),history+1);a.action(Action::Undo);assert_eq!(a.editor.project,original);
 }
+
+#[test]
+fn face_bevel_starts_on_a_newly_created_cube() {
+    let mut a=app();a.action(Action::Author(A::ToggleEdit));
+    a.create_primitive(0);
+    let id=a.editor.selected.unwrap();
+    a.action(Action::Author(A::SelectMode(S::Face)));
+    a.action(Action::Author(A::SelectAll));
+    let before=a.editor.project.clone();let history=a.editor.undo_len();
+    a.action(Action::ModelingTool(M::Bevel));
+    assert!(a.modeling_live.is_some(),"{}",a.status);
+    assert_ne!(a.editor.editable_mesh(id).unwrap().face_count(),6);
+    a.action(Action::Author(A::LiveAccept));assert_eq!(a.editor.undo_len(),history+1);
+    a.action(Action::Undo);assert_eq!(a.editor.project,before);
+}
+
+#[test]
+fn face_bevel_preview_applies_to_a_new_knife_face_with_profile_and_undo() {
+    let mut a=app();
+    let mesh=a.editor.editable_mesh(1).unwrap();let ring=mesh.face_vertices(0).unwrap();
+    let p=|i:usize|Vec3::from_array(mesh.vertices[ring[i] as usize].position);
+    let cuts=vec![poseforge_core::KnifeCut{face:0,first:p(0).lerp(p(1),0.37).to_array(),second:p(3).lerp(p(2),0.37).to_array()}];
+    a.editor.edit_mesh(1,poseforge_core::MeshEdit::KnifeStroke{cuts}).unwrap();
+    a.invalidate_geometry();a.authoring.faces=BTreeSet::from([1]);
+    let before=a.editor.project.clone();let history=a.editor.undo_len();
+    click(&mut a,Action::ModelingTool(M::Bevel));
+    assert!(a.modeling_live.is_some(),"{}",a.status);
+    for (field,value) in [(2,"5"),(3,"-75"),(3,"75")] {
+        a.modeling_live_confirm(&Action::Author(A::LiveField(field)),value).unwrap();
+        let report=poseforge_core::inspect_topology(a.editor.editable_mesh(1).unwrap());
+        assert_eq!((report.boundary_edges,report.nonmanifold_edges,report.degenerate_faces),(0,0,0));
+    }
+    a.action(Action::Author(A::LiveAccept));let after=a.editor.project.clone();
+    assert_ne!(after,before);assert_eq!(a.editor.undo_len(),history+1);
+    a.action(Action::Undo);assert_eq!(a.editor.project,before);
+    a.action(Action::Redo);assert_eq!(a.editor.project,after);
+}

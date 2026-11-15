@@ -206,12 +206,9 @@ fn component_alignment_is_one_tool_with_three_functional_modes() {
                 a.action(Action::DropdownChoose(mode));
                 assert_eq!(a.mesh_tools.alignment_mode, mode as u8);
                 assert_eq!(a.editor.project, before);
-                let command = match mode {
-                    0 => ShapeAction::Flatten(1),
-                    1 => ShapeAction::Straighten,
-                    _ => ShapeAction::Space,
-                };
-                let _ = point(&mut a, Action::Shape(command));
+                if mode == 0 { let _ = point(&mut a,Action::Shape(ShapeAction::Flatten(1))); }
+                let _ = point(&mut a,Action::Author(A::ToolCancel));
+                assert_eq!(a.editor.undo_len(),0);
             }
             assert_eq!(a.authoring.modeling_tool, Some(M::Align));
         }

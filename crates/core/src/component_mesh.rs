@@ -1,4 +1,7 @@
 //! Selection-scoped topology edits, including editable wire geometry.
+#[path = "component_subdivide.rs"]
+mod subdivide_grid;
+pub(crate) use subdivide_grid::apply as subdivide_count;
 use crate::{
     CoreError, Mesh, MeshConnectivity, MeshTopology, Vec3, Vertex, MAX_EDIT_TRIANGLES,
     MAX_EDIT_VERTICES,
@@ -64,7 +67,7 @@ pub(crate) fn interpolate(a: Vertex, b: Vertex, t: f32) -> Vertex {
         ..a
     }
 }
-fn finish(mesh: &mut Mesh) -> Result<(), CoreError> {
+pub(crate) fn finish(mesh: &mut Mesh) -> Result<(), CoreError> {
     mesh.topology.as_mut().unwrap().primitive = None;
     mesh.rebuild_polygon_indices()?;
     if mesh.vertices.len() > MAX_EDIT_VERTICES || mesh.indices.len() / 3 > MAX_EDIT_TRIANGLES {

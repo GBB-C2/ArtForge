@@ -458,6 +458,8 @@ fn workflow_capture_ui() {
                 (M::Knife, "knife"),
                 (M::LoopCut, "loop"),
                 (M::Array, "array"),
+                (M::Subdivide,"subdivide"),
+                (M::Align,"align"),
                 (M::Move, "move"),
                 (M::Rotate, "rotate"),
                 (M::Scale, "scale"),
@@ -546,9 +548,13 @@ fn workflow_transform_sliders_preview_frozen_source_cancel_and_one_undo() {
         a.mouse_move([p[0] + 20., p[1]]);
         assert_eq!(a.editor.project, first);
         a.mouse_up(MouseButton::Left);
+        assert_eq!(a.editor.undo_len(), 0);
+        a.action(Action::Author(A::ToolApply));
         assert_eq!(a.editor.undo_len(), 1);
         a.action(Action::Undo);
         assert_eq!(a.editor.project, original);
+        a.action(Action::ModelingTool(tool));
+        a.ui=a.build_ui();
         a.mouse_move(p);
         a.mouse_down(MouseButton::Left);
         a.mouse_move([p[0] + 30., p[1]]);
@@ -864,4 +870,111 @@ fn region_bevel_preview_preserves_shared_edge_and_mode_switches_stay_one_edit() 
     assert_eq!(a.editor.undo_len(),1);
     assert!(a.tool_panel_rect().is_none());
     a.action(Action::Undo);assert_eq!(a.editor.project,source);
+}
+
+#[test]
+fn modeling_options_cancel_closes_every_live_panel_and_pending_preview() {
+    for tool in [M::Array,M::Inset,M::Bevel,M::Extrude,M::Slide,M::Bridge,M::Knife,M::LoopCut] {
+        let mut a=app();let original=a.editor.project.clone();
+        a.action(Action::ModelingTool(tool));
+        let cancel=if a.authoring.knife.is_some(){A::KnifeCancel}else if a.modeling_live.is_some(){A::LiveCancel}else{A::ToolCancel};
+        a.action(Action::Author(cancel));a.mouse_up(MouseButton::Left);
+        assert_eq!(a.editor.project,original,"{tool:?}");assert!(a.tool_panel_rect().is_none(),"{tool:?}");
+        assert!(a.authoring.workflow.pending_preview.is_none());assert!(!a.editor.has_active_edit());assert_eq!(a.editor.undo_len(),0);
+    }
+}
+#[test]
+fn modeling_options_merge_fields_keep_preview_selection_and_one_undo() {
+    for tool in [M::Array,M::Inset,M::Bevel] {
+        let mut a=app();let before=a.editor.project.clone();
+        a.action(Action::ModelingTool(tool));
+        let unmerged=a.editor.project.clone();
+        click(&mut a,Action::Author(A::ToolMerge));
+        assert!(a.tool_merge_enabled());assert!(a.modeling_live.is_some());assert_eq!(a.editor.undo_len(),0);
+        let mesh=a.editor.editable_mesh(1).unwrap();assert!(a.authoring.faces.iter().all(|&f|f<mesh.face_count()));
+        click(&mut a,Action::Author(A::ToolMerge));assert_eq!(a.editor.project,unmerged);
+        a.action(Action::Author(A::ToolMerge));let after=a.editor.project.clone();
+        a.action(Action::Author(A::LiveAccept));assert_eq!(a.editor.undo_len(),1);assert!(a.tool_panel_rect().is_none());
+        a.action(Action::Undo);assert_eq!(a.editor.project,before);a.action(Action::Redo);assert_eq!(a.editor.project,after);
+    }
+}
+#[test]
+fn modeling_options_subdivide_slider_rebuilds_source_and_resets() {
+    let mut a=app();let before=a.editor.project.clone();
+    a.action(Action::ModelingTool(M::Subdivide));
+    assert_eq!(a.editor.project.meshes[0].face_count(),9);assert_eq!(a.editor.undo_len(),0);
+    a.apply_field_value(Action::Author(A::SubdivideCount),"3").unwrap();assert_eq!(a.editor.project.meshes[0].face_count(),14);
+    a.apply_field_value(Action::Author(A::SubdivideCount),"5").unwrap();assert_eq!(a.editor.project.meshes[0].face_count(),30);
+    click(&mut a,Action::ResetNumber(Box::new(Action::Author(A::SubdivideCount))));assert_eq!(a.editor.project.meshes[0].face_count(),9);
+    let after=a.editor.project.clone();click(&mut a,Action::Author(A::ToolApply));
+    assert_eq!(a.editor.undo_len(),1);assert!(a.tool_panel_rect().is_none());
+    a.action(Action::Undo);assert_eq!(a.editor.project,before);a.action(Action::Redo);assert_eq!(a.editor.project,after);
+    a.action(Action::ModelingTool(M::Subdivide));click(&mut a,Action::Author(A::ToolCancel));assert_eq!(a.editor.project,after);assert!(a.tool_panel_rect().is_none());
+}
+#[test]
+fn modeling_options_transform_fields_cancel_as_a_whole_tool() {
+    for tool in [M::Move,M::Rotate,M::Scale] {
+        let mut a=app();let before=a.editor.project.clone();let selection=a.authoring.faces.clone();
+        a.action(Action::ModelingTool(tool));
+        let (field,value)=match tool {M::Move=>(A::Coordinate(0),"2"),M::Rotate=>(A::RotateDegrees(2),"15"),_=>(A::ScaleFactor(3),"1.25")};
+        a.apply_field_value(Action::Author(field),value).unwrap();
+        assert_ne!(a.editor.project,before);assert_eq!(a.editor.undo_len(),0);
+        click(&mut a,Action::Author(A::ToolCancel));assert_eq!(a.editor.project,before);assert_eq!(a.authoring.faces,selection);assert!(!a.editor.has_active_edit());
+        a.action(Action::ModelingTool(tool));a.apply_field_value(Action::Author(field),value).unwrap();let after=a.editor.project.clone();
+        click(&mut a,Action::Author(A::ToolApply));assert_eq!(a.editor.undo_len(),1);a.action(Action::Undo);assert_eq!(a.editor.project,before);a.action(Action::Redo);assert_eq!(a.editor.project,after);
+    }
+}
+#[test]
+fn modeling_options_every_tool_has_confirmation_controls_in_both_themes() {
+    for theme in [ui::Theme::Dark,ui::Theme::Light] {for dpi in [1.,2.] {
+        for tool in [M::Select(0),M::Select(1),M::Select(2),M::Move,M::Rotate,M::Scale,M::Merge,M::Dissolve,M::DeleteFaces,M::Subdivide,M::FillHoles,M::Triangulate,M::Separate,M::Smooth,M::Flat,M::Align,M::Relax,M::Sphere,M::Circle,M::Twist,M::Inspect] {
+            let mut a=app();a.preferences.theme=theme;a.scale=dpi;a.height=1300.;
+            let before=a.editor.project.clone();a.action(Action::ModelingTool(tool));
+            let u=a.build_ui();assert!(u.texts.iter().any(|t|t.text=="Применить"),"{tool:?}");
+            assert!(u.hits.iter().any(|h|h.action==Action::Author(A::ToolCancel)),"{tool:?}");
+            assert_eq!(a.editor.undo_len(),0,"{tool:?}");
+            a.action(Action::Author(A::ToolCancel));assert_eq!(a.editor.project,before,"{tool:?}");assert!(a.tool_panel_rect().is_none());
+        }
+    }}
+}
+#[test]
+fn modeling_options_pending_subdivide_and_shift_selection_preview_use_source() {
+    let mut a=app();a.authoring.faces.clear();let before=a.editor.project.clone();
+    a.action(Action::ModelingTool(M::Subdivide));assert_eq!(a.editor.project,before);
+    a.authoring.faces.insert(0);a.mouse_up(MouseButton::Left);assert_eq!(a.editor.project.meshes[0].face_count(),9);
+    a.modeling_modifiers_changed(ModifiersState::SHIFT);assert_eq!(a.editor.project,before);
+    a.authoring.faces=BTreeSet::from([0,1]);a.modeling_modifiers_changed(ModifiersState::empty());
+    assert_eq!(a.editor.project.meshes[0].face_count(),12);
+    a.action(Action::Author(A::ToolCancel));assert_eq!(a.editor.project,before);assert!(a.authoring.faces.is_empty());
+}
+#[test]
+fn modeling_options_cancel_ignores_invalid_text_and_closes_collapsed_panels() {
+    for tool in [M::Bevel,M::Subdivide,M::Move,M::Knife] {
+        let mut a=app();let before=a.editor.project.clone();a.action(Action::ModelingTool(tool));
+        let field=match tool {M::Bevel=>A::LiveField(0),M::Subdivide=>A::SubdivideCount,M::Move=>A::Coordinate(0),_=>A::ToolField(0)};
+        a.action(Action::Author(field));a.input.as_mut().unwrap().select_all();a.input.as_mut().unwrap().insert("nan");
+        let cancel=if a.modeling_live.is_some(){A::LiveCancel}else if a.authoring.knife.is_some(){A::KnifeCancel}else{A::ToolCancel};
+        a.action(Action::Author(cancel));assert!(a.input.is_none());assert!(a.tool_panel_rect().is_none());assert_eq!(a.editor.project,before);
+        a.action(Action::ModelingTool(tool));a.action(Action::Author(A::ToolPanelToggle));
+        click(&mut a,Action::Author(cancel));assert!(a.tool_panel_rect().is_none());assert_eq!(a.editor.project,before);
+    }
+}
+#[test]
+fn modeling_options_background_result_stays_pending_until_apply_and_cancel_discards_worker() {
+    for cancel in [false,true] {
+        let mut a=app();let source=a.editor.project.clone();a.action(Action::ModelingTool(M::Move));
+        let mut result=Editor::new(source.clone());result.edit_mesh(1,poseforge_core::MeshEdit::Translate{vertices:BTreeSet::from([0]),delta:Vec3::X}).unwrap();
+        let after=result.project.clone();let (tx,rx)=mpsc::channel();let stop=Arc::new(AtomicBool::new(false));
+        a.job=Some(Job{receiver:rx,cancel:stop.clone(),label:"Обработка сетки".into()});
+        a.apply_modeling_session();assert!(a.authoring.workflow.session.is_some());assert_eq!(a.editor.undo_len(),0);
+        if cancel {
+            a.action(Action::Author(A::ToolCancel));assert!(stop.load(Ordering::Relaxed));
+            assert!(tx.send(JobMessage::MeshToolReady(Box::new(source.clone()),Box::new(after),1,None)).is_err());
+            a.poll_jobs();assert_eq!(a.editor.project,source);assert!(a.tool_panel_rect().is_none());
+        } else {
+            tx.send(JobMessage::MeshToolReady(Box::new(source.clone()),Box::new(after.clone()),1,None)).unwrap();
+            a.poll_jobs();assert_eq!(a.editor.project,after);assert_eq!(a.editor.undo_len(),0);
+            a.action(Action::Author(A::ToolApply));assert_eq!(a.editor.undo_len(),1);a.action(Action::Undo);assert_eq!(a.editor.project,source);
+        }
+    }
 }

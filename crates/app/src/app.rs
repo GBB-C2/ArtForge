@@ -209,6 +209,8 @@ mod modeling_palette;
 mod modeling_workflow_tests;
 #[path = "modeling_workflow.rs"]
 mod modeling_workflow;
+#[path = "modeling_session.rs"]
+mod modeling_session;
 #[cfg(test)]
 #[path = "workspace40_tests.rs"]
 mod workspace40_tests;
@@ -1678,11 +1680,13 @@ impl App {
     fn result<T>(&mut self, r: Result<T, impl std::fmt::Display>) -> Option<T> {
         match r {
             Ok(v) => {
+                if let Some(session) = &mut self.authoring.workflow.session {session.error=None;}
                 self.update_dirty();
                 Some(v)
             }
             Err(e) => {
                 self.status = e.to_string();
+                if let Some(session) = &mut self.authoring.workflow.session { session.error = Some(self.status.clone()); }
                 None
             }
         }
@@ -2260,6 +2264,7 @@ impl App {
                 }
                 JobMessage::Progress(s) => self.status = s,
                 JobMessage::Error(e) => {
+                    if let Some(session)=&mut self.authoring.workflow.session {session.error=Some(e.clone());}
                     self.status = e;
                     self.job = None;
                 }
@@ -2509,7 +2514,7 @@ impl App {
     }
     fn action(&mut self, a: Action) {
         let modeling_apply = self.modeling_apply_action(&a);
-        let modeling_source = modeling_apply.then(|| self.editor.project.clone());
+        let modeling_source = (modeling_apply && self.authoring.workflow.session.is_none()).then(|| self.editor.project.clone());
         if a == Action::Cancel { self.authoring.workflow.pending_preview = None; }
         if self.confirm_new && !matches!(a, Action::Cancel | Action::ConfirmNew) { return; }
         if self.swatch_menu_action(&a) { return; }
@@ -2584,8 +2589,13 @@ impl App {
         if self.action_with_color_picker(&a) {
             return;
         }
+        if matches!(a,Action::Author(ui::AuthorAction::ToolCancel | ui::AuthorAction::LiveCancel | ui::AuthorAction::KnifeCancel)) {
+            self.end_input(); self.cancel_drag(); self.cancel_modeling_session(); self.cancel_modeling_live();
+            self.dismiss_modeling_tool_panel(); self.redraw(); return;
+        }
         if a == Action::Cancel && self.modeling_live.is_some() && self.input.is_none() {
             self.cancel_modeling_live();
+            self.dismiss_modeling_tool_panel();
             return;
         }
         if a == Action::Cancel && self.curves.drawing && self.drag.is_none() && self.input.is_none() {
@@ -2645,6 +2655,7 @@ impl App {
             self.redraw();
             return;
         }
+        if self.route_modeling_session(&a) { return; }
         if self.route_live_action(&a) {
             return;
         }
@@ -5472,6 +5483,9 @@ impl App {
             self.redraw();
             return;
         }
+        if self.authoring.workflow.session.is_some() && event.logical_key == Key::Named(NamedKey::Enter) {
+            self.apply_modeling_session(); return;
+        }
         if self.modeling_control_key(&event.logical_key,event.repeat) { self.redraw(); return; }
         if self.modeling_live.is_some() || self.authoring.knife.is_some() {
             if !ctrl && !event.repeat {
@@ -5486,7 +5500,7 @@ impl App {
         }
         if self.modeling_live.is_some() {
             match event.logical_key {
-                Key::Named(NamedKey::Escape) => self.cancel_modeling_live(),
+                Key::Named(NamedKey::Escape) => { self.cancel_modeling_live(); self.dismiss_modeling_tool_panel(); },
                 Key::Named(NamedKey::Enter) => self.accept_modeling_live(),
                 _ => {}
             }
@@ -5596,7 +5610,7 @@ impl App {
             && self.last_autosave.elapsed() > Duration::from_secs(60)
             && self.job.is_none()
             && self.drag.is_none()
-            && self.modeling_live.is_none()
+            && !self.editor.has_active_edit()
             && self.color_picker.is_none()
         {
             let snapshot = self.editor.project.clone();
@@ -5641,7 +5655,7 @@ impl App {
                 // Loading time must not advance the animation or physics clock.
                 self.last_tick=Instant::now();
                 if let Some(path)=self.initial.take() {
-                    self.cancel_modeling_live();self.open_dropped(path);
+                    self.cancel_modeling_session();self.dismiss_modeling_tool_panel();self.cancel_modeling_live();self.open_dropped(path);
                 }
                 self.redraw();true
             }
@@ -5794,6 +5808,7 @@ impl ApplicationHandler for App {
         }
         match event {
             WindowEvent::CloseRequested => {
+                self.cancel_modeling_session();
                 self.cancel_modeling_live();
                 if self.native_picker.is_some() {
                     return;
@@ -5942,6 +5957,7 @@ impl ApplicationHandler for App {
                     return;
                 }
                 self.cancel_drag();
+                self.cancel_modeling_session(); self.dismiss_modeling_tool_panel();
                 self.cancel_modeling_live();
                 self.open_dropped(path);
                 self.redraw();
@@ -5953,6 +5969,7 @@ impl ApplicationHandler for App {
                 self.close_collision_selection();
                 self.authoring.reference_pick = None;
                 self.close_asset_popup();
+                if self.authoring.workflow.session.is_some() {self.cancel_modeling_session();self.dismiss_modeling_tool_panel();}
                 self.cancel_modeling_live();
                 self.cancel_knife();
                 self.close_material_dropdown();
@@ -6025,7 +6042,7 @@ impl ApplicationHandler for App {
                 // bypass WaitUntil, polling background jobs at unlimited speed.
                 event_loop.set_control_flow(ControlFlow::WaitUntil(next));
             }
-        } else if self.drag.is_some() || self.modeling_live.is_some() || self.color_picker.is_some()
+        } else if self.drag.is_some() || self.editor.has_active_edit() || self.color_picker.is_some()
         {
             event_loop.set_control_flow(ControlFlow::Wait);
         } else if self.dirty {

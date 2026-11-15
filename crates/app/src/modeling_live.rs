@@ -33,6 +33,8 @@ pub(super) struct LiveOperation {
     kind: Kind,
     extrude_mode:u8,
     face_mode: u8,
+    merge: bool,
+    merge_map: Option<poseforge_core::MeshMergeMap>,
     values: [f32; 4],
     defaults: [f32; 4],
     anchor: Vec3,
@@ -43,6 +45,11 @@ pub(super) struct LiveOperation {
     expanded: bool,
 }
 impl LiveOperation {
+    fn preview(&mut self, editor: &mut Editor, values: [f32;4]) -> Result<(),poseforge_core::CoreError> {
+        self.merge_map = editor.preview_mesh_merged(self.node, &self.original, self.edit(values), self.merge)?;
+        Ok(())
+    }
+
     pub(super) fn default_value(&self, field: u8) -> Option<f64> {
         (usize::from(field) < self.fields()).then(|| self.defaults[usize::from(field)] as f64)
     }
@@ -180,12 +187,32 @@ pub(super) struct ParameterDrag {
     range: SliderRange,
 }
 impl App {
+    pub(super) fn toggle_tool_merge(&mut self) {
+        let value = !self.tool_merge_enabled();
+        if let Some(op) = self.modeling_live.as_mut() {
+            let previous = op.merge;
+            op.merge = value;
+            if let Err(error) = op.preview(&mut self.editor, op.values) {
+                op.merge = previous;
+                self.status = error.to_string();
+                return;
+            }
+            op.error = None; op.has_preview = true;
+        }
+        match self.authoring.modeling_tool {
+            Some(ui::ModelingTool::Array) => self.authoring.workflow.merge_array = value,
+            Some(ui::ModelingTool::Bevel) => self.authoring.workflow.merge_bevel = value,
+            Some(ui::ModelingTool::Inset) => self.authoring.workflow.merge_inset = value,
+            _ => return,
+        }
+        self.sync_live_selection(); self.invalidate_geometry();
+    }
     pub(super) fn change_face_tool_mode(&mut self, mode: u8) {
         let inset = self.authoring.modeling_tool == Some(ui::ModelingTool::Inset);
         if let Some(op) = self.modeling_live.as_mut().filter(|op| matches!(op.kind,Kind::Face|Kind::Inset)) {
             let previous = op.face_mode;
             op.face_mode = mode;
-            if let Err(e) = self.editor.preview_mesh(op.node, &op.original, op.edit(op.values)) {
+            if let Err(e) = op.preview(&mut self.editor, op.values) {
                 if op.has_preview { op.face_mode = previous; }
                 op.error = Some(e.to_string()); self.status = e.to_string();
                 if op.has_preview { return; }
@@ -200,7 +227,7 @@ impl App {
         let previous=self.authoring.workflow.extrude_mode;
         if let Some(op)=self.modeling_live.as_mut().filter(|op|op.kind==Kind::Extrude) {
             op.extrude_mode=mode;
-            let result=self.editor.preview_mesh(op.node,&op.original,op.edit(op.values));
+            let result=op.preview(&mut self.editor, op.values);
             if let Err(e)=result {op.extrude_mode=previous;op.error=Some(e.to_string());self.status=e.to_string();return;}
             op.error=None;op.has_preview=true;self.sync_live_selection();self.invalidate_geometry();
         }
@@ -225,6 +252,7 @@ impl App {
             }
             A::LiveCancel => {
                 self.cancel_modeling_live();
+                self.dismiss_modeling_tool_panel();
                 return true;
             }
             A::LiveBackdrop => return true,
@@ -349,6 +377,8 @@ impl App {
         if kind==Kind::Bridge {selection.edges=self.workflow_bridge_edges();}
         let mut op = LiveOperation {
             node,
+            merge: self.tool_merge_enabled(),
+            merge_map: None,
             original,
             original_selection: selection.clone(),
             selecting: false,
@@ -368,9 +398,7 @@ impl App {
             expanded: true,
         };
         self.editor.begin_edit(op.label());
-        let result = self
-            .editor
-            .preview_mesh(node, &op.original, op.edit(values));
+        let result = op.preview(&mut self.editor, values);
         op.has_preview = result.is_ok();
         if let Err(e) = result {
             self.status = e.to_string();
@@ -390,16 +418,14 @@ impl App {
         true
     }
     fn preview_live_values(&mut self, values: [f32; 4]) -> Result<(), String> {
-        let op = self.modeling_live.as_ref().ok_or("Предпросмотр закрыт")?;
+        let op = self.modeling_live.as_mut().ok_or("Предпросмотр закрыт")?;
         if op.kind == Kind::Cut && op.selection.edges.len() != 1 {
             return Err("Выберите одно ребро для разреза".into());
         }
         if values == op.values && op.error.is_none() {
             return Ok(());
         }
-        let result = self
-            .editor
-            .preview_mesh(op.node, &op.original, op.edit(values));
+        let result = op.preview(&mut self.editor, values);
         let op = self.modeling_live.as_mut().unwrap();
         match result {
             Ok(()) => {
@@ -424,6 +450,38 @@ impl App {
         let Some(op)=&self.modeling_live else {return;};
         if self.editor.editable_mesh(op.node).is_ok_and(|mesh| *mesh == op.original) {
             op.selection.restore(&mut self.authoring);
+            return;
+        }
+        if let Some(map) = &op.merge_map {
+            let mesh = self.editor.editable_mesh(op.node).unwrap();
+            let graph = poseforge_core::MeshConnectivity::new(mesh);
+            let vertex = |i:usize| map.vertices.get(i).map(|&v|graph.canonical[v]);
+            op.selection.restore(&mut self.authoring);
+            if matches!(op.kind,Kind::Face|Kind::Inset) {
+                self.authoring.selection_mode=S::Face;self.authoring.vertices.clear();self.authoring.edges.clear();
+            }
+            match self.authoring.selection_mode {
+                S::Face => {
+                    self.authoring.faces = op.faces.iter().filter_map(|&i|map.faces.get(i).copied().flatten()).collect();
+                    if op.kind == Kind::Array { self.authoring.faces.extend(map.faces.iter().skip(op.original.face_count()).flatten().copied()); }
+                }
+                S::Vertex => {
+                    self.authoring.vertices = op.selection.vertices.iter().filter_map(|&i|vertex(i)).collect();
+                    if op.kind == Kind::Array { self.authoring.vertices.extend((op.original.vertices.len()..map.vertices.len()).filter_map(vertex)); }
+                }
+                S::Edge => {
+                    self.authoring.edges = op.selection.edges.iter().filter_map(|&(a,b)| {
+                        let (a,b)=(vertex(a)?,vertex(b)?); (a!=b).then_some((a.min(b),a.max(b)))
+                    }).collect();
+                    if op.kind == Kind::Array {
+                        let start = op.original.topology.as_ref().map_or(0,|t|t.loose_edges.len());
+                        self.authoring.edges.extend(map.loose_edges.iter().skip(start).filter_map(|&[a,b]| {
+                            let (a,b)=(graph.canonical[a],graph.canonical[b]); (a!=b).then_some((a.min(b),a.max(b)))
+                        }));
+                    }
+                    self.authoring.edges.retain(|e| graph.edges.contains(e));
+                }
+            }
             return;
         }
         if op.kind==Kind::Array {
@@ -543,7 +601,7 @@ impl App {
         if self.modeling_live.is_none() {
             return false;
         }
-        if matches!(a,Action::Author(A::LiveDrag(_) | A::LiveField(_) | A::ExtrudeMode(_) | A::FaceToolMode(_)) | Action::Slide(..) | Action::ResetNumber(_)) {
+        if matches!(a,Action::Author(A::LiveDrag(_) | A::LiveField(_) | A::ExtrudeMode(_) | A::FaceToolMode(_) | A::ToolMerge) | Action::Slide(..) | Action::ResetNumber(_)) {
             self.finish_live_selection();
         }
         match a {
@@ -551,7 +609,7 @@ impl App {
             Action::Author(A::SnapToggle|A::SnapMode(_)|A::SnapGridStep(_))
                 | Action::DropdownOpen(ui::DropdownKind::SnapMode)|Action::DropdownChoose(_)|Action::DropdownDismiss=>false,
             Action::ResetNumber(field) if matches!(**field,Action::Author(A::LiveField(_)))=>false,
-            Action::Author(A::ToolPanelDrag | A::ToolPanelToggle | A::ToolPanelScroll | A::ExtrudeMode(_) | A::FaceToolMode(_))=>false,
+            Action::Author(A::ToolPanelDrag | A::ToolPanelToggle | A::ToolPanelScroll | A::ExtrudeMode(_) | A::FaceToolMode(_) | A::ToolMerge)=>false,
             Action::ToggleSection(super::modeling_palette::TOOLS_SECTION) => false,
             Action::ScrollPanel(0) | Action::ToggleRightPanel => false,
             Action::Author(
@@ -582,6 +640,7 @@ impl App {
             }
             Action::Cancel | Action::Undo => {
                 self.cancel_modeling_live();
+                self.dismiss_modeling_tool_panel();
                 true
             }
             _ => {

@@ -119,6 +119,7 @@ impl App {
             }
             _ => return Ok(false),
         }
+        if field >= 3 { self.refresh_modeling_session(); }
         Ok(true)
     }
     pub(super) fn normals_action(&mut self, a: N) {
@@ -222,10 +223,11 @@ impl App {
         if self.job.is_some() || self.scene_write_pending() || self.editor.playing {
             return;
         }
-        if let S::AlignmentMode(mode)=a {self.mesh_tools.alignment_mode=mode.min(2);return;}
-        if let S::Axis(axis) = a { self.mesh_tools.shape_axis = (axis as usize).min(2); return; }
+        if let S::AlignmentMode(mode)=a {self.mesh_tools.alignment_mode=mode.min(2);self.refresh_modeling_session();return;}
+        if let S::Axis(axis) = a { self.mesh_tools.shape_axis = (axis as usize).min(2); self.refresh_modeling_session(); return; }
         if a == S::Pin {
             self.mesh_tools.pin = !self.mesh_tools.pin;
+            self.refresh_modeling_session();
             return;
         }
         self.cancel_drag();
@@ -492,19 +494,19 @@ impl App {
                 u.quiet_button([x+axis as f32*(w+6.)/3.,y,(w-12.)/3.,28.],label,Action::Shape(S::Axis(axis as u8)),self.mesh_tools.shape_axis==axis);
             } y+=36.;
         }
-        let (label,field,range,action) = match tool {
-            M::Sphere => ("Сила сферизации",5,SliderRange::new(0.,1.,0.01),S::Sphere),
-            M::Circle => ("Сила окружности",5,SliderRange::new(0.,1.,0.01),S::Circle),
-            M::Inflate => ("По нормалям, м",6,SliderRange::new(-10.,10.,0.01),S::Inflate),
-            M::Twist => ("Угол скручивания, °",7,SliderRange::new(-360.,360.,1.),S::Twist),
+        let (label,field,range) = match tool {
+            M::Sphere => ("Сила сферизации",5,SliderRange::new(0.,1.,0.01)),
+            M::Circle => ("Сила окружности",5,SliderRange::new(0.,1.,0.01)),
+            M::Inflate => ("По нормалям, м",6,SliderRange::new(-10.,10.,0.01)),
+            M::Twist => ("Угол скручивания, °",7,SliderRange::new(-360.,360.,1.)),
             _=>return,
         };
         u.number_field([x,y,w,44.],label,self.mesh_tool_value(field) as f64,Action::Normal(N::Field(field)),range); y+=52.;
         let minimum = if matches!(tool,M::Sphere|M::Circle) {3}else{2};
         if self.edit_vertices().len()>=minimum {
-            u.button([x,y,w,30.],"Применить",Action::Shape(action),false);
+            u.fitted_label([x,y,w,30.],"Предпросмотр формы",11.,u.palette().muted);
         } else { u.disabled_button([x,y,w,30.],"Выберите компоненты"); }
-        u.fitted_label([x,y+38.,w,18.],"Локальные координаты · Ctrl+Z — отменить",10.,u.palette().muted);
+        u.fitted_label([x,y+38.,w,18.],"Локальные координаты",10.,u.palette().muted);
     }
     pub(super) fn draw_relax_properties(&self, u: &mut Ui, x: f32, mut y: f32, w: f32) {
         let enabled = self.edit_vertices().len() >= 2;
@@ -532,12 +534,7 @@ impl App {
         );
         y += 34.;
         if enabled {
-            u.quiet_button(
-                [x, y, w, 30.],
-                "Релакс сетки",
-                Action::Shape(S::Relax),
-                false,
-            );
+            u.fitted_label([x,y,w,30.],"Предпросмотр релакса",11.,u.palette().muted);
         } else {
             u.disabled_button([x, y, w, 30.], "Релакс сетки");
         }

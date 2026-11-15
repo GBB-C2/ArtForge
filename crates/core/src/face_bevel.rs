@@ -2,6 +2,8 @@ use crate::mesh_modeling::{bevel, finish};
 use crate::mesh_topology_tools::invalid;
 use crate::{CoreError, Mesh, MeshConnectivity, Vec3};
 use std::collections::{BTreeMap, BTreeSet};
+#[path = "face_bevel/region.rs"]
+mod region;
 
 pub(crate) fn apply_mode(
     mesh: &mut Mesh,
@@ -31,39 +33,7 @@ pub(crate) fn apply_mode(
             individual(mesh, selection, inset, shift, segments, profile)
         }
         crate::FaceTreatment::Region | crate::FaceTreatment::Normals => {
-            apply(mesh, selection, inset, 0., segments, profile)?;
-            if shift == 0. {
-                return Ok(());
-            }
-            let graph = MeshConnectivity::new(mesh);
-            let mut normals = BTreeMap::<usize, Vec3>::new();
-            let mut region_normal = Vec3::ZERO;
-            for &f in selection {
-                let face = mesh.face_vertices(f).unwrap();
-                let n = crate::polygon_edit::face_normal(mesh, face);
-                region_normal += n;
-                for &v in face {
-                    *normals.entry(graph.canonical[v as usize]).or_default() += n;
-                }
-            }
-            let region_normal = region_normal.try_normalize();
-            if mode == crate::FaceTreatment::Region && region_normal.is_none() {
-                return Err(invalid(
-                    "У области нет общего направления; выберите «По нормалям»",
-                ));
-            }
-            for (i, v) in mesh.vertices.iter_mut().enumerate() {
-                if let Some(n) = normals.get(&graph.canonical[i]) {
-                    let n = if mode == crate::FaceTreatment::Region {
-                        region_normal.unwrap()
-                    } else {
-                        n.normalize_or_zero()
-                    };
-                    v.position =
-                        (Vec3::from_array(v.position) + n.normalize_or_zero() * shift).to_array();
-                }
-            }
-            finish(mesh, mesh.smooth_normals_enabled())
+            region::apply(mesh, selection, inset, shift, segments, profile, mode)
         }
     }
 }

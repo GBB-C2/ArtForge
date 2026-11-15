@@ -33,8 +33,8 @@ pub(super) struct LiveOperation {
     kind: Kind,
     extrude_mode:u8,
     face_mode: u8,
-    values: [f32; 7],
-    defaults: [f32; 7],
+    values: [f32; 4],
+    defaults: [f32; 4],
     anchor: Vec3,
     direction: Vec3,
     scale: f32,
@@ -64,7 +64,7 @@ impl LiveOperation {
     }
     fn fields(&self) -> usize {
         match self.kind {
-            Kind::Array => 7,
+            Kind::Array => 4,
             Kind::Inset => 2,
             Kind::Edge | Kind::Bridge => 3,
             Kind::Face => 4,
@@ -75,7 +75,6 @@ impl LiveOperation {
         match (self.kind, i) {
             (Kind::Array, 0) => ("Копии, включая исходную", 2., 128., 1.),
             (Kind::Array, 1..=3) => (["Смещение X, м", "Смещение Y, м", "Смещение Z, м"][i-1], -10000., 10000., self.scale * 0.002),
-            (Kind::Array, _) => (["Поворот X, °", "Поворот Y, °", "Поворот Z, °"][i-4], -3600., 3600., 1.),
             (Kind::Bridge,0)=>("Сегменты",1.,32.,1.),
             (Kind::Bridge,1)=>("Скручивание, шаги",-32.,32.,1.),
             (Kind::Bridge,2)=>("Плавность, %",0.,100.,1.),
@@ -95,8 +94,7 @@ impl LiveOperation {
         if self.kind == Kind::Array {
             return match i {
                 0 => (min, 32_f32.max(self.values[i]).min(max)),
-                1..=3 => { let extent = self.scale.max(self.values[i].abs()*1.2); ((-extent).max(min), extent.min(max)) },
-                _ => ((-180_f32).min(self.values[i]), 180_f32.max(self.values[i])),
+                _ => { let extent = self.scale.max(self.values[i].abs()*1.2); ((-extent).max(min), extent.min(max)) },
             };
         }
         if self.kind == Kind::Edge && i == 0 {
@@ -111,7 +109,7 @@ impl LiveOperation {
     fn integer(&self, i: usize) -> bool {
         matches!((self.kind,i), (Kind::Array,0) | (Kind::Edge,1) | (Kind::Face,2) | (Kind::Bridge,0..=1))
     }
-    fn edit(&self, v: [f32; 7]) -> MeshEdit {
+    fn edit(&self, v: [f32; 4]) -> MeshEdit {
         match self.kind {
             Kind::Array => MeshEdit::Array {
                 region: poseforge_core::MeshRegion {
@@ -119,7 +117,7 @@ impl LiveOperation {
                     edges: if self.selection.mode == S::Edge { self.selection.edges.clone() } else { BTreeSet::new() },
                     faces: if self.selection.mode == S::Face { self.selection.faces.clone() } else { BTreeSet::new() },
                 },
-                count: v[0] as u32, offset: Vec3::new(v[1],v[2],v[3]), rotation: Vec3::new(v[4],v[5],v[6]),
+                count: v[0] as u32, offset: Vec3::new(v[1],v[2],v[3]), rotation: Vec3::ZERO,
             },
             Kind::Bridge=>MeshEdit::BridgeAdvanced{faces:self.faces.clone(),edges:self.selection.edges.clone(),segments:v[0] as u32,twist:v[1] as i32,smooth:v[2]/100.},
             Kind::Individual=>MeshEdit::Bevel {faces:self.faces.clone(),inset:0.,shift:v[0]},
@@ -168,7 +166,7 @@ impl LiveOperation {
 }
 #[derive(Clone)]
 pub(super) struct ParameterDrag {
-    start: [f32; 7],
+    start: [f32; 4],
     pointer: [f32; 2],
     value: f32,
     field: usize,
@@ -177,8 +175,7 @@ pub(super) struct ParameterDrag {
     snap_origin: f32,
     step: f32,
     direction: [f32; 2],
-    requested: [f32; 7],
-    angular_center: Option<[f32; 2]>,
+    requested: [f32; 4],
     viewport: bool,
     range: SliderRange,
 }
@@ -346,9 +343,8 @@ impl App {
             Kind::Cut => [self.authoring.loop_position * 100., 0., 0., 0.],
             Kind::Slide => [0., 0., 0., 0.],
         };
-        let mut values = [0.;7];
-        values[..4].copy_from_slice(&initial);
-        if kind == Kind::Array { values.copy_from_slice(&self.authoring.workflow.values[2..9]); }
+        let mut values = initial;
+        if kind == Kind::Array { values.copy_from_slice(&self.authoring.workflow.values[2..6]); }
         let mut selection=SelectionSnapshot::capture(&self.authoring);
         if kind==Kind::Bridge {selection.edges=self.workflow_bridge_edges();}
         let mut op = LiveOperation {
@@ -393,7 +389,7 @@ impl App {
             "Предпросмотр · Shift + щелчок — выделение · Ctrl / Enter — применить · Esc — отменить".into());
         true
     }
-    fn preview_live_values(&mut self, values: [f32; 7]) -> Result<(), String> {
+    fn preview_live_values(&mut self, values: [f32; 4]) -> Result<(), String> {
         let op = self.modeling_live.as_ref().ok_or("Предпросмотр закрыт")?;
         if op.kind == Kind::Cut && op.selection.edges.len() != 1 {
             return Err("Выберите одно ребро для разреза".into());
@@ -410,7 +406,7 @@ impl App {
                 op.values = values;
                 op.error = None;
                 op.has_preview = true;
-                if op.kind == Kind::Array { self.authoring.workflow.values[2..9].copy_from_slice(&values); }
+                if op.kind == Kind::Array { self.authoring.workflow.values[2..6].copy_from_slice(&values); }
                 self.sync_live_selection();
                 self.invalidate_geometry();
                 Ok(())
@@ -430,7 +426,27 @@ impl App {
             op.selection.restore(&mut self.authoring);
             return;
         }
-        if op.kind==Kind::Bridge {
+        if op.kind==Kind::Array {
+            op.selection.restore(&mut self.authoring);
+            let mesh = self.editor.editable_mesh(op.node).unwrap();
+            match op.selection.mode {
+                S::Face => self.authoring.faces.extend(op.original.face_count()..mesh.face_count()),
+                S::Vertex => {
+                    let graph = self.mesh_cache(mesh);
+                    self.authoring.vertices.extend((op.original.vertices.len()..mesh.vertices.len()).map(|i|graph.graph.canonical[i]));
+                }
+                S::Edge => {
+                    let graph = self.mesh_cache(mesh);
+                    let count = op.original.topology.as_ref().map_or(0,|t|t.loose_edges.len());
+                    if let Some(topology) = &mesh.topology {
+                        self.authoring.edges.extend(topology.loose_edges.iter().skip(count).map(|e| {
+                            let [a,b] = e.map(|v|graph.graph.canonical[v as usize]);
+                            (a.min(b),a.max(b))
+                        }));
+                    }
+                }
+            }
+        } else if op.kind==Kind::Bridge {
             self.authoring.selection_mode=S::Face;self.authoring.vertices.clear();self.authoring.edges.clear();
             self.authoring.faces.clear();
         } else if op.kind==Kind::VertexExtrude {
@@ -612,7 +628,6 @@ impl App {
             step,
             direction,
             requested: op.values,
-            angular_center: if track.is_none() && op.kind == Kind::Array && i >= 4 { self.array_rotation_center(op,i) } else { None },
             viewport: track.is_none(),
             range,
         }));
@@ -635,13 +650,7 @@ impl App {
             d.value = op.values[d.field];
             d.snap_origin = d.value;
         }
-        let motion = if let Some(center) = d.angular_center {
-            let a = glam::Vec2::from_array(d.pointer) - glam::Vec2::from_array(center);
-            let b = glam::Vec2::from_array(p) - glam::Vec2::from_array(center);
-            if a.length() > 5. && b.length() > 5. { a.perp_dot(b).atan2(a.dot(b)).to_degrees() } else { 0. }
-        } else {
-            (p[0] - d.pointer[0]) * d.direction[0] + (p[1] - d.pointer[1]) * d.direction[1]
-        };
+        let motion = (p[0] - d.pointer[0]) * d.direction[0] + (p[1] - d.pointer[1]) * d.direction[1];
         d.value += motion * d.step * if fine { 0.1 } else { 1. };
         d.pointer = p;
         let (_, min, max, _) = op.spec(d.field);
@@ -652,7 +661,7 @@ impl App {
         if op.integer(d.field) {
             value = value.round();
         } else if snapped {
-            let step = if op.kind == Kind::Array && d.field >= 4 { 15. } else if matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Cut | Kind::Slide)
+            let step = if matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Cut | Kind::Slide)
                 || (op.kind == Kind::Inset && d.field == 0)
                 || (op.kind == Kind::Face && d.field == 0)
                 || (op.kind == Kind::Edge && d.field == 2)
@@ -747,6 +756,7 @@ impl App {
             match self.ui.hit(self.mouse)? {
                 Action::Author(A::LiveDrag(i)) => {
                     let op = self.modeling_live.as_ref()?;
+                    if i as usize >= op.fields() { return None; }
                     if i == 0 && matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Edge | Kind::Face | Kind::Inset) {
                         let center = self.project_point(
                             op.anchor
@@ -1215,7 +1225,7 @@ mod tests {
             a.preferences.right_panel=false;
             a.authoring.workflow.values[3]=0.4;
             a.action(Action::ModelingTool(ui::ModelingTool::Array));
-            for field in 0..7 {
+            for field in 0..4 {
                 a.ui=a.build_ui();
                 let point=a.ui.action_point(&Action::Author(A::LiveDrag(field))).unwrap_or_else(||panic!("Missing array handle {field}"));
                 a.mouse=point;
@@ -1223,15 +1233,8 @@ mod tests {
                 let (axis,step)=a.live_parameter_basis(a.modeling_live.as_ref().unwrap(),field as usize);
                 a.mouse_down(MouseButton::Left);
                 assert!(matches!(a.drag,Some(Drag::LiveParameter(_))));
-                if field>=4 {
-                    let center=glam::Vec2::from_array(a.array_rotation_center(a.modeling_live.as_ref().unwrap(),field as usize).unwrap());
-                    let delta=glam::Vec2::from_array(point)-center;
-                    a.mouse_move((center+glam::Vec2::new(-delta.y,delta.x)).to_array());
-                    assert!((a.modeling_live.as_ref().unwrap().values[field as usize]-old[field as usize]-90.).abs()<0.1);
-                } else {
-                    a.mouse_move([point[0]+axis[0]*20.,point[1]+axis[1]*20.]);
-                    assert!((a.modeling_live.as_ref().unwrap().values[field as usize]-old[field as usize]-20.*step).abs()<0.01);
-                }
+                a.mouse_move([point[0]+axis[0]*20.,point[1]+axis[1]*20.]);
+                assert!((a.modeling_live.as_ref().unwrap().values[field as usize]-old[field as usize]-20.*step).abs()<0.01);
                 let op=a.modeling_live.as_ref().unwrap();
                 let mut expected=Editor::new(source.clone());expected.begin_edit("Expected");
                 expected.preview_mesh(1,&op.original,op.edit(op.values)).unwrap();

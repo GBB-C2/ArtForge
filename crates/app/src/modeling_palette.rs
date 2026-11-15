@@ -36,7 +36,7 @@ impl M {
             Self::Inspect => "Проверить топологию",
         }
     }
-    fn icon(self) -> Icon {
+    pub(super) fn icon(self) -> Icon {
         match self {
             Self::Select(1) => Icon::SelectBox, Self::Select(2) => Icon::SelectLasso,
             Self::Select(_) => Icon::SelectPointer,
@@ -179,7 +179,7 @@ impl App {
                 Some(M::Inspect) => 380.,
                 Some(M::LoopCut) => if self.authoring.knife.as_ref().is_some_and(|k|k.section_edit) {355.}else{270.},
                 Some(M::Knife) => 310.,
-                Some(M::Array)=>350.,
+                Some(M::Array)=>236.,
                 Some(M::Extrude)=>210.,
                 Some(M::Align) => if self.mesh_tools.alignment_mode==0 {146.} else {124.},
                 Some(M::Weld) => 132.,

@@ -333,10 +333,10 @@ fn bevel_width_is_constant_on_both_sides_and_ends_of_a_tapered_solid() {
             for v in &mesh.vertices {
                 let [x, y, z] = v.position;
                 if z.abs() < 1e-6 || (z - 2.).abs() < 1e-6 {
-                    if (y + 1.).abs() < 1e-6 && x > -0.99999 && x < -0.81 {
+                    if (y + 1.).abs() < 1e-6 && x > -0.99999 && x < -0.80001 {
                         distances.push(x + 1.);
                     }
-                    if (x + 1.).abs() < 1e-6 && y > -0.99999 && y < -0.81 {
+                    if (x + 1.).abs() < 1e-6 && y > -0.99999 && y < -0.80001 {
                         distances.push(y + 1.);
                     }
                 }

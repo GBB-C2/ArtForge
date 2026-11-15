@@ -289,12 +289,12 @@ impl App {
                     M::Subdivide => vec![("Делений на ребро",self.authoring.workflow.subdivide_segments as f32,A::SubdivideCount)],
                     M::Weld => vec![("Расстояние, м", self.authoring.weld_distance, A::WeldDistance)],
                     M::Bridge | M::BridgeFaces => vec![("Сегменты", self.authoring.bridge_segments as f32, A::BridgeSegments),("Скручивание, шаги",self.authoring.bridge_twist as f32,A::BridgeTwist),("Плавность, %",self.authoring.bridge_smooth*100.,A::BridgeSmooth)],
-                    M::Inset => vec![("Отступ, %", self.authoring.inset * 100., A::InsetAmount)],
-                    M::Bevel if self.authoring.selection_mode == S::Face => vec![("Отступ, %", self.authoring.inset * 100., A::InsetAmount), ("Высота, м", self.authoring.bevel_height, A::BevelHeight)],
+                    M::Inset => vec![("Отступ, м", self.authoring.inset.unwrap_or(0.15), A::InsetAmount)],
+                    M::Bevel if self.authoring.selection_mode == S::Face => vec![("Отступ, м", self.authoring.inset.unwrap_or(0.15), A::InsetAmount), ("Высота, м", self.authoring.bevel_height, A::BevelHeight)],
                     M::LoopCut => vec![("Количество линий", self.authoring.workflow.values[9], A::ToolField(9))],
                     _ => vec![],
                 } {
-                    let range=match action {A::SubdivideCount=>SliderRange::new(2.,32.,1.),A::BridgeSegments=>SliderRange::new(1.,32.,1.),A::BridgeTwist=>SliderRange::new(-32.,32.,1.),A::BridgeSmooth=>SliderRange::new(0.,100.,1.),A::InsetAmount=>SliderRange::new(0.,95.,0.5),A::LoopPosition=>SliderRange::new(1.,99.,1.),A::ToolField(9)=>SliderRange::new(1.,16.,1.),_=>SliderRange::new(-1.,1.,0.01)};
+                    let range=match action {A::SubdivideCount=>SliderRange::new(2.,32.,1.),A::BridgeSegments=>SliderRange::new(1.,32.,1.),A::BridgeTwist=>SliderRange::new(-32.,32.,1.),A::BridgeSmooth=>SliderRange::new(0.,100.,1.),A::InsetAmount=>SliderRange::new(0.,1_f64.max(value as f64*1.2).min(1000.),0.01),A::LoopPosition=>SliderRange::new(1.,99.,1.),A::ToolField(9)=>SliderRange::new(1.,16.,1.),_=>SliderRange::new(-1.,1.,0.01)};
                     u.number_field([x,y,w,44.],label,value as f64,Action::Author(action),range);
                     y += 52.;
                 }

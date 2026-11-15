@@ -11,6 +11,31 @@ pub(super) fn apply(
     profile: f32,
     mode: FaceTreatment,
 ) -> Result<(), CoreError> {
+    build(mesh, selected, inset, shift, segments, profile, mode, false)
+}
+
+pub(super) fn apply_offset(
+    mesh: &mut Mesh,
+    selected: &BTreeSet<usize>,
+    offset: f32,
+    shift: f32,
+    segments: u32,
+    profile: f32,
+    mode: FaceTreatment,
+) -> Result<(), CoreError> {
+    build(mesh, selected, offset, shift, segments, profile, mode, true)
+}
+
+fn build(
+    mesh: &mut Mesh,
+    selected: &BTreeSet<usize>,
+    inset: f32,
+    shift: f32,
+    segments: u32,
+    profile: f32,
+    mode: FaceTreatment,
+    absolute: bool,
+) -> Result<(), CoreError> {
     if inset == 0. && shift == 0. {
         return Ok(());
     }
@@ -57,9 +82,17 @@ pub(super) fn apply(
             })
             .collect();
         lengths.sort_by(f32::total_cmp);
-        let width = lengths[lengths.len() / 2] * inset * 0.5;
-        if shift != 0. {
-            let (_, mut offsets) = cap_directions(mesh, selected, mode)?;
+        let width = if absolute {
+            inset
+        } else {
+            lengths[lengths.len() / 2] * inset * 0.5
+        };
+        if shift != 0. || absolute {
+            let mut offsets = if shift == 0. {
+                BTreeMap::new()
+            } else {
+                cap_directions(mesh, selected, mode)?.1
+            };
             for direction in offsets.values_mut() {
                 *direction *= shift;
             }
@@ -71,7 +104,9 @@ pub(super) fn apply(
         }
         return Ok(());
     }
-    surface(mesh, selected, inset, shift, segments, profile, mode)
+    surface(
+        mesh, selected, inset, shift, segments, profile, mode, absolute,
+    )
 }
 
 fn cap_directions(
@@ -133,10 +168,15 @@ fn surface(
     segments: u32,
     profile: f32,
     mode: FaceTreatment,
+    absolute: bool,
 ) -> Result<(), CoreError> {
     let original = mesh.clone();
     let (graph, directions) = cap_directions(&original, selected, mode)?;
-    crate::face_inset::apply(mesh, selected, inset, shift, mode)?;
+    if absolute {
+        crate::face_inset::apply_offset(mesh, selected, inset, shift, mode)?;
+    } else {
+        crate::face_inset::apply(mesh, selected, inset, shift, mode)?;
+    }
     if segments == 1 {
         return Ok(());
     }

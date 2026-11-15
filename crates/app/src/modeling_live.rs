@@ -91,7 +91,7 @@ impl LiveOperation {
             (Kind::Edge, 1) => ("Сегменты", 1., 32., 0.1),
             (Kind::Edge, 2) | (Kind::Face, 3) => ("Профиль, %", -100., 100., 0.5),
             (Kind::Face,2)=>("Сегменты",1.,32.,1.),
-            (Kind::Face | Kind::Inset, 0) => ("Отступ, %", 0., 95., 0.25),
+            (Kind::Face | Kind::Inset, 0) => ("Отступ, м", 0., 1000., self.scale * 0.002),
             (Kind::Slide, 0) => ("Сдвиг, %", -99., 99., 0.25),
             (Kind::Cut, 0) => ("Положение, %", 1., 99., 0.25),
             _ => ("Расстояние, м", -1000., 1000., self.scale * 0.002),
@@ -105,7 +105,7 @@ impl LiveOperation {
                 _ => { let extent = self.scale.max(self.values[i].abs()*1.2); ((-extent).max(min), extent.min(max)) },
             };
         }
-        if self.kind == Kind::Edge && i == 0 {
+        if matches!(self.kind, Kind::Edge | Kind::Face | Kind::Inset) && i == 0 {
             (min, (self.scale * 0.3).max(self.values[i] * 1.2).min(max))
         } else if matches!(self.kind, Kind::Extrude | Kind::Individual | Kind::VertexExtrude) || (matches!(self.kind, Kind::Face | Kind::Inset) && i == 1) {
             let extent = self.scale.max(self.values[i].abs() * 1.2);
@@ -140,11 +140,11 @@ impl LiveOperation {
                 segments: v[1] as u32,
                 profile: v[2] / 100.,
             },
-            Kind::Face => MeshEdit::FaceBevelMode {
-                faces:self.faces.clone(), inset:v[0]/100., shift:v[1], segments:v[2] as u32, profile:v[3]/100., mode:self.face_treatment(),
+            Kind::Face => MeshEdit::FaceBevelOffset {
+                faces:self.faces.clone(), offset:v[0], shift:v[1], segments:v[2] as u32, profile:v[3]/100., mode:self.face_treatment(),
             },
-            Kind::Inset => MeshEdit::InsetFaces {
-                faces:self.faces.clone(), inset:v[0]/100., depth:v[1], mode:self.face_treatment(),
+            Kind::Inset => MeshEdit::InsetFacesOffset {
+                faces:self.faces.clone(), offset:v[0], depth:v[1], mode:self.face_treatment(),
             },
             Kind::Extrude if self.extrude_mode==3 => MeshEdit::ExtrudeManifold {faces:self.faces.clone(),distance:v[0]},
             Kind::Extrude if self.extrude_mode==1 => MeshEdit::ExtrudeDistributed {faces:self.faces.clone(),distance:v[0]},
@@ -389,13 +389,22 @@ impl App {
                 );
             }
         }
+        let inset = self.authoring.inset.unwrap_or_else(|| {
+            faces.iter().filter_map(|&f| {
+                let face=original.face_vertices(f)?;
+                let p=|i:usize|Vec3::from_array(original.vertices[face[i] as usize].position);
+                let area=(1..face.len()-1).map(|i|(p(i)-p(0)).cross(p(i+1)-p(0))).sum::<Vec3>().length();
+                let perimeter=(0..face.len()).map(|i|p(i).distance(p((i+1)%face.len()))).sum::<f32>();
+                (area>0. && perimeter>0.).then_some(area/perimeter*0.15)
+            }).reduce(f32::min).unwrap_or(scale*0.04).min(1000.)
+        });
         let initial = match kind {
             Kind::Array => [0.;4],
             Kind::Bridge => [self.authoring.bridge_segments as f32,self.authoring.bridge_twist as f32,self.authoring.bridge_smooth*100.,0.],
             Kind::Vertex | Kind::VertexInset => [15., 0., 0., 0.],
             Kind::Edge => [scale * 0.025, 3., 100., 0.],
-            Kind::Face => [self.authoring.inset * 100., self.authoring.bevel_height, 3., 0.],
-            Kind::Inset => [self.authoring.inset * 100., 0., 0., 0.],
+            Kind::Face => [inset, self.authoring.bevel_height, 3., 0.],
+            Kind::Inset => [inset, 0., 0., 0.],
             Kind::Extrude | Kind::Individual | Kind::VertexExtrude => [scale * 0.05, 0., 0., 0.],
             Kind::Cut => [self.authoring.loop_position * 100., 0., 0., 0.],
             Kind::Slide => [0., 0., 0., 0.],
@@ -752,8 +761,6 @@ impl App {
             value = value.round();
         } else if snapped {
             let step = if matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Cut | Kind::Slide)
-                || (op.kind == Kind::Inset && d.field == 0)
-                || (op.kind == Kind::Face && d.field == 0)
                 || (op.kind == Kind::Edge && d.field == 2)
             {
                 5.

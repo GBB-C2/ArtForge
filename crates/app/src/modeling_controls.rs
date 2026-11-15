@@ -42,7 +42,7 @@ impl App {
             A::ScaleFactor(_) => self.input(Action::Author(command), "1".into()),
             A::InsetAmount => self.input(
                 Action::Author(command),
-                ui::number_caption((self.authoring.inset * 100.) as f64),
+                ui::number_caption(self.authoring.inset.unwrap_or(0.15) as f64),
             ),
             A::BevelHeight => self.input(
                 Action::Author(command),
@@ -64,7 +64,7 @@ impl App {
             A::ProportionalRadius => {
                 self.authoring.proportional_radius = surfaces::number(text, 0.0001, 100000.)?
             }
-            A::InsetAmount => self.authoring.inset = surfaces::number(text, 0., 95.)? / 100.,
+            A::InsetAmount => self.authoring.inset = Some(surfaces::number(text, 0., 1000.)?),
             A::BevelHeight => self.authoring.bevel_height = surfaces::number(text, -1000., 1000.)?,
             A::LoopPosition => {
                 self.authoring.loop_position = surfaces::number(text, 1., 99.)? / 100.

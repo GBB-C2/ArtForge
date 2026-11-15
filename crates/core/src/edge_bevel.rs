@@ -5,6 +5,8 @@ use crate::{
     MAX_EDIT_VERTICES,
 };
 use std::collections::{BTreeMap, BTreeSet};
+#[path = "edge_bevel/limits.rs"]
+mod limits;
 fn edge(a: usize, b: usize) -> (usize, usize) {
     (a.min(b), a.max(b))
 }
@@ -88,6 +90,43 @@ fn build(
     profile: f32,
     displacement: Option<(&BTreeSet<usize>, &BTreeMap<usize, Vec3>)>,
 ) -> Result<(), CoreError> {
+    let original = mesh.clone();
+    let mut requested = width;
+    let mut last_error = None;
+    for _ in 0..9 {
+        let mut effective = None;
+        match build_attempt(
+            mesh,
+            selection,
+            requested,
+            segments,
+            profile,
+            displacement,
+            &mut effective,
+        ) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                *mesh = original.clone();
+                let Some(limit) = effective else {
+                    return Err(error);
+                };
+                last_error = Some(error);
+                requested = (limit * 0.5).min(requested * 0.5);
+            }
+        }
+    }
+    Err(last_error.unwrap())
+}
+
+fn build_attempt(
+    mesh: &mut Mesh,
+    selection: &BTreeSet<(usize, usize)>,
+    width: f32,
+    segments: u32,
+    profile: f32,
+    displacement: Option<(&BTreeSet<usize>, &BTreeMap<usize, Vec3>)>,
+    retry_width: &mut Option<f32>,
+) -> Result<(), CoreError> {
     if selection.is_empty()
         || selection
             .iter()
@@ -144,69 +183,13 @@ fn build(
         .iter()
         .map(|v| Vec3::from_array(v.position))
         .collect();
-    // First find local collision limits, then share the tightest limit along
-    // each connected selection so the bevel cannot taper between its endpoints.
-    let mut widths: BTreeMap<usize, f32> = affected.iter().map(|&v| (v, width)).collect();
-    for &(a, b) in &g.edges {
-        let limit = positions[a].distance(positions[b]) * 0.2;
-        for v in [a, b] {
-            if let Some(w) = widths.get_mut(&v) {
-                *w = w.min(limit);
-            }
-        }
-    }
-    for face in &source {
-        let normal = crate::polygon_edit::face_normal(mesh, face).normalize_or_zero();
-        for i in 0..face.len() {
-            let v = g.canonical[face[i] as usize];
-            if !affected.contains(&v) {
-                continue;
-            }
-            let a = g.canonical[face[(i + face.len() - 1) % face.len()] as usize];
-            let b = g.canonical[face[(i + 1) % face.len()] as usize];
-            let left = selection.contains(&edge(a, v));
-            let right = selection.contains(&edge(v, b));
-            if !left && !right {
-                continue;
-            }
-            let incoming = (positions[v] - positions[a]).normalize();
-            let outgoing = (positions[b] - positions[v]).normalize();
-            let ni = normal.cross(incoming);
-            let no = normal.cross(outgoing);
-            let cosine = ni.dot(no);
-            let det = 1. - cosine * cosine;
-            if det > 1e-8 {
-                let wi = if left { 1. } else { 0. };
-                let wo = if right { 1. } else { 0. };
-                let miter = (ni * (wi - cosine * wo) + no * (wo - cosine * wi)) / det;
-                let limit = positions[a]
-                    .distance(positions[v])
-                    .min(positions[b].distance(positions[v]))
-                    * 0.2
-                    / miter.length().max(1.);
-                *widths.get_mut(&v).unwrap() = widths[&v].min(limit);
-            }
-        }
-    }
-    let mut pending = affected.clone();
-    while let Some(seed) = pending.pop_first() {
-        let mut component = vec![seed];
-        let mut cursor = 0;
-        let mut limit = widths[&seed];
-        while cursor < component.len() {
-            let vertex = component[cursor];
-            cursor += 1;
-            for &neighbor in &g.vertex_neighbors[vertex] {
-                if selection.contains(&edge(vertex, neighbor)) && pending.remove(&neighbor) {
-                    limit = limit.min(widths[&neighbor]);
-                    component.push(neighbor);
-                }
-            }
-        }
-        for vertex in component {
-            widths.insert(vertex, limit);
-        }
-    }
+    let region = displacement.map(|(faces, _)| faces);
+    let widths = limits::widths(
+        mesh, &g, &source, &selection, &affected, &positions, width, region,
+    )?;
+    // Retry only after valid selection and budgets have reached geometric limits.
+    // Concave/non-planar neighbours can collide before adjacent edge endpoints do.
+    *retry_width = widths.values().copied().reduce(f32::min);
     let mut cuts = BTreeMap::<(usize, usize), f32>::new();
     for &(a, b) in &g.edges {
         if affected.contains(&a) || affected.contains(&b) {
@@ -267,14 +250,6 @@ fn build(
             } else {
                 (ni * (wi - cosine * wo) + no * (wo - cosine * wi)) / determinant
             };
-            if delta.length()
-                > positions[before]
-                    .distance(p)
-                    .min(positions[after].distance(p))
-                    * 0.49
-            {
-                return Err(invalid("Фаска пересекает соседний угол; уменьшите ширину"));
-            }
             let mut q = p + delta;
             if left != right && !straight {
                 let neighbor = if left { after } else { before };
@@ -291,8 +266,11 @@ fn build(
         }
     }
     for (&(a, b), &d) in &cuts {
+        if limits::interior(&g, region, edge(a, b)) {
+            continue;
+        }
         if d + cuts.get(&(b, a)).copied().unwrap_or(0.)
-            >= positions[a].distance(positions[b]) * 0.98
+            >= positions[a].distance(positions[b]) * 0.9995
         {
             return Err(invalid("Фаски соседних вершин пересекаются"));
         }
@@ -404,6 +382,38 @@ fn build(
         }
         output.push(out);
     }
+    if let Some(region) = region {
+        let mut fixed = BTreeMap::new();
+        for &f in region {
+            for &raw in &output[f] {
+                let v = tags[raw as usize];
+                if affected.contains(&v) {
+                    fixed.insert(
+                        v,
+                        Vec3::from_array(mesh.vertices[raw as usize].position) - positions[v],
+                    );
+                }
+            }
+        }
+        let offsets = crate::region_offset::interpolate(&source, &g, region, &positions, fixed);
+        let graph = MeshConnectivity::new(mesh);
+        let mut moves = BTreeMap::new();
+        for &f in region {
+            for &raw in &output[f] {
+                if let Some(&delta) = offsets.get(&tags[raw as usize]) {
+                    moves.insert(
+                        graph.canonical[raw as usize],
+                        positions[tags[raw as usize]] + delta,
+                    );
+                }
+            }
+        }
+        for (i, vertex) in mesh.vertices.iter_mut().enumerate() {
+            if let Some(&p) = moves.get(&graph.canonical[i]) {
+                vertex.position = p.to_array();
+            }
+        }
+    }
     // Record cap endpoints before straight-profile stitching inserts samples
     // into neighbouring polygons. Those inserted points still need interpolation.
     let cap_vertices: BTreeSet<_> = displacement
@@ -435,8 +445,17 @@ fn build(
         }) {
             return Err(invalid("У соседних граней несогласованное направление"));
         }
-        let na = crate::polygon_edit::face_normal(mesh, af).normalize();
-        let nb = crate::polygon_edit::face_normal(mesh, bf).normalize();
+        let normal = |face: &[u32]| {
+            (1..face.len() - 1)
+                .map(|i| {
+                    (positions[face[i] as usize] - positions[face[0] as usize])
+                        .cross(positions[face[i + 1] as usize] - positions[face[0] as usize])
+                })
+                .sum::<Vec3>()
+                .normalize()
+        };
+        let na = normal(af);
+        let nb = normal(bf);
         if na.dot(nb).abs() > 0.99999 {
             return Err(invalid("Выбранное ребро плоское; используйте растворение"));
         }

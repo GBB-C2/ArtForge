@@ -1112,3 +1112,50 @@ fn merge_distance_small_panels_scroll_to_confirmation_without_changing_preview()
         click(&mut a,Action::Author(A::LiveCancel));assert_eq!(a.editor.project,before);assert!(a.tool_panel_rect().is_none());
     }}}
 }
+
+#[test]
+fn offset_fields_use_metres_and_drag_beyond_the_old_bevel_limit() {
+    for theme in [ui::Theme::Dark,ui::Theme::Light] {for dpi in [1.,2.] {for tool in [M::Bevel,M::Inset] {
+        let mut a=app();a.preferences.theme=theme;a.scale=dpi;a.height=1400.;
+        let before=a.editor.project.clone();a.action(Action::ModelingTool(tool));
+        a.ui=a.build_ui();assert!(a.ui.texts.iter().any(|t|t.text=="Отступ"));
+        assert!(!a.ui.texts.iter().any(|t|t.text.contains("Отступ, %")));
+        let field=Action::Author(A::LiveField(0));
+        let rect=a.ui.hits.iter().find(|h|matches!(&h.action,Action::Slide(f,_,_)if **f==field)).unwrap().rect;
+        let p=[rect[0]+rect[2]*0.3,rect[1]+rect[3]*0.5];
+        a.mouse_move(p);a.mouse_down(MouseButton::Left);a.mouse_move([p[0]+rect[2]*0.45,p[1]]);
+        assert!(matches!(a.drag,Some(Drag::LiveParameter(_))));a.mouse_up(MouseButton::Left);
+        let mesh=a.editor.editable_mesh(1).unwrap();
+        let p=mesh.vertices[mesh.face_vertices(0).unwrap()[0] as usize].position;
+        assert!(p[1].abs()<0.5 && p[2].abs()<0.5,"{tool:?}: {p:?}, {}",a.status);
+        a.apply_field_value(field.clone(),"0.9").unwrap();
+        let mesh=a.editor.editable_mesh(1).unwrap();
+        for &v in mesh.face_vertices(0).unwrap() {
+            let p=mesh.vertices[v as usize].position;
+            assert!((p[1].abs()-0.1).abs()<1e-5 && (p[2].abs()-0.1).abs()<1e-5);
+        }
+        click(&mut a,Action::ResetNumber(Box::new(field.clone())));
+        let mesh=a.editor.editable_mesh(1).unwrap();
+        assert!((mesh.vertices[mesh.face_vertices(0).unwrap()[0] as usize].position[1].abs()-0.85).abs()<1e-5);
+        a.apply_field_value(field,"0.8").unwrap();let preview=a.editor.project.clone();
+        assert_eq!(a.editor.undo_len(),0);click(&mut a,Action::Author(A::LiveAccept));assert_eq!(a.editor.project,preview);
+        assert!(a.tool_panel_rect().is_none());assert_eq!(a.editor.undo_len(),1);a.action(Action::Undo);assert_eq!(a.editor.project,before);
+    }}}
+}
+
+#[test]
+fn offset_defaults_fit_small_faces_and_pending_exact_values_are_in_metres() {
+    for tool in [M::Bevel,M::Inset] {
+        let mut a=app();for v in &mut a.editor.project.meshes[0].vertices {for p in &mut v.position {*p*=0.001;}}
+        let before=a.editor.project.clone();a.action(Action::ModelingTool(tool));
+        assert_ne!(a.editor.project,before,"{tool:?}: {}",a.status);a.editor.project.validate().unwrap();
+        a.action(Action::Author(A::LiveCancel));assert_eq!(a.editor.project,before);
+        let mut a=app();a.authoring.faces.clear();a.action(Action::ModelingTool(tool));
+        a.apply_field_value(Action::Author(A::InsetAmount),"0.8").unwrap();
+        a.authoring.faces.insert(0);a.mouse_up(MouseButton::Left);
+        let mesh=a.editor.editable_mesh(1).unwrap();
+        for &v in mesh.face_vertices(0).unwrap() {assert!((mesh.vertices[v as usize].position[1].abs()-0.2).abs()<1e-5);}
+        let preview=a.editor.project.clone();a.apply_field_value(Action::Author(A::LiveField(0)),"nan").unwrap_err();assert_eq!(a.editor.project,preview);
+        a.action(Action::Author(A::LiveCancel));assert!(a.tool_panel_rect().is_none());assert_eq!(a.editor.undo_len(),0);
+    }
+}

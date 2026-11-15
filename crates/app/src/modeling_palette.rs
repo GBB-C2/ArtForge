@@ -53,7 +53,7 @@ impl M {
             Self::Align => Icon::Flatten, Self::Relax => Icon::Relax, Self::Inspect => Icon::InspectMesh,
         }
     }
-    fn command(self) -> Option<Action> {
+    pub(super) fn command(self) -> Option<Action> {
         Some(match self {
             Self::Select(i) => Action::Author(A::SelectTool(i)),
             Self::Move => Action::Move, Self::Rotate => Action::Rotate, Self::Scale => Action::Scale,
@@ -78,6 +78,11 @@ impl M {
 }
 
 impl App {
+    pub(super) fn modeling_apply_action(&self, action: &Action) -> bool {
+        self.authoring.modeling_tool.is_some_and(|tool| !tool.live()
+            && !matches!(tool,M::Select(_)|M::Move|M::Rotate|M::Scale|M::Inspect|M::Knife)
+            && (tool.command().as_ref()==Some(action) || (tool==M::Align && matches!(action,Action::Shape(ShapeAction::Flatten(_) | ShapeAction::Straighten | ShapeAction::Space)))))
+    }
     pub(super) fn remember_modeling_tool(&mut self, action: &Action) {
         if self.authoring.editing.is_none() { return; }
         let tool = match action {
@@ -113,6 +118,7 @@ impl App {
         self.set_properties_tab(7);
     }
     pub(super) fn start_pending_modeling_preview(&mut self) {
+        if self.modifiers.shift_key() { return; }
         let Some(tool) = self.authoring.workflow.pending_preview else { return; };
         if self.authoring.modeling_tool != Some(tool) {
             self.authoring.workflow.pending_preview = None;

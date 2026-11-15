@@ -8,6 +8,7 @@ pub(super) struct State {
     pub inset_mode: u8,
     pub bevel_mode: u8,
     pub pending_preview: Option<M>,
+    pub ctrl_applied: bool,
     pub panel_position: Option<[f32; 2]>,
     pub panel_scroll: f32,
     pub collapsed: bool,
@@ -21,6 +22,7 @@ impl Default for State {
             inset_mode: 0,
             bevel_mode: 0,
             pending_preview: None,
+            ctrl_applied: false,
             panel_position: None,
             panel_scroll: 0.,
             collapsed: false,
@@ -29,6 +31,12 @@ impl Default for State {
     }
 }
 impl App {
+    pub(super) fn dismiss_modeling_tool_panel(&mut self) {
+        self.authoring.modeling_tool = None;
+        self.authoring.workflow.pending_preview = None;
+        self.authoring.workflow.panel_scroll = 0.;
+        self.authoring.workflow.collapsed = false;
+    }
     pub(super) fn workflow_preference_field(a: &Action) -> bool {
         if matches!(a, Action::MeshOpacity | Action::ToolPanelTransparency) { return true; }
         matches!(

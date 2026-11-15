@@ -5,6 +5,8 @@ use crate::ui::{AuthorAction as A, MeshSelection as S};
 use poseforge_core::{Mesh, MeshEdit};
 #[path = "modeling_live/handles.rs"]
 mod handles;
+#[path = "modeling_live/selection.rs"]
+mod selection;
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
     Array,
@@ -24,6 +26,8 @@ pub(super) struct LiveOperation {
     node: u64,
     original: Mesh,
     selection: SelectionSnapshot,
+    original_selection: SelectionSnapshot,
+    selecting: bool,
     faces: BTreeSet<usize>,
     vertices: BTreeSet<usize>,
     kind: Kind,
@@ -350,6 +354,8 @@ impl App {
         let mut op = LiveOperation {
             node,
             original,
+            original_selection: selection.clone(),
+            selecting: false,
             selection,
             faces,
             vertices,
@@ -384,11 +390,14 @@ impl App {
         self.sync_live_selection();
         self.invalidate_geometry();
         self.status = self.modeling_live.as_ref().and_then(|op|op.error.clone()).unwrap_or_else(||
-            "Предпросмотр · Enter — применить · Esc — отменить · Shift — точно · Ctrl — шаг".into());
+            "Предпросмотр · Shift + щелчок — выделение · Ctrl / Enter — применить · Esc — отменить".into());
         true
     }
     fn preview_live_values(&mut self, values: [f32; 7]) -> Result<(), String> {
         let op = self.modeling_live.as_ref().ok_or("Предпросмотр закрыт")?;
+        if op.kind == Kind::Cut && op.selection.edges.len() != 1 {
+            return Err("Выберите одно ребро для разреза".into());
+        }
         if values == op.values && op.error.is_none() {
             return Ok(());
         }
@@ -464,6 +473,7 @@ impl App {
         Ok(true)
     }
     pub(super) fn accept_modeling_live(&mut self) {
+        self.finish_live_selection();
         if self.modeling_live.is_none() {
             return;
         }
@@ -476,9 +486,12 @@ impl App {
         self.release_live_capture();
         let op = self.modeling_live.take().unwrap();
         match self.editor.commit_edit() {
-            Ok(()) => self.status = format!("{} · применено", op.label()),
+            Ok(()) => {
+                self.status = format!("{} · применено", op.label());
+                self.dismiss_modeling_tool_panel();
+            }
             Err(e) => {
-                op.selection.restore(&mut self.authoring);
+                op.original_selection.restore(&mut self.authoring);
                 self.status = e.to_string();
             }
         }
@@ -500,7 +513,7 @@ impl App {
                 self.end_input();
             }
             self.editor.cancel_edit();
-            op.selection.restore(&mut self.authoring);
+            op.original_selection.restore(&mut self.authoring);
             self.invalidate_geometry();
             self.update_dirty();
             self.status = "Предпросмотр отменён".into();
@@ -513,6 +526,9 @@ impl App {
     pub(super) fn route_live_action(&mut self, a: &Action) -> bool {
         if self.modeling_live.is_none() {
             return false;
+        }
+        if matches!(a,Action::Author(A::LiveDrag(_) | A::LiveField(_) | A::ExtrudeMode(_) | A::FaceToolMode(_)) | Action::Slide(..) | Action::ResetNumber(_)) {
+            self.finish_live_selection();
         }
         match a {
             a if Self::preview_navigation_action(a) => false,
@@ -815,9 +831,9 @@ impl App {
             y += 50.;
         }
         let half = (w - 6.) * 0.5;
-        u.button([x, y, half, 30.], "Применить ↵", Action::Author(A::LiveAccept), true);
+        u.button([x, y, half, 30.], "Применить", Action::Author(A::LiveAccept), true);
         u.quiet_button([x + half + 6., y, half, 30.], "Отмена · Esc", Action::Author(A::LiveCancel), false);
-        u.fitted_label([x, y + 38., w, 22.], op.error.as_deref().unwrap_or("Shift — точно · Ctrl — шаг"), 10., u.palette().muted);
+        u.fitted_label([x, y + 38., w, 22.], op.error.as_deref().unwrap_or("Перетаскивание: Shift — точно · Ctrl — шаг"), 10., u.palette().muted);
     }
 }
 

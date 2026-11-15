@@ -155,27 +155,27 @@ fn inset_and_bevel_modes_keep_one_preview_and_independent_preferences() {
 #[test]
 fn floating_buttons_transmit_the_scene_and_slider_track_uses_exact_accent() {
     for theme in [ui::Theme::Dark,ui::Theme::Light] {
-        for accent in [ui::Accent::Blue,ui::Accent::Violet] {
+        for accent in ui::Accent::ALL {
             let mut a = app();
             a.preferences.theme=theme; a.preferences.accent=accent;
             a.action(Action::ModelingTool(M::Extrude));
             let mut transmissions = Vec::new();
-            for transparency in [0.2,0.7] {
+            for transparency in [0.2,0.7,0.9] {
                 a.preferences.tool_panel_transparency=transparency;
                 let mut u = Ui::with_theme(1.,theme,[0.,0.]); u.accent=accent;
                 a.draw_tool_panel(&mut u);
                 let button = u.hits.iter().find(|h|h.action==Action::Author(A::LiveAccept)).unwrap().rect;
                 let sample = [button[0]+12.,button[1]+8.];
                 let transmission:f32=u.rects.iter().filter(|r|ui::contains(r.rect,sample)).map(|r|1.-r.color[3]).product();
-                assert!(transmission>0.1,"Opaque button backing");
+                assert!(transmission>0.02,"Opaque button backing");
                 transmissions.push(transmission);
                 let field=u.hits.iter().find(|h|h.action==Action::Author(A::LiveField(0))).unwrap().rect;
-                assert!(u.rects.iter().any(|r|r.color==accent.palette(theme).accent && r.rect[3]==3. && ui::contains(field,[r.rect[0],r.rect[1]])));
+                assert!(u.rects.iter().any(|r|r.color==accent.palette(theme).accent && r.rect[3]==4. && ui::contains(field,[r.rect[0],r.rect[1]])));
                 assert!(u.texts.iter().all(|t|t.color[3]==1.));
                 // Scoped translucent styling must not leak into other panels.
                 assert_eq!(u.palette().panel[3],1.);
             }
-            assert!(transmissions[1]>transmissions[0]);
+            assert!(transmissions.windows(2).all(|t|t[1]>t[0]));
         }
     }
 }

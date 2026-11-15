@@ -1292,7 +1292,7 @@ impl Action {
             Self::Normal(NormalAction::XRay) => Some("Показывать направления нормалей через поверхности"),
             Self::Author(AuthorAction::LiveDrag(_)) => Some("Тяните стрелку вдоль оси или кольцо от центра; точное значение — в панели операции"),
             Self::Author(AuthorAction::LiveToggle) => Some("Развернуть или свернуть параметры операции"),
-            Self::Author(AuthorAction::LiveAccept) => Some("Применить предпросмотр · Enter"),
+            Self::Author(AuthorAction::LiveAccept) => Some("Применить предпросмотр и закрыть панель · Ctrl или Enter"),
             Self::Author(AuthorAction::LiveCancel) => Some("Отменить предпросмотр · Esc"),
             Self::SurfaceTab(9) => Some("Настройки программы: тема, акцент, просмотр и импорт"),
             Self::InterfaceTheme(_) => Some("Изменить тему интерфейса"),
@@ -1488,9 +1488,18 @@ impl Ui {
     pub fn palette(&self) -> Palette {
         let mut p = self.accent.palette(self.theme);
         if let Some(opacity) = self.floating_controls {
-            for c in [&mut p.panel, &mut p.elevated, &mut p.selection, &mut p.hover, &mut p.border] {
-                c[3] = opacity * 0.35;
+            // Control contrast has a floor independent of the panel background.
+            let base = if self.theme == Theme::Dark { [0.08,0.09,0.115] } else { [1.,1.,1.] };
+            p.panel = [base[0],base[1],base[2],0.62+0.08*opacity];
+            p.elevated = p.panel;
+            p.selection[3] = 0.70+0.08*opacity;
+            p.hover[3] = 0.78+0.08*opacity;
+            for i in 0..3 {
+                p.border[i] = p.muted[i]*0.8+p.accent[i]*0.2;
+                p.muted[i] = p.muted[i]*0.7+p.text[i]*0.3;
             }
+            p.border[3] = 0.75;
+            p.text[3] = 1.; p.muted[3] = 1.;
         }
         p
     }
@@ -1499,8 +1508,8 @@ impl Ui {
     }
     fn slider_fill(&self) -> [f32; 4] {
         let p = self.palette();
-        if let Some(opacity) = self.floating_controls {
-            return [p.accent[0], p.accent[1], p.accent[2], 0.32 * opacity];
+        if self.floating_controls.is_some() {
+            return [p.accent[0], p.accent[1], p.accent[2], 0.18];
         }
         let amount = if self.theme == Theme::Dark { 0.40 } else { 0.32 };
         std::array::from_fn(|i| p.elevated[i] * (1. - amount) + p.accent[i] * amount)
@@ -1592,7 +1601,7 @@ impl Ui {
         if self.floating_controls.is_some() {
             self.surface(r, fill);
             let mut outline = outline;
-            outline[3] = outline[3].min(0.65);
+            outline[3] = outline[3].min(0.95);
             self.surface_outline(r, outline);
             return;
         }
@@ -1652,6 +1661,8 @@ impl Ui {
         self.raw_label(x,y,self.language.text(&text).into_owned(),size,color);
     }
     pub fn raw_label(&mut self, x:f32, y:f32, text:impl Into<String>, size:f32, color:[f32;4]) {
+        let mut color = color;
+        if self.floating_controls.is_some() { color[3] = 1.; }
         self.texts.push(UiText {
             weight: 400,
             x: x * self.scale,
@@ -1789,7 +1800,7 @@ impl Ui {
         if self.floating_controls.is_some() {
             self.rounded_rect(field, p.elevated, 3.);
             let mut border = if active || hovered { p.accent } else { p.border };
-            border[3] = border[3].min(0.65);
+            border[3] = border[3].min(0.95);
             self.surface_outline(field, border);
         } else {
             self.rounded_rect(
@@ -1829,8 +1840,8 @@ impl Ui {
         } else { self.rounded_rect(fill_rect, fill, 1.); }
         if self.floating_controls.is_some() {
             // A solid accent track remains visible without an opaque field backing.
-            self.rounded_rect([fill_rect[0], track[1] + track[3] - 3., fill_rect[2], 3.], p.accent, 1.);
-            self.rounded_rect([x.clamp(track[0], track[0] + track[2] - 2.), track[1] + track[3] - 5., 2., 5.], p.accent, 1.);
+            self.rounded_rect([fill_rect[0], track[1] + track[3] - 4., fill_rect[2], 4.], p.accent, 1.);
+            self.rounded_rect([x.clamp(track[0], track[0] + track[2] - 4.), track[1] + track[3] - 8., 4., 8.], p.accent, 2.);
         }
         if signed {
             self.rect([origin - 0.5, track[1] + track[3] - 4., 1., 4.], p.muted);
@@ -1889,9 +1900,11 @@ impl Ui {
         let reset = [r[0] + r[2] - reset_width, top, reset_width, height];
         self.number_values.push((action.clone(), value));
         let reset_hover = self.cursor.is_some_and(|cursor| contains(reset, cursor));
-        // The glyph alone changes color on hover; no background or border.
+        if self.floating_controls.is_some() {
+            self.outlined_surface(reset,if reset_hover {p.hover}else{p.elevated},p.border);
+        }
         Icon::Reset.draw(self, [reset[0] + (reset_width - 16.) * 0.5, reset[1] + (height - 16.) * 0.5, 16., 16.],
-            if reset_hover { p.accent } else { p.muted });
+            if reset_hover { p.accent } else if self.floating_controls.is_some() {p.text} else { p.muted });
         self.hits.push(Hit { rect: reset, action: Action::ResetNumber(Box::new(action.clone())) });
         self.hits.push(Hit {
             rect: field,
@@ -2053,7 +2066,9 @@ impl Ui {
     }
     pub fn quiet_button(&mut self, r: [f32; 4], text: &str, action: Action, active: bool) {
         let p = self.palette();
-        if active {
+        if self.floating_controls.is_some() {
+            self.button_surface(r,active,true);
+        } else if active {
             self.outlined_surface(r, p.selection, p.accent);
         } else if self.cursor.is_some_and(|cursor| contains(r, cursor)) {
             self.surface(r, p.hover);
@@ -2070,7 +2085,7 @@ impl Ui {
             r[1] + (r[3] - 17.) / 2.,
             caption,
             13.,
-            if active { p.accent } else { p.text },
+            if active && self.floating_controls.is_none() { p.accent } else { p.text },
         );
         self.hits.push(Hit { rect: r, action });
     }
@@ -2395,7 +2410,7 @@ impl Ui {
             13.,
             if !enabled {
                 p.disabled
-            } else if active {
+            } else if active && self.floating_controls.is_none() {
                 p.accent
             } else {
                 p.text

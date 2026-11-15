@@ -471,9 +471,11 @@ fn slide_slider_and_ctrl_drag_use_signed_percentages_independent_of_mesh_size() 
             })
             .unwrap();
         assert_eq!((range.min, range.max), (-99., 99.));
-        a.modifiers = ModifiersState::CONTROL;
         a.mouse_move(a.ui.action_point(&Action::Author(A::LiveDrag(0))).unwrap());
         a.mouse_down(MouseButton::Left);
+        // Ctrl applies an idle tool; during a captured drag it still enables steps.
+        a.modeling_modifiers_changed(ModifiersState::CONTROL);
+        a.mouse_move(a.mouse);
         a.mouse_move([a.mouse[0] - 28., a.mouse[1]]);
         a.mouse_up(MouseButton::Left);
         let mut expected = Editor::new(before.clone());

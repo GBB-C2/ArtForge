@@ -204,3 +204,159 @@ fn invalid_mode_parameters_are_atomic() {
         assert_eq!(e.undo_len(), 0);
     }
 }
+
+#[test]
+fn region_bevel_keeps_adjacent_caps_connected_on_closed_and_open_meshes() {
+    for closed in [false, true] {
+        for fold in [0., 0.8] {
+            for segments in [1, 4] {
+                for profile in [-0.8, 0.8] {
+                    let source = if closed {
+                        editor(
+                            PrimitiveSettings::new(PrimitiveKind::Cube)
+                                .mesh(2, None)
+                                .unwrap(),
+                        )
+                    } else {
+                        strip(fold)
+                    };
+                    let faces = if closed {
+                        BTreeSet::from([0, 2])
+                    } else {
+                        BTreeSet::from([0, 1])
+                    };
+                    for mode in [
+                        FaceTreatment::Region,
+                        FaceTreatment::Normals,
+                        FaceTreatment::Individual,
+                    ] {
+                        let mut e = Editor::new(source.project.clone());
+                        e.edit_mesh(1,MeshEdit::FaceBevelMode{faces:faces.clone(),inset:0.15,shift:0.05,segments,profile,mode}).unwrap_or_else(|err|panic!("closed {closed}, fold {fold}, {mode:?}, segments {segments}, profile {profile}: {err}"));
+                        valid(&e);
+                        let mesh = e.editable_mesh(1).unwrap();
+                        let graph = MeshConnectivity::new(mesh);
+                        let joined = graph
+                            .edge_faces
+                            .values()
+                            .any(|adj| faces.iter().all(|f| adj.contains(f)));
+                        assert_eq!(
+                            joined,
+                            mode != FaceTreatment::Individual,
+                            "closed {closed}, fold {fold}, {mode:?}"
+                        );
+                        if closed {
+                            assert_eq!(inspect_topology(mesh).boundary_edges, 0);
+                        } else {
+                            assert_eq!(
+                                mesh.face_count(),
+                                2 + if mode == FaceTreatment::Individual {
+                                    8
+                                } else {
+                                    6
+                                } * segments as usize
+                            );
+                        }
+                        assert!(e.undo());
+                        assert_eq!(e.project, source.project);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn region_bevel_joins_profiles_across_split_uv_vertices() {
+    let mut e = strip(0.8);
+    let mesh = &mut e.project.meshes[0];
+    for index in [1, 4] {
+        let mut vertex = mesh.vertices[index];
+        vertex.uv = [0.9, 0.1];
+        let duplicate = mesh.vertices.len() as u32;
+        mesh.vertices.push(vertex);
+        for v in &mut mesh.topology.as_mut().unwrap().faces[1] {
+            if *v == index as u32 {
+                *v = duplicate;
+            }
+        }
+    }
+    mesh.rebuild_polygon_indices().unwrap();
+    for mode in [FaceTreatment::Region, FaceTreatment::Normals] {
+        for profile in [-1., 1.] {
+            let mut result = Editor::new(e.project.clone());
+            result
+                .edit_mesh(
+                    1,
+                    MeshEdit::FaceBevelMode {
+                        faces: BTreeSet::from([0, 1]),
+                        inset: 0.2,
+                        shift: -0.1,
+                        segments: 5,
+                        profile,
+                        mode,
+                    },
+                )
+                .unwrap();
+            valid(&result);
+            let mesh = result.editable_mesh(1).unwrap();
+            assert_eq!(inspect_topology(mesh).boundary_edges, 6);
+            assert!(MeshConnectivity::new(mesh)
+                .edge_faces
+                .values()
+                .any(|fs| fs.contains(&0) && fs.contains(&1)));
+            assert!(mesh
+                .face_vertices(1)
+                .unwrap()
+                .iter()
+                .all(|&v| mesh.vertices[v as usize].uv == [0.9, 0.1]
+                    || mesh.vertices[v as usize].uv[1] == 0.5));
+        }
+    }
+}
+
+#[test]
+fn region_bevel_supports_an_open_concave_polygon_without_internal_borders() {
+    let mut mesh = PrimitiveSettings::new(PrimitiveKind::Plane)
+        .mesh(2, None)
+        .unwrap();
+    mesh.vertices = [
+        [0., 0., 0.],
+        [3., 0., 0.],
+        [3., 3., 0.],
+        [2., 3., 0.],
+        [2., 1., 0.],
+        [1., 1., 0.],
+        [1., 3., 0.],
+        [0., 3., 0.],
+    ]
+    .into_iter()
+    .map(|position| Vertex {
+        position,
+        ..Default::default()
+    })
+    .collect();
+    mesh.topology.as_mut().unwrap().faces = vec![(0..8).collect()].into();
+    mesh.topology.as_mut().unwrap().primitive = None;
+    mesh.rebuild_polygon_indices().unwrap();
+    for profile in [-1., 0., 1.] {
+        let mut e = editor(mesh.clone());
+        e.edit_mesh(
+            1,
+            MeshEdit::FaceBevelMode {
+                faces: BTreeSet::from([0]),
+                inset: 0.2,
+                shift: 0.,
+                segments: 4,
+                profile,
+                mode: FaceTreatment::Region,
+            },
+        )
+        .unwrap();
+        valid(&e);
+        assert_eq!(
+            inspect_topology(e.editable_mesh(1).unwrap()).boundary_edges,
+            8
+        );
+        assert_eq!(e.editable_mesh(1).unwrap().face_count(), 33);
+    }
+}

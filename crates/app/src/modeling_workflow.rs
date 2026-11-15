@@ -155,14 +155,14 @@ impl App {
         );
     }
     pub(super) fn draw_array_properties(&self, u: &mut Ui, x: f32, mut y: f32, w: f32) {
-        for i in 2..9 {
+        for i in 2..6 {
             self.draw_workflow_field(u, x, y, w, i, 36.);
             y += 38.;
         }
         u.fitted_label([x,y,w,30.], if self.authoring.workflow.pending_preview.is_some() { "Выберите компоненты для предпросмотра" } else { "Нажмите инструмент для нового предпросмотра" }, 10.,u.palette().muted);
         u.fitted_label(
             [x, y + 34., w, 18.],
-            "Смещение и поворот на каждую копию",
+            "Смещение на каждую копию",
             10.,
             u.palette().muted,
         );
@@ -325,15 +325,8 @@ impl App {
         let Some([x, y, w, h]) = self.tool_panel_rect() else {
             return;
         };
-        let p = u.palette();
-        let mut bg = p.selection;
         let opacity = 1. - self.preferences.tool_panel_transparency;
-        bg[3] = opacity;
-        let mut border = p.accent;
-        border[3] = 0.6;
-        // Paint the outline as a stroke, without an opaque backing under the fill.
-        u.surface([x, y, w, h], bg);
-        u.surface_outline([x, y, w, h], border);
+        u.floating_surface([x, y, w, h], opacity, true);
         u.set_floating_controls(Some(opacity));
         u.hits.push(ui::Hit {
             rect: [x, y, w, h],
@@ -345,16 +338,17 @@ impl App {
         });
         let compact_actions = self.authoring.workflow.collapsed
             && (self.modeling_live.is_some() || self.authoring.knife.is_some());
-        u.fitted_label(
-            [x + 12., y + 9., w - if compact_actions { 120. } else { 52. }, 20.],
+        u.quiet_icon_button(
+            [x + 8., y + 4., w - if compact_actions { 116. } else { 48. }, 30.],
             self.authoring.modeling_tool.unwrap().title(),
-            12.,
-            p.text,
+            Action::Author(A::ToolPanelDrag),
+            false,
+            self.authoring.modeling_tool.unwrap().icon(),
         );
         if !self.authoring.workflow.collapsed {
             let maximum = self.tool_panel_scroll_max();
             let scroll = self.authoring.workflow.panel_scroll.clamp(0., maximum);
-            let body = [x + 12., y + 38., w - if maximum > 0. { 36. } else { 24. }, h - 46.];
+            let body = [x + 14., y + 38., w - if maximum > 0. { 38. } else { 28. }, h - 46.];
             let start = (u.rects.len(), u.texts.len(), u.hits.len());
             u.set_cursor([self.mouse[0], self.mouse[1] + scroll]);
             self.draw_modeling_tool_properties(u, body[0], body[1], body[2]);
@@ -407,7 +401,7 @@ impl App {
             M::Bridge => "Соединяет грани, контуры и цепочки рёбер",
             M::Dissolve => "Убирает компоненты, сохраняя поверхность",
             M::FillHoles => "Выберите один элемент у края отверстия",
-            M::Array => "Копирует выделение с шагом и поворотом",
+            M::Array => "Копирует выделение с заданным шагом",
             _ => "Свойства — в плавающей панели над сценой",
         };
         let w = 310_f32.min(self.width - 24.);

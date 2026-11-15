@@ -263,16 +263,16 @@ fn floating_properties_scroll_reaches_all_array_fields_without_zoom_or_geometry_
     a.mouse = [rect[0] + 40., rect[1] + 80.];
     a.scroll(-100.);
     assert_eq!(a.authoring.workflow.panel_scroll, a.tool_panel_scroll_max());
-    let field = point(&mut a, Action::Author(A::LiveField(6)));
+    let field = point(&mut a, Action::Author(A::LiveField(3)));
     assert!(matches!(a.ui.hit(field), Some(Action::Slide(action, _, _))
-        if *action == Action::Author(A::LiveField(6))));
+        if *action == Action::Author(A::LiveField(3))));
     // Numeric sliders enter exact input on a double click.
-    click(&mut a, Action::Author(A::LiveField(6)));
-    click(&mut a, Action::Author(A::LiveField(6)));
+    click(&mut a, Action::Author(A::LiveField(3)));
+    click(&mut a, Action::Author(A::LiveField(3)));
     a.input.as_mut().unwrap().select_all();
-    a.input.as_mut().unwrap().insert("45");
+    a.input.as_mut().unwrap().insert("0.45");
     a.action(Action::ConfirmInput);
-    assert_eq!(a.authoring.workflow.values[8], 45.);
+    assert_eq!(a.authoring.workflow.values[5], 0.45);
     assert_eq!(a.distance, distance);
     assert_ne!(a.editor.project, before);
     assert_eq!(a.editor.undo_len(), 0);
@@ -389,14 +389,14 @@ fn workflow_array_fields_apply_reset_and_undo() {
         .unwrap();
     a.apply_field_value(Action::Author(A::LiveField(1)), "2")
         .unwrap();
-    a.apply_field_value(Action::Author(A::LiveField(6)), "15")
+    a.apply_field_value(Action::Author(A::LiveField(3)), "1.5")
         .unwrap();
     assert!(a
         .apply_field_value(Action::Author(A::LiveField(0)), "2.4")
         .is_err());
     assert_eq!(a.editor.undo_len(), 0);
-    a.reset_number(Action::Author(A::LiveField(6)));
-    assert_eq!(a.authoring.workflow.values[8], 0.);
+    a.reset_number(Action::Author(A::LiveField(3)));
+    assert_eq!(a.authoring.workflow.values[5], 0.);
     click(&mut a, Action::Author(A::LiveAccept));
     assert_eq!(a.editor.project.meshes[0].face_count(), 9, "{}", a.status);
     assert_eq!(a.editor.undo_len(), 1);
@@ -414,7 +414,7 @@ fn workflow_tooltips_are_small_and_do_not_capture_input() {
         .ui
         .texts
         .iter()
-        .any(|t| t.text == "Копирует выделение с шагом и поворотом"));
+        .any(|t| t.text == "Копирует выделение с заданным шагом"));
 }
 #[test]
 #[ignore = "Exports actual editor UI for CPU inspection"]
@@ -814,4 +814,27 @@ fn face_bevel_legacy_action_respects_face_mode_on_an_open_surface() {
     let before=a.editor.project.clone();a.action(Action::Author(A::EdgeBevel));
     assert!(a.modeling_live.is_some(),"{}",a.status);assert_ne!(a.editor.project,before);
     a.action(Action::Author(A::LiveCancel));assert_eq!(a.editor.project,before);
+}
+
+#[test]
+fn region_bevel_preview_preserves_shared_edge_and_mode_switches_stay_one_edit() {
+    let mut a=app();
+    a.authoring.faces=BTreeSet::from([0,2]);
+    let source=a.editor.project.clone();
+    a.action(Action::ModelingTool(M::Bevel));
+    let joined=|a:&App|poseforge_core::MeshConnectivity::new(a.editor.editable_mesh(1).unwrap())
+        .edge_faces.values().any(|faces|faces.contains(&0)&&faces.contains(&2));
+    assert!(joined(&a),"{}",a.status);
+    a.apply_field_value(Action::Author(A::LiveField(2)),"5").unwrap();
+    a.apply_field_value(Action::Author(A::LiveField(3)),"-75").unwrap();
+    assert!(joined(&a));
+    click(&mut a,Action::Author(A::FaceToolMode(2)));
+    assert!(!joined(&a));
+    click(&mut a,Action::Author(A::FaceToolMode(0)));
+    assert!(joined(&a));
+    assert_eq!(a.editor.undo_len(),0);
+    click(&mut a,Action::Author(A::LiveAccept));
+    assert_eq!(a.editor.undo_len(),1);
+    assert!(a.tool_panel_rect().is_none());
+    a.action(Action::Undo);assert_eq!(a.editor.project,source);
 }

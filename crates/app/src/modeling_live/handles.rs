@@ -63,15 +63,11 @@ fn arrow(strokes: &mut Vec<Segment>, center: Vec2, axis: Vec2, sign: f32, length
 impl App {
     fn array_center(&self, op: &LiveOperation) -> Option<Vec2> {
         // Anchor controls to the source; distant copies must not take the
-        // translation, count and rotation handles outside the viewport.
+        // translation and count handles outside the viewport.
         self.project_point(op.anchor).map(Vec2::from_array)
-    }
-    pub(super) fn array_rotation_center(&self, op: &LiveOperation, field: usize) -> Option<[f32;2]> {
-        Some((self.array_center(op)? + Vec2::new((field as f32-5.)*56.,104.)).to_array())
     }
     pub(super) fn array_parameter_basis(&self, op: &LiveOperation, field: usize) -> ([f32;2], f32) {
         if field == 0 { return ([1.,0.],0.1); }
-        if field >= 4 { return ([1.,0.],1.); }
         let fallback = ([[-0.8,0.6],[0.,-1.],[0.8,0.6]][field-1],op.scale*0.002);
         let Some(model) = self.editor.project.global_transforms().ok().and_then(|g|g.get(&op.node).copied()) else { return fallback; };
         let world = op.anchor;
@@ -89,7 +85,7 @@ impl App {
         let mut navigation = self.view_widget_rect(); navigation[3] += 84.;
         let mut obstacles = vec![navigation,self.shading_toolbar_rect()];
         if let Some(panel) = self.tool_panel_rect() { obstacles.push(panel); }
-        for field in 0..7 {
+        for field in 0..4 {
             let mut strokes = Vec::new();
             let label_at;
             if (1..=3).contains(&field) {
@@ -97,15 +93,11 @@ impl App {
                 arrow(&mut strokes,center,axis,1.,76.);
                 label_at = center+axis*88.;
             } else {
-                let point = if field == 0 { center+Vec2::new(-90.,-64.) } else { Vec2::from_array(self.array_rotation_center(op,field).unwrap()) };
-                let radius = if field == 0 { 14. } else { 18. };
+                let point = center+Vec2::new(-90.,-64.);
+                let radius = 14.;
                 let arc = |i:usize| { let angle = i as f32*std::f32::consts::TAU/48.; (point+Vec2::new(angle.cos(),angle.sin())*radius).to_array() };
                 strokes.extend((0..48).map(|i|(arc(i),arc(i+1))));
-                if field >= 4 {
-                    let angle = op.values[field].to_radians();
-                    strokes.push((point.to_array(),(point+Vec2::new(angle.cos(),angle.sin())*radius).to_array()));
-                }
-                label_at = point+Vec2::new(0.,if field==0 {0.}else{30.});
+                label_at = point;
             }
             let strokes = clip(&strokes,area,&obstacles);
             if strokes.is_empty() {continue;}
@@ -113,7 +105,7 @@ impl App {
             u.path_hit(action.clone(),strokes.clone(),PICK);
             let active = matches!(&self.drag,Some(Drag::LiveParameter(d)) if d.field==field);
             let hovered = self.drag.is_none() && !self.has_modal() && u.hit(self.mouse)==Some(action);
-            let color = if field==0 || active || hovered {u.palette().accent} else {gizmo::axis_color(self.preferences.theme,if field<4 {field-1}else{field-4})};
+            let color = if field==0 || active || hovered {u.palette().accent} else {gizmo::axis_color(self.preferences.theme,field-1)};
             u.smooth_segments(&strokes,5.,[0.,0.,0.,0.45]);
             u.smooth_segments(&strokes,if active||hovered {3.}else{2.2},color);
             let r = [label_at.x-18.,label_at.y-8.,36.,18.];
@@ -275,7 +267,7 @@ impl App {
                     let integer = op.integer(field);
                     let step = if integer { 1. } else {
                         let step = if self.modifiers.control_key() {
-                            if op.kind==Kind::Array && field>=4 { 15. } else if op.spec(field).0.ends_with('%') { 5. } else { op.scale*0.01 }
+                            if op.spec(field).0.ends_with('%') { 5. } else { op.scale*0.01 }
                         } else { step };
                         step * if self.modifiers.shift_key() { 0.1 } else { 1. }
                     };

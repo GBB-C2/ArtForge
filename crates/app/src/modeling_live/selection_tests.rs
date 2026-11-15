@@ -85,6 +85,49 @@ fn selection_count(a: &App) -> usize {
 }
 
 #[test]
+fn array_selects_source_and_copies_in_each_mode_and_has_no_rotation_controls() {
+    for mode in [S::Vertex, S::Edge, S::Face] {
+        let mut a = app(mode);
+        a.authoring.workflow.values[3] = 2.5;
+        // Settings from an earlier array cannot rotate copies behind hidden fields.
+        a.authoring.workflow.values[6..9].fill(45.);
+        let source = a.editor.project.clone();
+        a.action(Action::ModelingTool(M::Array));
+        assert_eq!(selection_count(&a), 3);
+        let operation = a.modeling_live.as_ref().unwrap();
+        assert!(
+            matches!(operation.edit(operation.values),MeshEdit::Array{rotation,..} if rotation==Vec3::ZERO)
+        );
+        a.ui = a.build_ui();
+        for i in 4..7 {
+            assert!(a.ui.action_point(&Action::Author(A::LiveDrag(i))).is_none());
+            assert!(a
+                .ui
+                .action_point(&Action::Author(A::LiveField(i)))
+                .is_none());
+        }
+        assert!(a
+            .apply_field_value(Action::Author(A::LiveField(4)), "90")
+            .is_err());
+        a.apply_field_value(Action::Author(A::LiveField(0)), "4")
+            .unwrap();
+        assert_eq!(selection_count(&a), 4);
+        a.apply_field_value(Action::Author(A::LiveField(0)), "2")
+            .unwrap();
+        assert_eq!(selection_count(&a), 2);
+        a.modeling_modifiers_changed(ModifiersState::SHIFT);
+        assert_eq!(selection_count(&a), 1);
+        a.modeling_modifiers_changed(ModifiersState::empty());
+        assert_eq!(selection_count(&a), 2);
+        a.action(Action::Author(A::LiveAccept));
+        assert_eq!(selection_count(&a), 2);
+        assert_eq!(a.editor.undo_len(), 1);
+        a.action(Action::Undo);
+        assert_eq!(a.editor.project, source);
+    }
+}
+
+#[test]
 fn shift_release_during_panel_drag_resumes_preview_and_cancel_restores_original_selection() {
     let mut a = app(S::Face);
     let source = a.editor.project.clone();

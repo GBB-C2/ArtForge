@@ -73,7 +73,7 @@ impl M {
         })
     }
     fn live(self) -> bool {
-        matches!(self, Self::Bridge | Self::BridgeFaces | Self::Extrude | Self::ExtrudeIndividual | Self::Inset | Self::Bevel | Self::LoopCut | Self::Slide)
+        matches!(self, Self::Bridge | Self::BridgeFaces | Self::Extrude | Self::ExtrudeIndividual | Self::Inset | Self::Bevel | Self::LoopCut | Self::Slide | Self::Array)
     }
 }
 
@@ -103,13 +103,28 @@ impl App {
         self.authoring.modeling_tool = Some(tool);
         self.authoring.workflow.panel_scroll = 0.;
         self.authoring.workflow.collapsed = false;
+        self.authoring.workflow.pending_preview = (tool.live() && tool != M::LoopCut).then_some(tool);
         if let Some(action) = tool.command() {
             if matches!(tool, M::Select(_) | M::Move | M::Rotate | M::Scale | M::Knife | M::LoopCut | M::Inspect)
-                || (tool.live() && self.modeling_tool_ready(tool)) {
+                || tool.live() {
                 self.action(action);
             }
         }
         self.set_properties_tab(7);
+    }
+    pub(super) fn start_pending_modeling_preview(&mut self) {
+        let Some(tool) = self.authoring.workflow.pending_preview else { return; };
+        if self.authoring.modeling_tool != Some(tool) {
+            self.authoring.workflow.pending_preview = None;
+            return;
+        }
+        if self.modeling_live.is_none() && self.authoring.knife.is_none()
+            && self.drag.is_none() && self.input.is_none() && self.modeling_tool_ready(tool) {
+            // Dispatch at most once: a rejected geometric operation must never
+            // re-enter action routing recursively while waiting for selection.
+            self.authoring.workflow.pending_preview = None;
+            if let Some(action) = tool.command() { self.action(action); }
+        }
     }
     fn modeling_tool_ready(&self, tool: M) -> bool {
         if self.authoring.editing.is_none() || self.job.is_some() || self.editor.playing
@@ -123,7 +138,8 @@ impl App {
             M::Extrude | M::Inset | M::DeleteFaces | M::Subdivide => !self.edit_vertices().is_empty(),
             M::ExtrudeIndividual | M::Triangulate | M::Separate => !self.selected_face_region().is_empty(),
             M::BridgeFaces => self.selected_face_region().len()>=2,
-            M::Bridge | M::Dissolve | M::Array => !self.edit_vertices().is_empty(),
+            M::Bridge => (self.authoring.selection_mode == S::Face && self.selected_face_region().len() >= 2) || self.workflow_bridge_edges().len() >= 2,
+            M::Dissolve | M::Array => !self.edit_vertices().is_empty(),
             M::LoopCut => true,
             M::Slide => !self.edit_vertices().is_empty(),
             M::Sphere | M::Circle => self.edit_vertices().len()>=3,
@@ -143,6 +159,7 @@ impl App {
         if self.modeling_live.is_some() {
             self.modeling_live_properties_height() + 30.
                 + if self.authoring.modeling_tool == Some(M::Bevel) { 22. } else if self.authoring.modeling_tool==Some(M::Extrude) {90.} else { 0. }
+                + if self.face_tool_modes_visible() { 90. } else { 0. }
         } else {
             match self.authoring.modeling_tool {
                 None => 32.,
@@ -152,7 +169,7 @@ impl App {
                 Some(M::Move) => 260. + if self.authoring.proportional { 34. } else { 0. },
                 Some(M::Rotate | M::Scale) => 224. + if self.authoring.proportional { 34. } else { 0. },
                 Some(M::Relax) => 202.,
-                Some(M::Bevel) => if self.authoring.selection_mode == S::Face { 160. } else { 100. },
+                Some(M::Bevel) => if self.authoring.selection_mode == S::Face { 250. } else { 100. },
                 Some(M::Inspect) => 380.,
                 Some(M::LoopCut) => if self.authoring.knife.as_ref().is_some_and(|k|k.section_edit) {355.}else{270.},
                 Some(M::Knife) => 310.,
@@ -161,7 +178,7 @@ impl App {
                 Some(M::Align) => if self.mesh_tools.alignment_mode==0 {146.} else {124.},
                 Some(M::Weld) => 132.,
                 Some(M::Bridge | M::BridgeFaces) => 250.,
-                Some(M::Inset) => 104.,
+                Some(M::Inset) => 194.,
                 _ => 98.,
             }
         }
@@ -203,6 +220,7 @@ impl App {
             y += 22.;
         }
         if tool==M::Extrude { self.draw_extrude_modes(u,x,y,w); y+=90.; }
+        if self.face_tool_modes_visible() { self.draw_face_tool_modes(u,x,y,w); y+=90.; }
         if self.modeling_live.is_some() {
             self.draw_modeling_live_properties(u, x, y, w);
             return;
@@ -266,8 +284,10 @@ impl App {
                     y += 52.;
                 }
                 if let Some(action) = tool.command() {
-                    let label = if tool.live() { "Начать предпросмотр" } else { "Применить" };
-                    if self.modeling_tool_ready(tool) { u.button([x, y, w, 30.], label, action, false); }
+                    if tool.live() {
+                        u.fitted_label([x,y,w,30.], if self.authoring.workflow.pending_preview.is_some() { "Выберите компоненты для предпросмотра" } else { "Нажмите инструмент для нового предпросмотра" }, 10.,p.muted);
+                    }
+                    else if self.modeling_tool_ready(tool) { u.button([x, y, w, 30.], "Применить", action, false); }
                     else { u.disabled_button([x, y, w, 30.], "Выберите нужные компоненты"); }
                     y += 38.;
                 }

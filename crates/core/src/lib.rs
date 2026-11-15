@@ -89,6 +89,7 @@ mod mesh_topology_tools;
 pub use mesh_topology_tools::{inspect_topology, select_edge_path, TopologyReport};
 mod edge_bevel;
 mod face_bevel;
+mod face_inset;
 mod vertex_bevel;
 
 mod uv_edit;

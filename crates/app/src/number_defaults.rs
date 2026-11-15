@@ -20,6 +20,7 @@ impl App {
         let physics = PhysicsSettings::default();
         Some(match *action {
             Action::MeshOpacity => 50.,
+            Action::ToolPanelTransparency => 30.,
             Action::BoneDisplay(ui::BoneDisplayAction::Size(_)) => 1.,
             Action::Fx(ui::FxAction::Field(i))=>fx_controls::number(fx_controls::defaults(self.selected_fx()?.1),i)?,
             Action::Helper(ui::HelperAction::Size)=>1.,

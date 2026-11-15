@@ -20,6 +20,10 @@ impl Language {
     }
 }
 const LABELS:&[(&str,&str)]=&[
+    ("Обработка граней","Face treatment"),
+    ("Плавающая панель инструментов","Floating tool panel"),
+    ("Выберите компоненты для предпросмотра","Select components to preview"),
+    ("Нажмите инструмент для нового предпросмотра","Click the tool to start another preview"),
     ("Разрез","Cut"),
     ("Создать","Create"),
     ("Редактировать","Edit"),

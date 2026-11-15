@@ -69,6 +69,139 @@ fn workflow_palette_has_one_bridge_and_extrude_and_no_removed_tools() {
     assert_eq!(M::Dissolve.title(), "Растворить");
 }
 #[test]
+fn tool_click_starts_preview_and_waits_for_selection_without_a_start_button() {
+    for tool in [M::Extrude,M::Inset,M::Bevel,M::Slide,M::Array] {
+        let mut a = app();
+        a.authoring.faces.clear();
+        a.action(Action::ModelingTool(tool));
+        assert!(a.modeling_live.is_none());
+        assert_eq!(a.authoring.workflow.pending_preview,Some(tool));
+        assert!(!a.build_ui().texts.iter().any(|t|t.text.contains("Начать предпросмотр")));
+        // Selection can arrive through a viewport gesture after choosing the tool.
+        a.authoring.faces.insert(0);
+        a.mouse_up(MouseButton::Left);
+        assert!(a.modeling_live.is_some(),"{tool:?}: {}",a.status);
+        assert!(a.editor.has_active_edit());
+        assert!(!a.authoring.workflow.collapsed);
+        assert_eq!(a.editor.undo_len(),0);
+        a.action(Action::Author(A::LiveCancel));
+        a.mouse_up(MouseButton::Left);
+        assert!(a.modeling_live.is_none());
+        assert!(!a.editor.has_active_edit());
+    }
+}
+#[test]
+fn bridge_waits_for_two_components_and_cut_cancel_does_not_restart() {
+    let mut a=app();
+    a.action(Action::ModelingTool(M::Bridge));
+    assert!(a.modeling_live.is_none());
+    assert_eq!(a.authoring.workflow.pending_preview,Some(M::Bridge));
+    a.mouse_up(MouseButton::Left);
+    assert!(a.modeling_live.is_none());
+    a.authoring.faces.insert(1);
+    a.mouse_up(MouseButton::Left);
+    assert!(a.modeling_live.is_some());
+    a.action(Action::Author(A::LiveCancel));
+    a.action(Action::ModelingTool(M::LoopCut));
+    assert!(a.authoring.knife.is_some());
+    a.action(Action::Author(A::KnifeCancel));
+    a.mouse_up(MouseButton::Left);
+    assert!(a.authoring.knife.is_none());
+    assert!(!a.editor.has_active_edit());
+}
+#[test]
+fn initially_invalid_inset_can_be_corrected_without_restarting_the_tool() {
+    let mut a=app();
+    a.authoring.faces=(0..6).collect();
+    let source=a.editor.project.clone();
+    a.action(Action::ModelingTool(M::Inset));
+    assert!(a.modeling_live.is_some());
+    assert_eq!(a.editor.project,source);
+    assert!(a.apply_field_value(Action::Author(A::LiveField(1)),"0.1").is_err());
+    a.action(Action::Author(A::FaceToolMode(1)));
+    assert_ne!(a.editor.project,source);
+    assert_eq!(a.editor.undo_len(),0);
+    a.action(Action::Author(A::LiveAccept));
+    assert_eq!(a.editor.undo_len(),1);
+    a.action(Action::Undo);
+    assert_eq!(a.editor.project,source);
+}
+#[test]
+fn inset_and_bevel_modes_keep_one_preview_and_independent_preferences() {
+    let mut a = app();
+    let source = a.editor.project.clone();
+    for tool in [M::Inset,M::Bevel] {
+        a.action(Action::ModelingTool(tool));
+        a.apply_field_value(Action::Author(A::LiveField(1)),"0.12").unwrap();
+        for mode in [2,1,0,2] {
+            click(&mut a,Action::Author(A::FaceToolMode(mode)));
+            assert!(a.modeling_live.is_some());
+            assert_eq!(a.editor.undo_len(),0);
+            a.editor.project.validate().unwrap();
+        }
+        a.action(Action::Author(A::LiveAccept));
+        assert_eq!(a.editor.undo_len(),1);
+        a.action(Action::Undo);
+        assert_eq!(a.editor.project,source);
+    }
+    assert_eq!(a.authoring.workflow.inset_mode,2);
+    assert_eq!(a.authoring.workflow.bevel_mode,2);
+    a.action(Action::ModelingTool(M::Inset));
+    click(&mut a,Action::Author(A::FaceToolMode(1)));
+    assert_eq!(a.authoring.workflow.bevel_mode,2);
+    a.action(Action::Author(A::LiveCancel));
+    assert_eq!(a.editor.project,source);
+}
+#[test]
+fn floating_buttons_transmit_the_scene_and_slider_track_uses_exact_accent() {
+    for theme in [ui::Theme::Dark,ui::Theme::Light] {
+        for accent in [ui::Accent::Blue,ui::Accent::Violet] {
+            let mut a = app();
+            a.preferences.theme=theme; a.preferences.accent=accent;
+            a.action(Action::ModelingTool(M::Extrude));
+            let mut transmissions = Vec::new();
+            for transparency in [0.2,0.7] {
+                a.preferences.tool_panel_transparency=transparency;
+                let mut u = Ui::with_theme(1.,theme,[0.,0.]); u.accent=accent;
+                a.draw_tool_panel(&mut u);
+                let button = u.hits.iter().find(|h|h.action==Action::Author(A::LiveAccept)).unwrap().rect;
+                let sample = [button[0]+12.,button[1]+8.];
+                let transmission:f32=u.rects.iter().filter(|r|ui::contains(r.rect,sample)).map(|r|1.-r.color[3]).product();
+                assert!(transmission>0.1,"Opaque button backing");
+                transmissions.push(transmission);
+                let field=u.hits.iter().find(|h|h.action==Action::Author(A::LiveField(0))).unwrap().rect;
+                assert!(u.rects.iter().any(|r|r.color==accent.palette(theme).accent && r.rect[3]==3. && ui::contains(field,[r.rect[0],r.rect[1]])));
+                assert!(u.texts.iter().all(|t|t.color[3]==1.));
+                // Scoped translucent styling must not leak into other panels.
+                assert_eq!(u.palette().panel[3],1.);
+            }
+            assert!(transmissions[1]>transmissions[0]);
+        }
+    }
+}
+#[test]
+fn panel_transparency_slider_and_reset_do_not_edit_the_project() {
+    let mut a=app();
+    let source=a.editor.project.clone();
+    a.set_properties_tab(9);
+    a.apply_field_value(Action::ToolPanelTransparency,"65").unwrap();
+    assert_eq!(a.preferences.tool_panel_transparency,0.65);
+    assert!(a.apply_field_value(Action::ToolPanelTransparency,"NaN").is_err());
+    assert!(a.apply_field_value(Action::ToolPanelTransparency,"101").is_err());
+    a.ui=a.build_ui();
+    let h=a.ui.hits.iter().find(|h|matches!(&h.action,Action::Slide(v,_,_) if **v==Action::ToolPanelTransparency)).unwrap().clone();
+    a.mouse=[h.rect[0]+h.rect[2]*0.5,h.rect[1]+h.rect[3]*0.5];
+    a.action(h.action);
+    a.mouse_move([a.mouse[0]+12.,a.mouse[1]]);
+    assert_ne!(a.preferences.tool_panel_transparency,0.65);
+    a.cancel_drag();
+    assert_eq!(a.preferences.tool_panel_transparency,0.65);
+    a.reset_number(Action::ToolPanelTransparency);
+    assert_eq!(a.preferences.tool_panel_transparency,0.3);
+    assert_eq!(a.editor.project,source);
+    assert_eq!(a.editor.undo_len(),0);
+}
+#[test]
 fn workflow_extrude_modes_rebuild_frozen_source_and_commit_once() {
     let mut a = app();
     let before = a.editor.project.clone();
@@ -120,6 +253,7 @@ fn workflow_floating_panel_drag_collapse_and_cancel_keep_geometry_transaction() 
 fn floating_properties_scroll_reaches_all_array_fields_without_zoom_or_geometry_changes() {
     let mut a = app();
     a.height = 400.;
+    let original = a.editor.project.clone();
     a.action(Action::ModelingTool(M::Array));
     let before = a.editor.project.clone();
     let distance = a.distance;
@@ -129,18 +263,18 @@ fn floating_properties_scroll_reaches_all_array_fields_without_zoom_or_geometry_
     a.mouse = [rect[0] + 40., rect[1] + 80.];
     a.scroll(-100.);
     assert_eq!(a.authoring.workflow.panel_scroll, a.tool_panel_scroll_max());
-    let field = point(&mut a, Action::Author(A::ToolField(8)));
+    let field = point(&mut a, Action::Author(A::LiveField(6)));
     assert!(matches!(a.ui.hit(field), Some(Action::Slide(action, _, _))
-        if *action == Action::Author(A::ToolField(8))));
+        if *action == Action::Author(A::LiveField(6))));
     // Numeric sliders enter exact input on a double click.
-    click(&mut a, Action::Author(A::ToolField(8)));
-    click(&mut a, Action::Author(A::ToolField(8)));
+    click(&mut a, Action::Author(A::LiveField(6)));
+    click(&mut a, Action::Author(A::LiveField(6)));
     a.input.as_mut().unwrap().select_all();
     a.input.as_mut().unwrap().insert("45");
     a.action(Action::ConfirmInput);
     assert_eq!(a.authoring.workflow.values[8], 45.);
     assert_eq!(a.distance, distance);
-    assert_eq!(a.editor.project, before);
+    assert_ne!(a.editor.project, before);
     assert_eq!(a.editor.undo_len(), 0);
     a.mouse = point(&mut a, Action::Author(A::ToolPanelScroll));
     a.mouse_down(MouseButton::Left);
@@ -148,10 +282,10 @@ fn floating_properties_scroll_reaches_all_array_fields_without_zoom_or_geometry_
     a.mouse_move([a.mouse[0], rect[1] + 38.]);
     a.mouse_up(MouseButton::Left);
     assert_eq!(a.authoring.workflow.panel_scroll, 0.);
-    assert!(a.build_ui().action_point(&Action::Author(A::ToolField(2))).is_some());
+    assert!(a.build_ui().action_point(&Action::Author(A::LiveField(0))).is_some());
     a.action(Action::ModelingTool(M::Move));
     assert_eq!(a.authoring.workflow.panel_scroll, 0.);
-    assert_eq!(a.editor.project, before);
+    assert_eq!(a.editor.project, original);
 }
 #[test]
 fn knife_panel_move_collapse_backdrop_and_scroll_keep_the_active_cut_session() {
@@ -247,24 +381,27 @@ fn workflow_loop_cut_works_in_all_component_modes_and_one_undo() {
 #[test]
 fn workflow_array_fields_apply_reset_and_undo() {
     let mut a = app();
+    let before = a.editor.project.clone();
     a.action(Action::ModelingTool(M::Array));
-    a.apply_field_value(Action::Author(A::ToolField(2)), "4")
+    assert!(a.modeling_live.is_some());
+    assert_eq!(a.editor.project.meshes[0].face_count(), 8);
+    a.apply_field_value(Action::Author(A::LiveField(0)), "4")
         .unwrap();
-    a.apply_field_value(Action::Author(A::ToolField(3)), "2")
+    a.apply_field_value(Action::Author(A::LiveField(1)), "2")
         .unwrap();
-    a.apply_field_value(Action::Author(A::ToolField(8)), "15")
+    a.apply_field_value(Action::Author(A::LiveField(6)), "15")
         .unwrap();
     assert!(a
-        .apply_field_value(Action::Author(A::ToolField(2)), "2.4")
+        .apply_field_value(Action::Author(A::LiveField(0)), "2.4")
         .is_err());
-    let before = a.editor.project.clone();
-    click(&mut a, Action::Author(A::ToolArray));
+    assert_eq!(a.editor.undo_len(), 0);
+    a.reset_number(Action::Author(A::LiveField(6)));
+    assert_eq!(a.authoring.workflow.values[8], 0.);
+    click(&mut a, Action::Author(A::LiveAccept));
     assert_eq!(a.editor.project.meshes[0].face_count(), 9, "{}", a.status);
     assert_eq!(a.editor.undo_len(), 1);
     a.action(Action::Undo);
     assert_eq!(a.editor.project, before);
-    a.reset_number(Action::Author(A::ToolField(8)));
-    assert_eq!(a.authoring.workflow.values[8], 0.);
 }
 #[test]
 fn workflow_tooltips_are_small_and_do_not_capture_input() {
@@ -288,6 +425,8 @@ fn workflow_capture_ui() {
         for width in [900., 1440.] {
             for (tool, name) in [
                 (M::Extrude, "extrude"),
+                (M::Inset, "inset"),
+                (M::Bevel, "bevel"),
                 (M::Bridge, "bridge"),
                 (M::Knife, "knife"),
                 (M::LoopCut, "loop"),
@@ -301,6 +440,7 @@ fn workflow_capture_ui() {
                 a.preferences.theme = theme;
                 if let Ok(height) = std::env::var("ARTFORGE_UI_CAPTURE_HEIGHT") { a.height = height.parse().unwrap(); }
                 if let Ok(accent) = std::env::var("ARTFORGE_UI_CAPTURE_ACCENT") { a.preferences.accent = ui::Accent::from_name(&accent); }
+                if let Ok(transparency) = std::env::var("ARTFORGE_UI_CAPTURE_TRANSPARENCY") { a.preferences.tool_panel_transparency = transparency.parse().unwrap(); }
                 a.action(Action::ModelingTool(tool));
                 a.mouse = [0., 0.];
                 let u = a.build_ui();

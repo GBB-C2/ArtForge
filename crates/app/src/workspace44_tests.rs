@@ -90,7 +90,7 @@ fn four_new_tools_expose_text_parameters_for_all_component_modes() {
     for mode in [ui::MeshSelection::Vertex,ui::MeshSelection::Edge,ui::MeshSelection::Face] {
         let mut a=app();a.action(Action::Author(ui::AuthorAction::SelectMode(mode)));
         for tool in [ui::ModelingTool::Sphere,ui::ModelingTool::Circle,ui::ModelingTool::Inflate,ui::ModelingTool::Twist] {
-            a.choose_modeling_tool(tool);let mut u=Ui::new(1.);a.draw_modeling_palette(&mut u,0.,290.);
+            a.choose_modeling_tool(tool);let mut u=Ui::new(1.);a.draw_tool_panel(&mut u);
             assert!(u.hits.iter().any(|h|matches!(&h.action,Action::Slide(field,_,_) if matches!(**field,Action::Normal(ui::NormalAction::Field(5..=7))))));
         }
     }

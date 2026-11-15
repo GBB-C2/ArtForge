@@ -230,6 +230,10 @@ impl App {
     }
 
     pub(super) fn apply_field_value(&mut self, action: Action, value: &str) -> Result<(), String> {
+        if action == Action::ToolPanelTransparency {
+            self.preferences.tool_panel_transparency = surfaces::number(value, 0., 90.)? / 100.;
+            self.persist_preferences(); return Ok(());
+        }
         if action == Action::MeshOpacity {
             self.preferences.mesh_opacity = surfaces::number(value, 0., 100.)? / 100.;
             self.persist_preferences(); return Ok(());

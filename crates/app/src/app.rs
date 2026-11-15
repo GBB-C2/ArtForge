@@ -1021,7 +1021,7 @@ impl App {
             0 if self.selected_text().is_some() => text_controls::PANEL_BOTTOM,
             0 if self.selected_helper().is_some() => self.helper_panel_bottom(),
             0 if self.rig_context() => self.rig_object_bottom(),
-            9 => 570.,
+            9 => 660.,
             10 => self.normals_panel_bottom(),
             1 if !self.surface.material_library && self.surface_mesh_id().is_none()
                 || self.material_locked() =>
@@ -2508,6 +2508,7 @@ impl App {
         }
     }
     fn action(&mut self, a: Action) {
+        if a == Action::Cancel { self.authoring.workflow.pending_preview = None; }
         if self.confirm_new && !matches!(a, Action::Cancel | Action::ConfirmNew) { return; }
         if self.swatch_menu_action(&a) { return; }
         if self.welcome_action(&a) {return;}
@@ -3096,6 +3097,7 @@ impl App {
             }
             Action::MeshColor => self.open_color_picker(a),
             Action::MeshOpacity => self.input(a,ui::number_caption((self.preferences.mesh_opacity*100.) as f64)),
+            Action::ToolPanelTransparency => self.input(a, ui::number_caption((self.preferences.tool_panel_transparency * 100.) as f64)),
             Action::CameraEffectSearch => self.input(a,self.camera_effects.query.clone()),
             Action::CameraEffectScroll => self.start_camera_effect_scroll(),
             Action::Import => self.show_files(FilePurpose::Import),
@@ -3755,6 +3757,7 @@ impl App {
         }
         self.prune_animation_selection();
         self.sync_fluid_settings();
+        self.start_pending_modeling_preview();
         self.redraw();
     }
     fn key_times(&self) -> Vec<f64> {
@@ -4256,6 +4259,7 @@ impl App {
         }
         self.prune_animation_selection();
         self.sync_fluid_settings();
+        self.start_pending_modeling_preview();
     }
     fn build_ui(&mut self) -> Ui {
         self.prune_path_edit();

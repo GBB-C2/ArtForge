@@ -440,7 +440,7 @@ pub enum PrimitiveAction {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AuthorAction {
-    ToolField(u8), ToolArray, ExtrudeMode(u8), ToolPanelDrag, ToolPanelToggle, ToolPanelScroll,
+    ToolField(u8), ToolArray, ExtrudeMode(u8), FaceToolMode(u8), ToolPanelDrag, ToolPanelToggle, ToolPanelScroll,
     SnapMode(u8), SnapStep, SnapToggle, SnapGridStep(f32),
     ModifierPreview,
     KnifeSnap,
@@ -659,6 +659,7 @@ pub enum Action {
     ConfirmNew,
     MeshColor,
     MeshOpacity,
+    ToolPanelTransparency,
     CameraEffectSearch,
     CameraEffectScroll,
     Open,
@@ -958,7 +959,7 @@ impl Action {
     }
 
     pub fn is_field(&self) -> bool {
-        if matches!(self, Self::MeshOpacity | Self::CameraEffectSearch) { return true; }
+        if matches!(self, Self::MeshOpacity | Self::ToolPanelTransparency | Self::CameraEffectSearch) { return true; }
         if matches!(self, Self::BoneDisplay(BoneDisplayAction::BodyColor | BoneDisplayAction::JointColor | BoneDisplayAction::Size(_))) { return true; }
         if matches!(self,Self::Modifier(ModifierAction::Field(..))) {return true;}
         if matches!(self,Self::Fx(FxAction::Field(_)|FxAction::Color|FxAction::KeyColor(_)|FxAction::SmokeColor)) {return true;}
@@ -1083,6 +1084,9 @@ impl Action {
             Self::Author(AuthorAction::PivotOrigin)=>Some("Центр действия: начало объекта или центр уникальных выбранных вершин"),
             Self::Author(AuthorAction::Bevel)=>Some("Фаска выбранных вершин, рёбер или граней · B · параметры зависят от режима выделения"),
             Self::Author(AuthorAction::Inset)=>Some("Вставить меньшую грань с четырёхугольным ободком · I"),
+            Self::Author(AuthorAction::FaceToolMode(0))=>Some("Обработать связанную область; глубина вдоль её общей нормали"),
+            Self::Author(AuthorAction::FaceToolMode(1))=>Some("Смещать поверхность вдоль локальных нормалей выбранных граней"),
+            Self::Author(AuthorAction::FaceToolMode(_))=>Some("Обрабатывать каждую выбранную грань отдельно"),
             Self::Author(AuthorAction::SectionMode(false))=>Some("Добавить новые плоскости разреза щелчком по поверхности"),
             Self::Author(AuthorAction::SectionMode(true))=>Some("Выбрать и изменить отдельную плоскость разреза"),
             Self::Author(AuthorAction::SectionSelect(_))=>Some("Выбрать плоскость разреза · Ctrl + колесо переключает плоскости"),
@@ -1373,6 +1377,7 @@ impl Action {
             Self::New => Some("Новая пустая сцена"),
             Self::MeshColor => Some("Цвет рёбер и невыделенных вершин"),
             Self::MeshOpacity => Some("Непрозрачность сетки в режиме редактирования"),
+            Self::ToolPanelTransparency => Some("Прозрачность плавающей панели и её кнопок; текст остаётся читаемым"),
             Self::Open => Some("Открыть проект · Ctrl+O"),
             Self::Save => Some("Сохранить проект · Ctrl+S"),
             Self::SaveAs => Some("Сохранить проект в новый файл · Ctrl+Shift+S"),
@@ -1477,13 +1482,26 @@ pub struct Ui {
     slider_range: Option<(Action, SliderRange)>,
     pub number_values: Vec<(Action, f64)>,
     path_hits: Vec<PathHit>,
+    floating_controls: Option<f32>,
 }
 impl Ui {
     pub fn palette(&self) -> Palette {
-        self.accent.palette(self.theme)
+        let mut p = self.accent.palette(self.theme);
+        if let Some(opacity) = self.floating_controls {
+            for c in [&mut p.panel, &mut p.elevated, &mut p.selection, &mut p.hover, &mut p.border] {
+                c[3] = opacity * 0.35;
+            }
+        }
+        p
+    }
+    pub fn set_floating_controls(&mut self, opacity: Option<f32>) {
+        self.floating_controls = opacity.map(|v| v.clamp(0., 1.));
     }
     fn slider_fill(&self) -> [f32; 4] {
         let p = self.palette();
+        if let Some(opacity) = self.floating_controls {
+            return [p.accent[0], p.accent[1], p.accent[2], 0.32 * opacity];
+        }
         let amount = if self.theme == Theme::Dark { 0.40 } else { 0.32 };
         std::array::from_fn(|i| p.elevated[i] * (1. - amount) + p.accent[i] * amount)
     }
@@ -1571,6 +1589,13 @@ impl Ui {
         self.rounded_rect(r, color, SURFACE_RADIUS);
     }
     pub fn outlined_surface(&mut self, r: [f32; 4], fill: [f32; 4], outline: [f32; 4]) {
+        if self.floating_controls.is_some() {
+            self.surface(r, fill);
+            let mut outline = outline;
+            outline[3] = outline[3].min(0.65);
+            self.surface_outline(r, outline);
+            return;
+        }
         self.surface(r, outline);
         self.rounded_rect(
             [r[0] + 1., r[1] + 1., r[2] - 2., r[3] - 2.],
@@ -1759,19 +1784,26 @@ impl Ui {
         let reset_width = if compact { 20. } else { 24. };
         let gap = if compact { 2. } else { 4. };
         let field = [r[0], top, (r[2] - reset_width - gap).max(16.), height];
-        let hovered = self.cursor.is_some_and(|cursor| contains(field, cursor));
-        self.rounded_rect(
-            field,
-            if active || hovered { p.accent } else { p.border },
-            3.,
-        );
-        self.rounded_rect(
-            [field[0] + 1., field[1] + 1., field[2] - 2., field[3] - 2.],
-            p.panel,
-            2.,
-        );
         let track = [field[0] + 2., field[1] + 2., field[2] - 4., field[3] - 4.];
-        self.rounded_rect(track, p.elevated, 1.);
+        let hovered = self.cursor.is_some_and(|cursor| contains(field, cursor));
+        if self.floating_controls.is_some() {
+            self.rounded_rect(field, p.elevated, 3.);
+            let mut border = if active || hovered { p.accent } else { p.border };
+            border[3] = border[3].min(0.65);
+            self.surface_outline(field, border);
+        } else {
+            self.rounded_rect(
+                field,
+                if active || hovered { p.accent } else { p.border },
+                3.,
+            );
+            self.rounded_rect(
+                [field[0] + 1., field[1] + 1., field[2] - 2., field[3] - 2.],
+                p.panel,
+                2.,
+            );
+            self.rounded_rect(track, p.elevated, 1.);
+        }
         let x = track[0] + track[2] * range.ratio(value);
         let signed = range.min < 0. && range.max > 0.;
         let origin = if signed {
@@ -1795,6 +1827,11 @@ impl Ui {
             }
             self.rounded_rect(fill_rect, [fill[0], fill[1], fill[2], 0.66], 1.);
         } else { self.rounded_rect(fill_rect, fill, 1.); }
+        if self.floating_controls.is_some() {
+            // A solid accent track remains visible without an opaque field backing.
+            self.rounded_rect([fill_rect[0], track[1] + track[3] - 3., fill_rect[2], 3.], p.accent, 1.);
+            self.rounded_rect([x.clamp(track[0], track[0] + track[2] - 2.), track[1] + track[3] - 5., 2., 5.], p.accent, 1.);
+        }
         if signed {
             self.rect([origin - 0.5, track[1] + track[3] - 4., 1., 4.], p.muted);
         }

@@ -440,7 +440,7 @@ pub enum PrimitiveAction {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AuthorAction {
-    ToolField(u8), ToolArray, ExtrudeMode(u8), FaceToolMode(u8), ToolPanelDrag, ToolPanelToggle, ToolPanelScroll,
+    ToolField(u8), ToolArray, ToolMerge, ToolApply, ToolCancel, SubdivideCount, ExtrudeMode(u8), FaceToolMode(u8), ToolPanelDrag, ToolPanelToggle, ToolPanelScroll,
     SnapMode(u8), SnapStep, SnapToggle, SnapGridStep(f32),
     ModifierPreview,
     KnifeSnap,
@@ -998,7 +998,7 @@ impl Action {
         matches!(
             self,
             Self::Author(
-                AuthorAction::ToolField(_) | AuthorAction::ProportionalRadius
+                AuthorAction::ToolField(_) | AuthorAction::SubdivideCount | AuthorAction::ProportionalRadius
                     | AuthorAction::LiveField(_)
                     | AuthorAction::WeldDistance
                     | AuthorAction::BridgeSegments | AuthorAction::SnapStep | AuthorAction::BridgeTwist | AuthorAction::BridgeSmooth

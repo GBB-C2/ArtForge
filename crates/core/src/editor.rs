@@ -75,6 +75,7 @@ pub struct Editor {
     undo: Vec<HistoryEntry>,
     redo: Vec<HistoryEntry>,
     gesture: Option<(String, Snapshot)>,
+    tool_edit: Option<(String, Snapshot)>,
     clipboard: Option<Transform>,
 }
 impl Editor {
@@ -110,6 +111,7 @@ impl Editor {
             undo: vec![],
             redo: vec![],
             gesture: None,
+            tool_edit: None,
             clipboard: None,
         }
     }
@@ -142,7 +144,7 @@ impl Editor {
         }
     }
     fn record(&mut self, label: &str, before: Snapshot) {
-        if self.gesture.is_some() {
+        if self.gesture.is_some() || self.tool_edit.is_some() {
             return;
         }
         if before.project == self.project && before.staged == self.staged && before.staged_weights == self.staged_weights {
@@ -275,7 +277,7 @@ impl Editor {
         label: &str,
         edit: PreparedProjectEdit,
     ) -> Result<(), CoreError> {
-        if self.gesture.is_some() || self.has_staged() {
+        if self.has_active_edit() || self.has_staged() {
             return Err(CoreError::Invalid(
                 "Завершите текущее редактирование перед импортом".into(),
             ));
@@ -292,6 +294,10 @@ impl Editor {
         Ok(())
     }
     pub fn undo(&mut self) -> bool {
+        if self.tool_edit.is_some() {
+            self.cancel_tool_edit();
+            return true;
+        }
         if self.gesture.is_some() {
             self.cancel_edit();
             return true;
@@ -311,7 +317,7 @@ impl Editor {
         }
     }
     pub fn redo(&mut self) -> bool {
-        if self.gesture.is_some() {
+        if self.has_active_edit() {
             return false;
         }
         if let Some(h) = self.redo.pop() {
@@ -343,7 +349,38 @@ impl Editor {
         }
     }
     pub fn has_active_edit(&self) -> bool {
-        self.gesture.is_some()
+        self.gesture.is_some() || self.tool_edit.is_some()
+    }
+    /// Group a tool's numeric edits and individual pointer gestures into one
+    /// explicit Apply/Cancel transaction without changing gesture ownership.
+    pub fn begin_tool_edit(&mut self, label: &str) {
+        self.cancel_tool_edit();
+        self.cancel_edit();
+        self.tool_edit = Some((label.into(), self.snapshot()));
+    }
+    pub fn reset_tool_edit(&mut self) {
+        if let Some((_, before)) = &self.tool_edit {
+            let before = before.clone();
+            self.gesture = None;
+            self.restore(before);
+        }
+    }
+    pub fn commit_tool_edit(&mut self) -> Result<(), CoreError> {
+        if let Some((label, before)) = self.tool_edit.take() {
+            self.gesture = None;
+            if let Err(error) = self.project.validate() {
+                self.restore(before);
+                return Err(error);
+            }
+            self.record(&label, before);
+        }
+        Ok(())
+    }
+    pub fn cancel_tool_edit(&mut self) {
+        if let Some((_, before)) = self.tool_edit.take() {
+            self.gesture = None;
+            self.restore(before);
+        }
     }
     pub fn commit_edit(&mut self) -> Result<(), CoreError> {
         if let Some((label, before)) = self.gesture.take() {

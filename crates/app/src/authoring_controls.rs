@@ -329,7 +329,7 @@ impl App {
             | A::Bridge
             | A::BridgeFaces
             | A::SectionMode(_) | A::SectionSelect(_) | A::SectionDelete
-            | A::ToolField(_) | A::ToolArray | A::ExtrudeMode(_) | A::ToolPanelDrag | A::ToolPanelToggle | A::ToolPanelScroll
+            | A::ToolField(_) | A::ToolArray | A::ToolMerge | A::ToolApply | A::ToolCancel | A::SubdivideCount | A::ExtrudeMode(_) | A::ToolPanelDrag | A::ToolPanelToggle | A::ToolPanelScroll
             | A::BridgeSegments
             | A::Dissolve
             | A::Inspect
@@ -486,7 +486,7 @@ impl App {
                         let edges=if self.authoring.selection_mode==S::Edge {self.authoring.edges.clone()} else {BTreeSet::new()};
                         let faces=if self.authoring.selection_mode==S::Face {self.authoring.faces.clone()} else {BTreeSet::new()};
                         if command==A::DeleteFaces {MeshEdit::DeleteComponents {vertices,edges,faces}}
-                        else {MeshEdit::SubdivideSelected {vertices,edges,faces}}
+                        else {MeshEdit::SubdivideSelectedCount {region:poseforge_core::MeshRegion {vertices,edges,faces},segments:self.authoring.workflow.subdivide_segments}}
                     },
                     A::Smooth => MeshEdit::SmoothNormals,
                     _ => MeshEdit::FlatNormals,
@@ -1044,11 +1044,11 @@ impl App {
                         "s" => Tool::Scale,
                         _ => Tool::Move,
                     };
-                    self.remember_modeling_tool(&match self.tool {
-                        Tool::Rotate => Action::Rotate,
-                        Tool::Scale => Action::Scale,
-                        _ => Action::Move,
-                    });
+                    self.action(Action::ModelingTool(match self.tool {
+                        Tool::Rotate => ui::ModelingTool::Rotate,
+                        Tool::Scale => ui::ModelingTool::Scale,
+                        _ => ui::ModelingTool::Move,
+                    }));
                     self.begin_mesh_drag();
                     return true;
                 }
@@ -1057,7 +1057,8 @@ impl App {
             _ => None,
         };
         if let Some(command) = command {
-            self.action(Action::Author(command));
+            if command == A::DeleteFaces {self.action(Action::ModelingTool(ui::ModelingTool::DeleteFaces));}
+            else {self.action(Action::Author(command));}
             return true;
         }
         false

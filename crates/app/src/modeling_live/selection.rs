@@ -27,6 +27,7 @@ impl App {
     }
 
     fn begin_live_selection(&mut self) {
+        self.begin_session_selection();
         let Some(op) = self.modeling_live.as_ref().filter(|op| !op.selecting) else {
             return;
         };
@@ -53,6 +54,7 @@ impl App {
     }
 
     pub(in crate::app) fn finish_live_selection(&mut self) {
+        self.finish_session_selection();
         let Some(mut op) = self.modeling_live.take() else {
             return;
         };
@@ -133,8 +135,7 @@ impl App {
                         - Vec3::from_array(op.original.vertices[a].position),
                 );
             }
-            self.editor
-                .preview_mesh(op.node, &op.original, op.edit(op.values))
+            op.preview(&mut self.editor, op.values)
                 .map_err(|e| e.to_string())
         };
         op.has_preview = result.is_ok();
@@ -229,6 +230,10 @@ impl App {
     }
 
     fn apply_active_modeling_tool(&mut self) -> bool {
+        if self.authoring.workflow.session.is_some()
+            && !matches!(self.authoring.modeling_tool,Some(ui::ModelingTool::Select(_) | ui::ModelingTool::Inspect)) {
+            self.apply_modeling_session(); return true;
+        }
         if self.modeling_live.is_some() {
             self.accept_modeling_live();
             return true;

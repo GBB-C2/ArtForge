@@ -66,7 +66,7 @@ impl App {
             A::KnifeSnap => self.authoring.knife_snap = !self.authoring.knife_snap,
             A::KnifeAngle(mode) => self.authoring.knife_angle = mode.min(4),
             A::KnifeAccept => self.accept_knife(),
-            A::KnifeCancel => self.cancel_knife(),
+            A::KnifeCancel => { self.cancel_knife(); self.dismiss_modeling_tool_panel(); },
             A::Proportional => self.authoring.proportional = !self.authoring.proportional,
             A::ProportionalRadius => self.input(
                 Action::Author(command),
@@ -118,6 +118,7 @@ impl App {
             | Action::DropdownChoose(_) => false,
             Action::Cancel | Action::Undo | Action::Redo => {
                 self.cancel_knife();
+                self.dismiss_modeling_tool_panel();
                 true
             }
             _ => {
@@ -145,12 +146,12 @@ impl App {
                 }
             }
             Key::Named(NamedKey::Enter) => self.accept_knife(),
-            Key::Named(NamedKey::Escape) => self.cancel_knife(),
+            Key::Named(NamedKey::Escape) => { self.cancel_knife(); self.dismiss_modeling_tool_panel(); },
             Key::Character(c)
                 if self.modifiers.control_key()
                     && (c.eq_ignore_ascii_case("z") || c.eq_ignore_ascii_case("y")) =>
             {
-                self.cancel_knife()
+                self.cancel_knife(); self.dismiss_modeling_tool_panel();
             }
             _ => return false,
         }

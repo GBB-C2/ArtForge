@@ -308,6 +308,8 @@ fn mesh_numeric_edit_validates_and_keyboard_never_escapes_text_field() {
     a.action(Action::ConfirmInput);
     assert!(a.input.is_none());
     assert_ne!(a.editor.project, before);
+    assert_eq!(a.editor.undo_len(), 0);
+    a.action(Action::Author(A::ToolApply));
     assert_eq!(a.editor.undo_len(), 1);
 }
 #[test]

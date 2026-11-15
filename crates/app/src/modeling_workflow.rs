@@ -4,6 +4,11 @@ use crate::ui::{AuthorAction as A, MeshSelection as S, ModelingTool as M};
 pub(super) const DEFAULTS: [f32; 13] = [0., 0., 3., 1., 0., 0., 0., 0., 0., 1., 0., 0., 0.];
 pub(super) struct State {
     pub values: [f32; 13],
+    pub merge_array: bool,
+    pub merge_bevel: bool,
+    pub merge_inset: bool,
+    pub subdivide_segments: u32,
+    pub session: Option<super::modeling_session::Session>,
     pub extrude_mode: u8,
     pub inset_mode: u8,
     pub bevel_mode: u8,
@@ -18,6 +23,8 @@ impl Default for State {
     fn default() -> Self {
         Self {
             values: DEFAULTS,
+            merge_array: false, merge_bevel: false, merge_inset: false,
+            subdivide_segments: 2, session: None,
             extrude_mode: 0,
             inset_mode: 0,
             bevel_mode: 0,
@@ -31,6 +38,20 @@ impl Default for State {
     }
 }
 impl App {
+    pub(super) fn tool_merge_visible(&self) -> bool {
+        matches!(self.authoring.modeling_tool, Some(M::Array | M::Bevel | M::Inset))
+    }
+    pub(super) fn tool_merge_enabled(&self) -> bool {
+        match self.authoring.modeling_tool {
+            Some(M::Array) => self.authoring.workflow.merge_array,
+            Some(M::Bevel) => self.authoring.workflow.merge_bevel,
+            Some(M::Inset) => self.authoring.workflow.merge_inset,
+            _ => false,
+        }
+    }
+    pub(super) fn draw_tool_merge(&self, u: &mut Ui, x: f32, y: f32, w: f32) {
+        u.checkbox([x,y,w,26.], "Объединить", Action::Author(A::ToolMerge), self.tool_merge_enabled());
+    }
     pub(super) fn dismiss_modeling_tool_panel(&mut self) {
         self.authoring.modeling_tool = None;
         self.authoring.workflow.pending_preview = None;
@@ -42,7 +63,7 @@ impl App {
         matches!(
             a,
             Action::Author(
-                A::ToolField(_)
+                A::ToolField(_) | A::SubdivideCount
                     | A::ProportionalRadius
                     | A::SnapStep
                     | A::BridgeSegments
@@ -56,6 +77,10 @@ impl App {
     }
     pub(super) fn workflow_action(&mut self, a: A) -> bool {
         match a {
+            A::ToolMerge => self.toggle_tool_merge(),
+            A::ToolApply => self.apply_modeling_session(),
+            A::ToolCancel => { self.cancel_modeling_session(); self.cancel_modeling_live(); self.dismiss_modeling_tool_panel(); },
+            A::SubdivideCount => self.input(Action::Author(a), self.authoring.workflow.subdivide_segments.to_string()),
             A::ToolField(i) => {
                 if let Some(v) = self.authoring.workflow.values.get(i as usize) {
                     self.input(Action::Author(a), ui::number_caption(self.section_value(i).unwrap_or(*v) as f64));
@@ -82,6 +107,13 @@ impl App {
         true
     }
     pub(super) fn workflow_confirm(&mut self, a: &Action, text: &str) -> Result<bool, String> {
+        if *a == Action::Author(A::SubdivideCount) {
+            let count = surfaces::number(text, 2., 32.)?;
+            if count.fract() != 0. { return Err("Количество делений должно быть целым".into()); }
+            self.authoring.workflow.subdivide_segments = count as u32;
+            self.refresh_modeling_session();
+            return Ok(true);
+        }
         let Action::Author(A::ToolField(i)) = *a else {
             return Ok(false);
         };
@@ -335,8 +367,7 @@ impl App {
             rect: [x, y, w - 38., 36.],
             action: Action::Author(A::ToolPanelDrag),
         });
-        let compact_actions = self.authoring.workflow.collapsed
-            && (self.modeling_live.is_some() || self.authoring.knife.is_some());
+        let compact_actions = self.authoring.workflow.collapsed;
         u.quiet_icon_button(
             [x + 8., y + 4., w - if compact_actions { 116. } else { 48. }, 30.],
             self.authoring.modeling_tool.unwrap().title(),
@@ -351,6 +382,9 @@ impl App {
             let start = (u.rects.len(), u.texts.len(), u.hits.len());
             u.set_cursor([self.mouse[0], self.mouse[1] + scroll]);
             self.draw_modeling_tool_properties(u, body[0], body[1], body[2]);
+            if self.modeling_live.is_none() && self.authoring.knife.is_none() {
+                self.draw_modeling_confirmation(u,body[0],body[1]+self.modeling_tool_properties_height()-70.,body[2]);
+            }
             clip_scrolled(u, start, body, scroll);
             u.set_cursor(self.mouse);
             if maximum > 0. {
@@ -367,14 +401,14 @@ impl App {
             u.quiet_icon_button(
                 [x + w - 102., y + 3., 30., 30.],
                 "",
-                Action::Author(if knife { A::KnifeAccept } else { A::LiveAccept }),
+                Action::Author(if knife { A::KnifeAccept } else if self.modeling_live.is_some() { A::LiveAccept } else { A::ToolApply }),
                 false,
                 Icon::Check,
             );
             u.quiet_icon_button(
                 [x + w - 68., y + 3., 30., 30.],
                 "",
-                Action::Author(if knife { A::KnifeCancel } else { A::LiveCancel }),
+                Action::Author(if knife { A::KnifeCancel } else if self.modeling_live.is_some() { A::LiveCancel } else { A::ToolCancel }),
                 false,
                 Icon::Close,
             );

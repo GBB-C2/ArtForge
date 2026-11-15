@@ -112,8 +112,8 @@ pub(crate) fn apply(
         .iter()
         .map(|v| Vec3::from_array(v.position))
         .collect();
-    // Each corner has its own collision limit. A tiny edge must not shrink
-    // every bevel on an otherwise large selection.
+    // First find local collision limits, then share the tightest limit along
+    // each connected selection so the bevel cannot taper between its endpoints.
     let mut widths: BTreeMap<usize, f32> = affected.iter().map(|&v| (v, width)).collect();
     for &(a, b) in &g.edges {
         let limit = positions[a].distance(positions[b]) * 0.2;
@@ -155,6 +155,23 @@ pub(crate) fn apply(
                 *widths.get_mut(&v).unwrap() = widths[&v].min(limit);
             }
         }
+    }
+    let mut pending = affected.clone();
+    while let Some(seed) = pending.pop_first() {
+        let mut component = vec![seed];
+        let mut cursor = 0;
+        let mut limit = widths[&seed];
+        while cursor < component.len() {
+            let vertex = component[cursor];
+            cursor += 1;
+            for &neighbor in &g.vertex_neighbors[vertex] {
+                if selection.contains(&edge(vertex, neighbor)) && pending.remove(&neighbor) {
+                    limit = limit.min(widths[&neighbor]);
+                    component.push(neighbor);
+                }
+            }
+        }
+        for vertex in component { widths.insert(vertex, limit); }
     }
     let mut cuts = BTreeMap::<(usize, usize), f32>::new();
     for &(a, b) in &g.edges {

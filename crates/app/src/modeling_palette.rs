@@ -72,7 +72,7 @@ impl M {
             Self::Inspect => Action::Author(A::Inspect), Self::Align => return None,
         })
     }
-    fn live(self) -> bool {
+    pub(super) fn live(self) -> bool {
         matches!(self, Self::Bridge | Self::BridgeFaces | Self::Extrude | Self::ExtrudeIndividual | Self::Inset | Self::Bevel | Self::LoopCut | Self::Slide | Self::Array)
     }
 }
@@ -105,11 +105,17 @@ impl App {
     pub(super) fn choose_modeling_tool(&mut self, tool: M) {
         if self.authoring.editing.is_none() || self.job.is_some() || self.editor.playing
             || self.scene_write_pending() || self.editor.has_staged() { return; }
+        if self.authoring.modeling_tool == Some(tool) && self.authoring.workflow.session.is_some() {
+            self.authoring.workflow.collapsed=false; return;
+        }
+        self.cancel_modeling_session();
         self.authoring.modeling_tool = Some(tool);
         self.authoring.workflow.panel_scroll = 0.;
         self.authoring.workflow.collapsed = false;
         self.authoring.workflow.pending_preview = (tool.live() && tool != M::LoopCut).then_some(tool);
-        if let Some(action) = tool.command() {
+        if !tool.live() && tool != M::Knife {
+            self.begin_modeling_session(tool);
+        } else if let Some(action) = tool.command() {
             if matches!(tool, M::Select(_) | M::Move | M::Rotate | M::Scale | M::Knife | M::LoopCut | M::Inspect)
                 || tool.live() {
                 self.action(action);
@@ -118,6 +124,7 @@ impl App {
         self.set_properties_tab(7);
     }
     pub(super) fn start_pending_modeling_preview(&mut self) {
+        self.start_pending_modeling_session();
         if self.modifiers.shift_key() { return; }
         let Some(tool) = self.authoring.workflow.pending_preview else { return; };
         if self.authoring.modeling_tool != Some(tool) {
@@ -132,7 +139,7 @@ impl App {
             if let Some(action) = tool.command() { self.action(action); }
         }
     }
-    fn modeling_tool_ready(&self, tool: M) -> bool {
+    pub(super) fn modeling_tool_ready(&self, tool: M) -> bool {
         if self.authoring.editing.is_none() || self.job.is_some() || self.editor.playing
             || self.editor.has_staged() { return false; }
         match tool {
@@ -162,12 +169,12 @@ impl App {
         206. + TOOLS.len().div_ceil(self.modeling_columns()) as f32 * TOOL_PITCH + 8.
     }
     pub(super) fn modeling_tool_properties_height(&self) -> f32 {
-        if self.modeling_live.is_some() {
+        (if self.modeling_live.is_some() {
             self.modeling_live_properties_height() + 30.
                 + if self.authoring.modeling_tool == Some(M::Bevel) { 22. } else if self.authoring.modeling_tool==Some(M::Extrude) {90.} else { 0. }
                 + if self.face_tool_modes_visible() { 90. } else { 0. }
         } else {
-            match self.authoring.modeling_tool {
+            (match self.authoring.modeling_tool {
                 None => 32.,
                 Some(M::Select(_)) => 208.,
                 Some(M::Sphere|M::Inflate) => 152.,
@@ -185,9 +192,10 @@ impl App {
                 Some(M::Weld) => 132.,
                 Some(M::Bridge | M::BridgeFaces) => 250.,
                 Some(M::Inset) => 194.,
+                Some(M::Subdivide) => 136.,
                 _ => 98.,
-            }
-        }
+            }) + if self.authoring.knife.is_none() {44.} else {0.}
+        }) + if self.tool_merge_visible() {34.} else {0.}
     }
     pub(super) fn draw_modeling_palette(&self, u: &mut Ui, x: f32, w: f32) {
         let p = u.palette();
@@ -227,6 +235,7 @@ impl App {
         }
         if tool==M::Extrude { self.draw_extrude_modes(u,x,y,w); y+=90.; }
         if self.face_tool_modes_visible() { self.draw_face_tool_modes(u,x,y,w); y+=90.; }
+        if self.tool_merge_visible() { self.draw_tool_merge(u,x,y,w); y+=34.; }
         if self.modeling_live.is_some() {
             self.draw_modeling_live_properties(u, x, y, w);
             return;
@@ -250,8 +259,7 @@ impl App {
                 self.draw_dropdown_button(u,[x,y,w,30.],ui::DropdownKind::Alignment,["В плоскость","В цепочку","Равномерный шаг"][self.mesh_tools.alignment_mode as usize]);
                 y+=38.;
                 if self.mesh_tools.alignment_mode!=0 {
-                    let action=Action::Shape(if self.mesh_tools.alignment_mode==1 {ShapeAction::Straighten} else {ShapeAction::Space});
-                    if self.modeling_tool_ready(tool) {u.button([x,y,w,30.],"Применить",action,false);} else {u.disabled_button([x,y,w,30.],"Выберите цепочку");}
+                    u.fitted_label([x,y,w,30.],"Предпросмотр выравнивания",11.,p.muted);
                     u.fitted_label([x,y+36.,w,18.],"Концы цепочки остаются на месте",10.,p.muted);
                     return;
                 }
@@ -278,6 +286,7 @@ impl App {
             }
             _ => {
                 for (label, value, action) in match tool {
+                    M::Subdivide => vec![("Делений на ребро",self.authoring.workflow.subdivide_segments as f32,A::SubdivideCount)],
                     M::Weld => vec![("Расстояние, м", self.authoring.weld_distance, A::WeldDistance)],
                     M::Bridge | M::BridgeFaces => vec![("Сегменты", self.authoring.bridge_segments as f32, A::BridgeSegments),("Скручивание, шаги",self.authoring.bridge_twist as f32,A::BridgeTwist),("Плавность, %",self.authoring.bridge_smooth*100.,A::BridgeSmooth)],
                     M::Inset => vec![("Отступ, %", self.authoring.inset * 100., A::InsetAmount)],
@@ -285,7 +294,7 @@ impl App {
                     M::LoopCut => vec![("Количество линий", self.authoring.workflow.values[9], A::ToolField(9))],
                     _ => vec![],
                 } {
-                    let range=match action {A::BridgeSegments=>SliderRange::new(1.,32.,1.),A::BridgeTwist=>SliderRange::new(-32.,32.,1.),A::BridgeSmooth=>SliderRange::new(0.,100.,1.),A::InsetAmount=>SliderRange::new(0.,95.,0.5),A::LoopPosition=>SliderRange::new(1.,99.,1.),A::ToolField(9)=>SliderRange::new(1.,16.,1.),_=>SliderRange::new(-1.,1.,0.01)};
+                    let range=match action {A::SubdivideCount=>SliderRange::new(2.,32.,1.),A::BridgeSegments=>SliderRange::new(1.,32.,1.),A::BridgeTwist=>SliderRange::new(-32.,32.,1.),A::BridgeSmooth=>SliderRange::new(0.,100.,1.),A::InsetAmount=>SliderRange::new(0.,95.,0.5),A::LoopPosition=>SliderRange::new(1.,99.,1.),A::ToolField(9)=>SliderRange::new(1.,16.,1.),_=>SliderRange::new(-1.,1.,0.01)};
                     u.number_field([x,y,w,44.],label,value as f64,Action::Author(action),range);
                     y += 52.;
                 }
@@ -293,7 +302,8 @@ impl App {
                     if tool.live() {
                         u.fitted_label([x,y,w,30.], if self.authoring.workflow.pending_preview.is_some() { "Выберите компоненты для предпросмотра" } else { "Нажмите инструмент для нового предпросмотра" }, 10.,p.muted);
                     }
-                    else if self.modeling_tool_ready(tool) { u.button([x, y, w, 30.], "Применить", action, false); }
+                    else if tool == M::Inspect { u.quiet_button([x,y,w,30.],"Проверить геометрию",action,false); }
+                    else if self.authoring.workflow.session.as_ref().map_or_else(||self.modeling_tool_ready(tool),|session|session.error.is_none()) { u.fitted_label([x,y,w,30.],"Предпросмотр результата",11.,p.muted); }
                     else { u.disabled_button([x, y, w, 30.], "Выберите нужные компоненты"); }
                     y += 38.;
                 }
@@ -303,7 +313,7 @@ impl App {
                     u.quiet_button([x,y,w,28.],"Исправить выбранные ошибки",Action::Author(A::RepairIssue),false);y+=34.;
                     self.draw_topology_report(u, x, y, w);
                 } else if !tool.live() {
-                    u.fitted_label([x, y, w, 18.], if tool == M::Subdivide { "Только выделенные компоненты · Undo" } else { "Изменение можно отменить · Undo" }, 10., p.muted);
+                    u.fitted_label([x, y, w, 18.], "Shift — изменить выделение", 10., p.muted);
                 }
             }
         }

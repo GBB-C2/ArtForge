@@ -564,7 +564,8 @@ fn topology_controls_weld_validate_fields_and_report_real_geometry() {
     let mut a = app(PrimitiveKind::Cube);
     a.action(Action::Author(A::SelectAll));
     let before = a.editor.project.clone();
-    click(&mut a, Action::Author(A::Weld));
+    a.action(Action::ModelingTool(crate::ui::ModelingTool::Weld));
+    click(&mut a,Action::Author(A::ToolApply));
     assert_eq!(a.editor.project.meshes[0].vertices.len(), 8);
     a.action(Action::Undo);
     assert_eq!(a.editor.project, before);

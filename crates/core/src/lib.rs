@@ -16,6 +16,7 @@ mod knife_stroke;
 mod knife_caps;
 mod knife_interior;
 mod extrude_manifold;
+mod merge_result;
 mod modeling_workflow;
 pub use modeling_workflow::loop_cut_path;
 pub use knife_stroke::KnifeCut;

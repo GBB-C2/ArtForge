@@ -9,6 +9,14 @@ pub const MAX_EDIT_TRIANGLES: usize = 131_072;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FaceTreatment { Region, Normals, Individual }
 
+/// Maps the unmerged preview to its stitched result, retaining per-corner seams.
+#[derive(Clone, Debug)]
+pub struct MeshMergeMap {
+    pub vertices: Vec<usize>,
+    pub faces: Vec<Option<usize>>,
+    pub loose_edges: Vec<[usize; 2]>,
+}
+
 #[derive(Clone, Debug)]
 pub enum MeshEdit {
     InsetFaces { faces: BTreeSet<usize>, inset: f32, depth: f32, mode: FaceTreatment },
@@ -26,6 +34,7 @@ pub enum MeshEdit {
     BridgeAdvanced {faces:BTreeSet<usize>,edges:BTreeSet<(usize,usize)>,segments:u32,twist:i32,smooth:f32},
     ExtrudeVertices { vertices: BTreeSet<usize>, distance: f32 },
     DeleteComponents { vertices: BTreeSet<usize>, edges: BTreeSet<(usize, usize)>, faces: BTreeSet<usize> },
+    SubdivideSelectedCount { region: crate::MeshRegion, segments: u32 },
     SubdivideSelected { vertices: BTreeSet<usize>, edges: BTreeSet<(usize, usize)>, faces: BTreeSet<usize> },
     BridgeFaces { faces: BTreeSet<usize>, segments: u32 },
     Normals {
@@ -160,7 +169,7 @@ fn faces_valid(mesh: &Mesh, faces: &BTreeSet<usize>) -> Result<(), CoreError> {
 }
 pub(crate) fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError> {
     let preserve_wires = !matches!(operation,
-        MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. } | MeshEdit::SubdivideSelected { .. } | MeshEdit::Topology {..}
+        MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. } | MeshEdit::SubdivideSelectedCount { .. } | MeshEdit::SubdivideSelected { .. } | MeshEdit::Topology {..}
         | MeshEdit::Transform { .. } | MeshEdit::Translate { .. } | MeshEdit::Slide { .. }
         | MeshEdit::WeightedTransform { .. } | MeshEdit::Shape { .. } | MeshEdit::Knife { .. } | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::Array {..} | MeshEdit::Uv(_));
     let wires: Vec<_> = if preserve_wires { mesh.topology.iter().flat_map(|t|t.loose_edges.iter())
@@ -276,6 +285,7 @@ fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), Cor
         MeshEdit::BridgeAdvanced {faces,edges,segments,twist,smooth}=>return if faces.is_empty() {crate::mesh_topology_tools::bridge_options(mesh,edges,*segments,*twist,*smooth)} else {crate::mesh_topology_tools::bridge_faces_options(mesh,faces,*segments,*twist,*smooth)},
         MeshEdit::ExtrudeVertices { vertices, distance } => return crate::component_mesh::extrude_vertices(mesh, vertices, *distance),
         MeshEdit::DeleteComponents { vertices, edges, faces } => return crate::component_mesh::delete(mesh, vertices, edges, faces),
+        MeshEdit::SubdivideSelectedCount {region,segments} => return crate::component_mesh::subdivide_count(mesh,region,*segments),
         MeshEdit::SubdivideSelected { vertices, edges, faces } => return crate::component_mesh::subdivide(mesh, vertices, edges, faces),
         MeshEdit::BridgeFaces { faces, segments } => return crate::mesh_topology_tools::bridge_faces(mesh, faces, *segments),
         MeshEdit::Normals { faces, edit } => return crate::mesh_normals::apply(mesh, faces, edit),
@@ -352,7 +362,7 @@ fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), Cor
     let keep_policy = mesh.topology.is_some() || matches!(operation, MeshEdit::SmoothNormals);
     match operation {
         MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. }
-        | MeshEdit::Sections {..} | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::KnifeGapClosed {..} | MeshEdit::Dissolve {..} | MeshEdit::Array {..} | MeshEdit::ExtrudeDistributed {..} | MeshEdit::ExtrudeManifold {..} | MeshEdit::FaceBevel {..} | MeshEdit::InsetFaces {..} | MeshEdit::FaceBevelMode {..} => unreachable!(),
+        | MeshEdit::Sections {..} | MeshEdit::SubdivideSelectedCount { .. } | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::KnifeGapClosed {..} | MeshEdit::Dissolve {..} | MeshEdit::Array {..} | MeshEdit::ExtrudeDistributed {..} | MeshEdit::ExtrudeManifold {..} | MeshEdit::FaceBevel {..} | MeshEdit::InsetFaces {..} | MeshEdit::FaceBevelMode {..} => unreachable!(),
         MeshEdit::Normals { .. }
         | MeshEdit::Shape { .. }
         | MeshEdit::Knife { .. }
@@ -632,12 +642,24 @@ impl Editor {
         original: &Mesh,
         operation: MeshEdit,
     ) -> Result<(), CoreError> {
+        self.preview_mesh_merged(id, original, operation, false).map(|_| ())
+    }
+    /// Rebuild a frozen-source preview and optionally stitch coincident results.
+    /// The map keeps component selection valid after duplicate faces are removed.
+    pub fn preview_mesh_merged(
+        &mut self,
+        id: u64,
+        original: &Mesh,
+        operation: MeshEdit,
+        merge: bool,
+    ) -> Result<Option<MeshMergeMap>, CoreError> {
         if !self.has_active_edit() {
             return Err(invalid("Сначала начните действие редактирования"));
         }
         let current = self.editable_mesh(id)?.id;
         let mut mesh = original.clone();
         apply_mesh_edit(&mut mesh, operation)?;
+        let mapping = if merge { Some(crate::merge_result::apply(&mut mesh, original)?) } else { None };
         mesh.validate_topology()?;
         if mesh.vertices.len() > MAX_EDIT_VERTICES
             || mesh.indices.len() / 3 > MAX_EDIT_TRIANGLES
@@ -660,7 +682,7 @@ impl Editor {
             if let Some(slot) = self.project.meshes.iter_mut().find(|m| m.id == original.id) {
                 *slot = original.clone();
             }
-            return Ok(());
+            return Ok(mapping);
         }
         mesh.id = if current != original.id {
             current
@@ -680,7 +702,7 @@ impl Editor {
         } else {
             self.project.meshes.push(mesh);
         }
-        Ok(())
+        Ok(mapping)
     }
     pub fn create_skeleton(
         &mut self,

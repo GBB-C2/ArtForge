@@ -5,6 +5,36 @@ use std::collections::{BTreeMap, BTreeSet};
 #[path = "face_bevel/region.rs"]
 mod region;
 
+pub(crate) fn apply_offset(
+    mesh: &mut Mesh,
+    selection: &BTreeSet<usize>,
+    offset: f32,
+    shift: f32,
+    segments: u32,
+    profile: f32,
+    mode: crate::FaceTreatment,
+) -> Result<(), CoreError> {
+    if selection.is_empty()
+        || selection.iter().any(|&f| f >= mesh.face_count())
+        || !offset.is_finite()
+        || !(0. ..=1000.).contains(&offset)
+        || !shift.is_finite()
+        || shift.abs() > 1000.
+        || !(1..=32).contains(&segments)
+        || !profile.is_finite()
+        || !(-1. ..=1.).contains(&profile)
+    {
+        return Err(invalid(
+            "Выберите грани; отступ 0–1000 м, высота −1000–1000 м, сегменты 1–32",
+        ));
+    }
+    if mode == crate::FaceTreatment::Individual {
+        individual_offset(mesh, selection, offset, shift, segments, profile, true)
+    } else {
+        region::apply_offset(mesh, selection, offset, shift, segments, profile, mode)
+    }
+}
+
 pub(crate) fn apply_mode(
     mesh: &mut Mesh,
     selection: &BTreeSet<usize>,
@@ -126,6 +156,18 @@ fn individual(
     segments: u32,
     profile: f32,
 ) -> Result<(), CoreError> {
+    individual_offset(mesh, selection, inset, shift, segments, profile, false)
+}
+
+fn individual_offset(
+    mesh: &mut Mesh,
+    selection: &BTreeSet<usize>,
+    inset: f32,
+    shift: f32,
+    segments: u32,
+    profile: f32,
+    absolute: bool,
+) -> Result<(), CoreError> {
     let corners: usize = selection
         .iter()
         .map(|&f| mesh.face_vertices(f).unwrap().len())
@@ -143,7 +185,17 @@ fn individual(
         ));
     }
     let original = mesh.clone();
-    bevel(mesh, selection, inset, shift)?;
+    if absolute {
+        crate::face_inset::apply_offset(
+            mesh,
+            selection,
+            inset,
+            shift,
+            crate::FaceTreatment::Individual,
+        )?;
+    } else {
+        bevel(mesh, selection, inset, shift)?;
+    }
     if segments == 1 || (inset == 0. && shift == 0.) {
         return Ok(());
     }

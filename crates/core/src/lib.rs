@@ -2,6 +2,7 @@
 //! This crate deliberately has no window or GPU handles.
 pub mod animation;
 pub mod authoring;
+mod region_offset;
 pub use authoring::*;
 pub mod camera;
 pub mod studio;

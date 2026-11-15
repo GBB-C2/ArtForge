@@ -118,7 +118,7 @@ impl App {
             Action::Author(AuthorAction::BridgeSegments)=>1.,
             Action::Author(AuthorAction::BridgeTwist|AuthorAction::BridgeSmooth)=>0.,
             Action::Author(AuthorAction::LoopPosition)=>50.,
-            Action::Author(AuthorAction::InsetAmount)=>15.,
+            Action::Author(AuthorAction::InsetAmount)=>0.15,
             Action::Author(AuthorAction::BevelHeight)=>0.,
             Action::Author(AuthorAction::LiveField(field)) => self.modeling_live.as_ref()?.default_value(field)?,
             Action::ColorPicker(control) => {

@@ -19,6 +19,8 @@ pub struct MeshMergeMap {
 
 #[derive(Clone, Debug)]
 pub enum MeshEdit {
+    InsetFacesOffset { faces: BTreeSet<usize>, offset: f32, depth: f32, mode: FaceTreatment },
+    FaceBevelOffset { faces: BTreeSet<usize>, offset: f32, shift: f32, segments: u32, profile: f32, mode: FaceTreatment },
     InsetFaces { faces: BTreeSet<usize>, inset: f32, depth: f32, mode: FaceTreatment },
     FaceBevelMode { faces: BTreeSet<usize>, inset: f32, shift: f32, segments: u32, profile: f32, mode: FaceTreatment },
     Sections { cuts: Vec<crate::PlaneCut> },
@@ -265,6 +267,12 @@ pub(crate) fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<()
     Ok(())
 }
 fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError> {
+    if let MeshEdit::InsetFacesOffset {faces,offset,depth,mode} = &operation {
+        return crate::face_inset::apply_offset(mesh,faces,*offset,*depth,*mode);
+    }
+    if let MeshEdit::FaceBevelOffset {faces,offset,shift,segments,profile,mode} = &operation {
+        return crate::face_bevel::apply_offset(mesh,faces,*offset,*shift,*segments,*profile,*mode);
+    }
     if let MeshEdit::InsetFaces {faces,inset,depth,mode} = &operation {
         return crate::face_inset::apply(mesh,faces,*inset,*depth,*mode);
     }
@@ -361,7 +369,8 @@ fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), Cor
     let mut smooth = mesh.smooth_normals_enabled();
     let keep_policy = mesh.topology.is_some() || matches!(operation, MeshEdit::SmoothNormals);
     match operation {
-        MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. }
+        MeshEdit::InsetFacesOffset {..} | MeshEdit::FaceBevelOffset {..}
+        | MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. }
         | MeshEdit::Sections {..} | MeshEdit::SubdivideSelectedCount { .. } | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::KnifeGapClosed {..} | MeshEdit::Dissolve {..} | MeshEdit::Array {..} | MeshEdit::ExtrudeDistributed {..} | MeshEdit::ExtrudeManifold {..} | MeshEdit::FaceBevel {..} | MeshEdit::InsetFaces {..} | MeshEdit::FaceBevelMode {..} => unreachable!(),
         MeshEdit::Normals { .. }
         | MeshEdit::Shape { .. }

@@ -10,26 +10,50 @@ pub(crate) fn apply(
     depth: f32,
     mode: FaceTreatment,
 ) -> Result<(), CoreError> {
+    build(mesh, selected, inset, depth, mode, false)
+}
+
+pub(crate) fn apply_offset(
+    mesh: &mut Mesh,
+    selected: &BTreeSet<usize>,
+    offset: f32,
+    depth: f32,
+    mode: FaceTreatment,
+) -> Result<(), CoreError> {
+    build(mesh, selected, offset, depth, mode, true)
+}
+
+fn build(
+    mesh: &mut Mesh,
+    selected: &BTreeSet<usize>,
+    inset: f32,
+    depth: f32,
+    mode: FaceTreatment,
+    absolute: bool,
+) -> Result<(), CoreError> {
     if selected.is_empty()
         || selected.iter().any(|&f| f >= mesh.face_count())
         || !inset.is_finite()
-        || !(0. ..=0.95).contains(&inset)
+        || !(0. ..=if absolute { 1000. } else { 0.95 }).contains(&inset)
         || !depth.is_finite()
         || depth.abs() > 1000.
     {
-        return Err(invalid(
-            "Выберите грани; отступ 0–95%, глубина −1000–1000 м",
-        ));
+        return Err(invalid(if absolute {
+            "Выберите грани; отступ 0–1000 м, глубина −1000–1000 м"
+        } else {
+            "Выберите грани; отступ 0–95%, глубина −1000–1000 м"
+        }));
     }
     if inset == 0. && depth == 0. {
         return Ok(());
     }
-    if mode == FaceTreatment::Individual {
+    if mode == FaceTreatment::Individual && !absolute {
         return crate::mesh_modeling::bevel(mesh, selected, inset, depth);
     }
     crate::component_mesh::ensure_topology(mesh);
     let original = mesh.clone();
     let graph = MeshConnectivity::new(&original);
+    let positions = crate::region_offset::positions(&original);
     let mut pending = selected.clone();
     while let Some(seed) = pending.pop_first() {
         let mut region = BTreeSet::from([seed]);
@@ -40,7 +64,7 @@ pub(crate) fn apply(
                 let a = graph.canonical[ring[i] as usize];
                 let b = graph.canonical[ring[(i + 1) % ring.len()] as usize];
                 if let Some(faces) = graph.edge_faces.get(&(a.min(b), a.max(b))) {
-                    for &next in faces {
+                    for &next in faces.iter().filter(|_| mode != FaceTreatment::Individual) {
                         if pending.remove(&next) {
                             region.insert(next);
                             stack.push(next);
@@ -49,7 +73,9 @@ pub(crate) fn apply(
                 }
             }
         }
-        inset_region(mesh, &original, &graph, &region, inset, depth, mode)?;
+        inset_region(
+            mesh, &original, &graph, &region, inset, depth, mode, absolute, &positions,
+        )?;
     }
     crate::mesh_modeling::finish(mesh, original.smooth_normals_enabled())
 }
@@ -62,6 +88,8 @@ fn inset_region(
     inset: f32,
     depth: f32,
     mode: FaceTreatment,
+    absolute: bool,
+    positions: &[Vec3],
 ) -> Result<(), CoreError> {
     let pos = |v: u32| Vec3::from_array(source.vertices[v as usize].position);
     let mut normals = BTreeMap::<usize, Vec3>::new();
@@ -111,17 +139,31 @@ fn inset_region(
         ));
     }
     lengths.sort_by(f32::total_cmp);
-    let width = lengths.get(lengths.len() / 2).copied().unwrap_or(0.) * inset * 0.5;
+    let width = if absolute {
+        inset
+    } else {
+        lengths.get(lengths.len() / 2).copied().unwrap_or(0.) * inset * 0.5
+    };
     let mut shifts = BTreeMap::new();
+    let min_projection = if absolute { 1e-6 } else { 0.05 };
     for (&v, dirs) in &inward {
         let direction = dirs.iter().copied().sum::<Vec3>().normalize_or_zero();
         let projection = dirs.iter().map(|n| direction.dot(*n)).sum::<f32>() / dirs.len() as f32;
-        if projection < 0.05 && width > 0. {
+        if projection < min_projection && width > 0. {
             return Err(invalid(
                 "Граница вставки разворачивается; уменьшите выделение у острого угла",
             ));
         }
-        shifts.insert(v, direction * (width / projection.max(0.05)));
+        shifts.insert(v, direction * (width / projection.max(min_projection)));
+    }
+    if absolute && width != 0. {
+        shifts = crate::region_offset::interpolate(
+            &source.topology.as_ref().unwrap().faces,
+            graph,
+            region,
+            positions,
+            shifts,
+        );
     }
     let mut cap = BTreeMap::new();
     for v in used {
@@ -140,9 +182,18 @@ fn inset_region(
     for &f in region {
         let ring = source.face_vertices(f).unwrap();
         let next: Vec<_> = ring.iter().map(|v| cap[v]).collect();
-        if crate::polygon_edit::face_normal(source, ring)
-            .dot(crate::polygon_edit::face_normal(mesh, &next))
-            <= 0.
+        let reversed_edge = absolute
+            && (0..ring.len()).any(|i| {
+                let j = (i + 1) % ring.len();
+                let before = pos(ring[j]) - pos(ring[i]);
+                let after = Vec3::from_array(mesh.vertices[next[j] as usize].position)
+                    - Vec3::from_array(mesh.vertices[next[i] as usize].position);
+                before.dot(after) <= before.length_squared() * 1e-6
+            });
+        if reversed_edge
+            || crate::polygon_edit::face_normal(source, ring)
+                .dot(crate::polygon_edit::face_normal(mesh, &next))
+                <= 0.
         {
             return Err(invalid("Отступ переворачивает грань; уменьшите его"));
         }

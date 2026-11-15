@@ -335,18 +335,18 @@ fn live_face_tools_and_loop_preview_from_frozen_mesh_and_cancel_on_tool_change()
         assert!(a.modeling_live.is_some(), "{command:?}: {}", a.status);
         a.authoring_confirm(
             &Action::Author(A::LiveField(0)),
-            if command == A::Extrude { "0.25" } else { "25" },
+            if command == A::LoopCut { "25" } else { "0.25" },
         )
         .unwrap();
         let once = a.editor.project.clone();
         a.authoring_confirm(
             &Action::Author(A::LiveField(0)),
-            if command == A::Extrude { "0.5" } else { "40" },
+            if command == A::LoopCut { "40" } else { "0.5" },
         )
         .unwrap();
         a.authoring_confirm(
             &Action::Author(A::LiveField(0)),
-            if command == A::Extrude { "0.25" } else { "25" },
+            if command == A::LoopCut { "25" } else { "0.25" },
         )
         .unwrap();
         assert_eq!(a.editor.project, once);

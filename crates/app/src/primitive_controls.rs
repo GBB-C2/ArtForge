@@ -356,7 +356,7 @@ impl App {
             return;
         };
         let p = u.palette();
-        u.floating_surface([x, y, w, h], 0.90, true);
+        u.floating_surface([x, y, w, h], 1. - self.preferences.tool_panel_transparency, true);
         u.hits.push(ui::Hit {
             rect: [x, y, w, h],
             action: Action::Primitive(P::Backdrop),

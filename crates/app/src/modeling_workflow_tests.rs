@@ -153,29 +153,41 @@ fn inset_and_bevel_modes_keep_one_preview_and_independent_preferences() {
     assert_eq!(a.editor.project,source);
 }
 #[test]
-fn floating_buttons_transmit_the_scene_and_slider_track_uses_exact_accent() {
+fn floating_tool_colors_match_primitive_panels_in_every_theme_and_accent() {
+    let colors_at = |u: &Ui, point| u.rects.iter().filter(|r|ui::contains(r.rect,point))
+        .map(|r|r.color).collect::<Vec<_>>();
     for theme in [ui::Theme::Dark,ui::Theme::Light] {
         for accent in ui::Accent::ALL {
             let mut a = app();
             a.preferences.theme=theme; a.preferences.accent=accent;
             a.action(Action::ModelingTool(M::Extrude));
-            let mut transmissions = Vec::new();
-            for transparency in [0.2,0.7,0.9] {
+            let mut primitive=app();
+            primitive.authoring=Default::default();primitive.primitive_panel=Some(1);
+            for transparency in [0.1,0.2,0.7,0.9] {
                 a.preferences.tool_panel_transparency=transparency;
+                primitive.preferences.tool_panel_transparency=transparency;
                 let mut u = Ui::with_theme(1.,theme,[0.,0.]); u.accent=accent;
+                let mut reference = Ui::with_theme(1.,theme,[0.,0.]); reference.accent=accent;
                 a.draw_tool_panel(&mut u);
-                let button = u.hits.iter().find(|h|h.action==Action::Author(A::LiveAccept)).unwrap().rect;
-                let sample = [button[0]+12.,button[1]+8.];
-                let transmission:f32=u.rects.iter().filter(|r|ui::contains(r.rect,sample)).map(|r|1.-r.color[3]).product();
-                assert!(transmission>0.02,"Opaque button backing");
-                transmissions.push(transmission);
-                let field=u.hits.iter().find(|h|h.action==Action::Author(A::LiveField(0))).unwrap().rect;
-                assert!(u.rects.iter().any(|r|r.color==accent.palette(theme).accent && r.rect[3]==4. && ui::contains(field,[r.rect[0],r.rect[1]])));
+                primitive.draw_primitive_panel(&mut reference);
+                let rect=a.tool_panel_rect().unwrap();let other=primitive.primitive_panel_rect().unwrap();
+                let background=colors_at(&u,[rect[0]+rect[2]-46.,rect[1]+32.]);
+                assert_eq!(background,colors_at(&reference,[other[0]+other[2]-46.,other[1]+32.]));
+                assert!((background[0][3]-(1.-transparency)).abs()<1e-6);
+                for (tool,creation,field) in [
+                    (Action::Author(A::LiveAccept),Action::Primitive(ui::PrimitiveAction::Close),false),
+                    (Action::Author(A::LiveField(0)),Action::Primitive(ui::PrimitiveAction::Field(0)),true),
+                ] {
+                    let sample=|ui:&Ui,action:Action| {
+                        let r=ui.hits.iter().find(|h|h.action==action && (!matches!(action,Action::Primitive(ui::PrimitiveAction::Close)) || h.rect[2]>36.)).unwrap().rect;
+                        [r[0]+if field {r[2]-8.}else{12.},r[1]+8.]
+                    };
+                    assert_eq!(colors_at(&u,sample(&u,tool)),colors_at(&reference,sample(&reference,creation)));
+                }
+                assert_eq!(u.texts.iter().find(|t|t.text=="Применить").unwrap().color,
+                    reference.texts.iter().find(|t|t.text=="Готово").unwrap().color);
                 assert!(u.texts.iter().all(|t|t.color[3]==1.));
-                // Scoped translucent styling must not leak into other panels.
-                assert_eq!(u.palette().panel[3],1.);
             }
-            assert!(transmissions.windows(2).all(|t|t[1]>t[0]));
         }
     }
 }
@@ -197,7 +209,7 @@ fn panel_transparency_slider_and_reset_do_not_edit_the_project() {
     a.cancel_drag();
     assert_eq!(a.preferences.tool_panel_transparency,0.65);
     a.reset_number(Action::ToolPanelTransparency);
-    assert_eq!(a.preferences.tool_panel_transparency,0.3);
+    assert_eq!(a.preferences.tool_panel_transparency,0.1);
     assert_eq!(a.editor.project,source);
     assert_eq!(a.editor.undo_len(),0);
 }
@@ -218,6 +230,21 @@ fn workflow_extrude_modes_rebuild_frozen_source_and_commit_once() {
     assert_eq!(a.editor.project, before);
 }
 #[test]
+fn manifold_preview_crosses_the_opposite_face_and_keeps_the_moving_cap_selected() {
+    let mut a=app();let before=a.editor.project.clone();
+    a.action(Action::ModelingTool(M::Extrude));
+    click(&mut a,Action::Author(A::ExtrudeMode(3)));
+    for distance in ["-0.4","-2","-2.4","0.4"] {
+        a.apply_field_value(Action::Author(A::LiveField(0)),distance).unwrap();
+        assert_eq!(a.authoring.faces.len(),1,"{distance}: {}",a.status);
+        assert_eq!(a.editor.undo_len(),0);
+        a.editor.project.validate().unwrap();
+    }
+    click(&mut a,Action::Author(A::LiveAccept));
+    assert_eq!(a.editor.undo_len(),1);assert!(a.tool_panel_rect().is_none());
+    a.action(Action::Undo);assert_eq!(a.editor.project,before);
+}
+#[test]
 fn workflow_floating_panel_drag_collapse_and_cancel_keep_geometry_transaction() {
     for theme in [ui::Theme::Dark, ui::Theme::Light] {
         let mut a = app();
@@ -232,7 +259,7 @@ fn workflow_floating_panel_drag_collapse_and_cancel_keep_geometry_transaction() 
         let transmission: f32 = panel.rects.iter()
             .filter(|r| ui::contains(r.rect, sample))
             .map(|r| 1. - r.color[3]).product();
-        assert!(transmission > 0.1 && transmission < 0.5, "Panel has an opaque backing");
+        assert!((transmission-a.preferences.tool_panel_transparency).abs()<1e-6, "Panel has an opaque backing");
         a.mouse = point(&mut a, Action::Author(A::ToolPanelDrag));
         a.mouse_down(MouseButton::Left);
         assert!(matches!(a.drag, Some(Drag::ToolPanel { .. })));

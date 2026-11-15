@@ -35,7 +35,7 @@ impl App {
         u.color_field([x,426.,w,30.], "Цвет сетки", Action::MeshColor, c);
         u.number_field([x,468.,w,44.],"Непрозрачность, %", (self.preferences.mesh_opacity*100.) as f64,
             Action::MeshOpacity, SliderRange::new(0.,100.,1.));
-        u.fitted_label([x,526.,w,18.],"Плавающая панель инструментов",12.,p.muted);
+        u.fitted_label([x,526.,w,18.],"Плавающие панели",12.,p.muted);
         u.number_field([x,550.,w,44.],"Прозрачность, %", (self.preferences.tool_panel_transparency*100.) as f64,
             Action::ToolPanelTransparency, SliderRange::new(0.,90.,1.));
         u.fitted_label([x,620.,w,18.],"Настройки сохраняются автоматически",11.,p.muted);

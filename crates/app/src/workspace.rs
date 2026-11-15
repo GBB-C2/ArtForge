@@ -163,7 +163,7 @@ impl Default for Preferences {
             accent: Accent::default(),
             mesh_color: [0.5,0.55,0.6],
             mesh_opacity: 0.5,
-            tool_panel_transparency: 0.3,
+            tool_panel_transparency: 0.1,
             left_width: None,
             right_width: None,
             creation_panel_position: None,
@@ -450,7 +450,7 @@ mod tests {
         let mut p=Preferences::default();p.tool_panel_transparency=0.65;
         assert_eq!(Preferences::from_json(&p.to_json()).tool_panel_transparency,0.65);
         for value in [serde_json::json!({}),serde_json::json!({"tool_panel_transparency":-1}),serde_json::json!({"tool_panel_transparency":2}),serde_json::json!({"tool_panel_transparency":"bad"})] {
-            assert_eq!(Preferences::from_json(&value).tool_panel_transparency,0.3);
+            assert_eq!(Preferences::from_json(&value).tool_panel_transparency,0.1);
         }
     }
 

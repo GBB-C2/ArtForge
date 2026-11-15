@@ -186,7 +186,7 @@ impl App {
         let Some((id, curve)) = self.selected_curve() else { return; };
         let [x, y, w, h] = rect;
         let p = u.palette();
-        u.floating_surface(rect, 0.90, true);
+        u.floating_surface(rect, 1. - self.preferences.tool_panel_transparency, true);
         u.hits.push(ui::Hit { rect, action: Action::Primitive(P::Backdrop) });
         let title = self.editor.project.node(id).map_or("Кривая", |n| n.name.as_str());
         u.quiet_icon_button([x + 8., y + 4., w - 48., 30.], title, Action::Primitive(P::Collapse), false, Icon::Curve);

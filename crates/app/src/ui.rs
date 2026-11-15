@@ -1377,7 +1377,7 @@ impl Action {
             Self::New => Some("Новая пустая сцена"),
             Self::MeshColor => Some("Цвет рёбер и невыделенных вершин"),
             Self::MeshOpacity => Some("Непрозрачность сетки в режиме редактирования"),
-            Self::ToolPanelTransparency => Some("Прозрачность плавающей панели и её кнопок; текст остаётся читаемым"),
+            Self::ToolPanelTransparency => Some("Прозрачность фона плавающих панелей; текст остаётся читаемым"),
             Self::Open => Some("Открыть проект · Ctrl+O"),
             Self::Save => Some("Сохранить проект · Ctrl+S"),
             Self::SaveAs => Some("Сохранить проект в новый файл · Ctrl+Shift+S"),
@@ -1482,35 +1482,13 @@ pub struct Ui {
     slider_range: Option<(Action, SliderRange)>,
     pub number_values: Vec<(Action, f64)>,
     path_hits: Vec<PathHit>,
-    floating_controls: Option<f32>,
 }
 impl Ui {
     pub fn palette(&self) -> Palette {
-        let mut p = self.accent.palette(self.theme);
-        if let Some(opacity) = self.floating_controls {
-            // Control contrast has a floor independent of the panel background.
-            let base = if self.theme == Theme::Dark { [0.08,0.09,0.115] } else { [1.,1.,1.] };
-            p.panel = [base[0],base[1],base[2],0.62+0.08*opacity];
-            p.elevated = p.panel;
-            p.selection[3] = 0.70+0.08*opacity;
-            p.hover[3] = 0.78+0.08*opacity;
-            for i in 0..3 {
-                p.border[i] = p.muted[i]*0.8+p.accent[i]*0.2;
-                p.muted[i] = p.muted[i]*0.7+p.text[i]*0.3;
-            }
-            p.border[3] = 0.75;
-            p.text[3] = 1.; p.muted[3] = 1.;
-        }
-        p
-    }
-    pub fn set_floating_controls(&mut self, opacity: Option<f32>) {
-        self.floating_controls = opacity.map(|v| v.clamp(0., 1.));
+        self.accent.palette(self.theme)
     }
     fn slider_fill(&self) -> [f32; 4] {
         let p = self.palette();
-        if self.floating_controls.is_some() {
-            return [p.accent[0], p.accent[1], p.accent[2], 0.18];
-        }
         let amount = if self.theme == Theme::Dark { 0.40 } else { 0.32 };
         std::array::from_fn(|i| p.elevated[i] * (1. - amount) + p.accent[i] * amount)
     }
@@ -1598,13 +1576,6 @@ impl Ui {
         self.rounded_rect(r, color, SURFACE_RADIUS);
     }
     pub fn outlined_surface(&mut self, r: [f32; 4], fill: [f32; 4], outline: [f32; 4]) {
-        if self.floating_controls.is_some() {
-            self.surface(r, fill);
-            let mut outline = outline;
-            outline[3] = outline[3].min(0.95);
-            self.surface_outline(r, outline);
-            return;
-        }
         self.surface(r, outline);
         self.rounded_rect(
             [r[0] + 1., r[1] + 1., r[2] - 2., r[3] - 2.],
@@ -1661,8 +1632,6 @@ impl Ui {
         self.raw_label(x,y,self.language.text(&text).into_owned(),size,color);
     }
     pub fn raw_label(&mut self, x:f32, y:f32, text:impl Into<String>, size:f32, color:[f32;4]) {
-        let mut color = color;
-        if self.floating_controls.is_some() { color[3] = 1.; }
         self.texts.push(UiText {
             weight: 400,
             x: x * self.scale,
@@ -1797,24 +1766,17 @@ impl Ui {
         let field = [r[0], top, (r[2] - reset_width - gap).max(16.), height];
         let track = [field[0] + 2., field[1] + 2., field[2] - 4., field[3] - 4.];
         let hovered = self.cursor.is_some_and(|cursor| contains(field, cursor));
-        if self.floating_controls.is_some() {
-            self.rounded_rect(field, p.elevated, 3.);
-            let mut border = if active || hovered { p.accent } else { p.border };
-            border[3] = border[3].min(0.95);
-            self.surface_outline(field, border);
-        } else {
-            self.rounded_rect(
-                field,
-                if active || hovered { p.accent } else { p.border },
-                3.,
-            );
-            self.rounded_rect(
-                [field[0] + 1., field[1] + 1., field[2] - 2., field[3] - 2.],
-                p.panel,
-                2.,
-            );
-            self.rounded_rect(track, p.elevated, 1.);
-        }
+        self.rounded_rect(
+            field,
+            if active || hovered { p.accent } else { p.border },
+            3.,
+        );
+        self.rounded_rect(
+            [field[0] + 1., field[1] + 1., field[2] - 2., field[3] - 2.],
+            p.panel,
+            2.,
+        );
+        self.rounded_rect(track, p.elevated, 1.);
         let x = track[0] + track[2] * range.ratio(value);
         let signed = range.min < 0. && range.max > 0.;
         let origin = if signed {
@@ -1838,11 +1800,6 @@ impl Ui {
             }
             self.rounded_rect(fill_rect, [fill[0], fill[1], fill[2], 0.66], 1.);
         } else { self.rounded_rect(fill_rect, fill, 1.); }
-        if self.floating_controls.is_some() {
-            // A solid accent track remains visible without an opaque field backing.
-            self.rounded_rect([fill_rect[0], track[1] + track[3] - 4., fill_rect[2], 4.], p.accent, 1.);
-            self.rounded_rect([x.clamp(track[0], track[0] + track[2] - 4.), track[1] + track[3] - 8., 4., 8.], p.accent, 2.);
-        }
         if signed {
             self.rect([origin - 0.5, track[1] + track[3] - 4., 1., 4.], p.muted);
         }
@@ -1900,11 +1857,8 @@ impl Ui {
         let reset = [r[0] + r[2] - reset_width, top, reset_width, height];
         self.number_values.push((action.clone(), value));
         let reset_hover = self.cursor.is_some_and(|cursor| contains(reset, cursor));
-        if self.floating_controls.is_some() {
-            self.outlined_surface(reset,if reset_hover {p.hover}else{p.elevated},p.border);
-        }
         Icon::Reset.draw(self, [reset[0] + (reset_width - 16.) * 0.5, reset[1] + (height - 16.) * 0.5, 16., 16.],
-            if reset_hover { p.accent } else if self.floating_controls.is_some() {p.text} else { p.muted });
+            if reset_hover { p.accent } else { p.muted });
         self.hits.push(Hit { rect: reset, action: Action::ResetNumber(Box::new(action.clone())) });
         self.hits.push(Hit {
             rect: field,
@@ -2066,9 +2020,7 @@ impl Ui {
     }
     pub fn quiet_button(&mut self, r: [f32; 4], text: &str, action: Action, active: bool) {
         let p = self.palette();
-        if self.floating_controls.is_some() {
-            self.button_surface(r,active,true);
-        } else if active {
+        if active {
             self.outlined_surface(r, p.selection, p.accent);
         } else if self.cursor.is_some_and(|cursor| contains(r, cursor)) {
             self.surface(r, p.hover);
@@ -2085,7 +2037,7 @@ impl Ui {
             r[1] + (r[3] - 17.) / 2.,
             caption,
             13.,
-            if active && self.floating_controls.is_none() { p.accent } else { p.text },
+            if active { p.accent } else { p.text },
         );
         self.hits.push(Hit { rect: r, action });
     }
@@ -2410,7 +2362,7 @@ impl Ui {
             13.,
             if !enabled {
                 p.disabled
-            } else if active && self.floating_controls.is_none() {
+            } else if active {
                 p.accent
             } else {
                 p.text

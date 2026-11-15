@@ -327,7 +327,6 @@ impl App {
         };
         let opacity = 1. - self.preferences.tool_panel_transparency;
         u.floating_surface([x, y, w, h], opacity, true);
-        u.set_floating_controls(Some(opacity));
         u.hits.push(ui::Hit {
             rect: [x, y, w, h],
             action: Action::Author(A::LiveBackdrop),
@@ -385,7 +384,6 @@ impl App {
             Some(Action::Author(A::ToolPanelToggle)),
             !self.authoring.workflow.collapsed,
         );
-        u.set_floating_controls(None);
     }
     pub(super) fn draw_tool_tooltip(&self, u: &mut Ui) {
         if self.drag.is_some() || self.has_modal() || self.menu.is_some() || self.input.is_some() {

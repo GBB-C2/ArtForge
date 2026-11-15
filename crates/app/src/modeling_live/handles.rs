@@ -126,6 +126,7 @@ impl App {
         }
     }
     pub(super) fn draw_live_handles(&self, u: &mut Ui, op: &LiveOperation) {
+        if op.selecting { return; }
         if op.kind==Kind::Bridge {return;}
         if op.kind==Kind::Array {self.draw_array_handles(u,op);return;}
         let mut world = op.anchor;

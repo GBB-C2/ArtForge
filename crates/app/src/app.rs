@@ -2508,6 +2508,8 @@ impl App {
         }
     }
     fn action(&mut self, a: Action) {
+        let modeling_apply = self.modeling_apply_action(&a);
+        let modeling_source = modeling_apply.then(|| self.editor.project.clone());
         if a == Action::Cancel { self.authoring.workflow.pending_preview = None; }
         if self.confirm_new && !matches!(a, Action::Cancel | Action::ConfirmNew) { return; }
         if self.swatch_menu_action(&a) { return; }
@@ -3757,6 +3759,7 @@ impl App {
         }
         self.prune_animation_selection();
         self.sync_fluid_settings();
+        if modeling_source.is_some_and(|before| before != self.editor.project) { self.dismiss_modeling_tool_panel(); }
         self.start_pending_modeling_preview();
         self.redraw();
     }
@@ -3788,6 +3791,7 @@ impl App {
         if self.drag.is_some() || self.native_picker.is_some() {
             return;
         }
+        if self.modeling_modifier_pointer(button) { return; }
         if self.path_pick_pointer(button) {return;}
         if self.rig_reference_pointer(button) { return; }
         if self.collision_pointer(button) { return; }
@@ -5468,6 +5472,7 @@ impl App {
             self.redraw();
             return;
         }
+        if self.modeling_control_key(&event.logical_key,event.repeat) { self.redraw(); return; }
         if self.modeling_live.is_some() || self.authoring.knife.is_some() {
             if !ctrl && !event.repeat {
                 let nav=match &event.logical_key {
@@ -5912,7 +5917,7 @@ impl ApplicationHandler for App {
                 self.redraw();
             }
             WindowEvent::KeyboardInput { event, .. } => self.key_event(event),
-            WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
+            WindowEvent::ModifiersChanged(m) => self.modeling_modifiers_changed(m.state()),
             WindowEvent::Ime(Ime::Commit(text)) => {
                 if let Some(i) = &mut self.input {
                     i.insert(&text);

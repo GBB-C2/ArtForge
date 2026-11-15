@@ -92,6 +92,7 @@ impl App {
             let r = self.editor.commit_edit();
             if self.result(r).is_some() {
                 self.status = format!("{} · разрезов: {}", if k.loop_mode {"Разрез"}else{"Нож"}, k.cuts);
+                self.dismiss_modeling_tool_panel();
             }
             self.authoring.vertices.clear();
             self.authoring.edges.clear();

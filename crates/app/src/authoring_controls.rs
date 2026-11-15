@@ -841,6 +841,13 @@ impl App {
         if self.tool == Tool::Orbit {
             return false;
         }
+        if self.authoring.editing.is_none() { return false; }
+        if self.select_mesh_component_at_pointer() { return true; }
+        if !self.mesh_double_click() { self.begin_mesh_drag(); }
+        true
+    }
+    /// Component picking also serves selection while an operation owns a preview.
+    pub(super) fn select_mesh_component_at_pointer(&mut self) -> bool {
         let Some(id) = self.authoring.editing else {
             return false;
         };
@@ -980,10 +987,7 @@ impl App {
                 return true;
             }
         }
-        if !self.mesh_double_click() {
-            self.begin_mesh_drag();
-        }
-        true
+        false
     }
     pub(super) fn authoring_key(&mut self, key: &Key, ctrl: bool, alt: bool) -> bool {
         if ctrl || self.input.is_some() || self.has_modal() || self.job.is_some() {

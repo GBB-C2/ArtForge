@@ -56,6 +56,38 @@ pub(crate) fn apply(
     segments: u32,
     profile: f32,
 ) -> Result<(), CoreError> {
+    build(mesh, selection, width, segments, profile, None)
+}
+
+/// Offset selected caps and interpolate that offset through every profile sample.
+/// Directions refer to the source mesh's canonical vertices, before beveling.
+pub(crate) fn apply_with_face_offsets(
+    mesh: &mut Mesh,
+    selection: &BTreeSet<(usize, usize)>,
+    width: f32,
+    segments: u32,
+    profile: f32,
+    faces: &BTreeSet<usize>,
+    offsets: &BTreeMap<usize, Vec3>,
+) -> Result<(), CoreError> {
+    build(
+        mesh,
+        selection,
+        width,
+        segments,
+        profile,
+        Some((faces, offsets)),
+    )
+}
+
+fn build(
+    mesh: &mut Mesh,
+    selection: &BTreeSet<(usize, usize)>,
+    width: f32,
+    segments: u32,
+    profile: f32,
+    displacement: Option<(&BTreeSet<usize>, &BTreeMap<usize, Vec3>)>,
+) -> Result<(), CoreError> {
     if selection.is_empty()
         || selection
             .iter()
@@ -171,7 +203,9 @@ pub(crate) fn apply(
                 }
             }
         }
-        for vertex in component { widths.insert(vertex, limit); }
+        for vertex in component {
+            widths.insert(vertex, limit);
+        }
     }
     let mut cuts = BTreeMap::<(usize, usize), f32>::new();
     for &(a, b) in &g.edges {
@@ -370,6 +404,17 @@ pub(crate) fn apply(
         }
         output.push(out);
     }
+    // Record cap endpoints before straight-profile stitching inserts samples
+    // into neighbouring polygons. Those inserted points still need interpolation.
+    let cap_vertices: BTreeSet<_> = displacement
+        .map(|(faces, _)| {
+            faces
+                .iter()
+                .flat_map(|&f| output[f].iter().copied())
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut profile_samples = Vec::new();
     for &selected in &selection {
         let adjacent = &g.edge_faces[&selected];
         let (fa, fb) = (adjacent[0], adjacent[1]);
@@ -417,6 +462,9 @@ pub(crate) fn apply(
                 }
                 vertex.color = std::array::from_fn(|i| av.color[i] * (1. - t) + bv.color[i] * t);
                 let id = add(mesh, &mut tags, vertex, p, v);
+                if displacement.is_some() {
+                    profile_samples.push((id, first, last, t));
+                }
                 sides[end].push(id);
             }
             sides[end].push(last);
@@ -511,6 +559,7 @@ pub(crate) fn apply(
             }
         }
     }
+    let corner_start = output.len();
     for (tag, edges) in &cap_edges {
         let width = widths[tag];
         for mut cap in corner_cycles(edges)? {
@@ -560,6 +609,56 @@ pub(crate) fn apply(
             t.face_materials.resize(output.len(), None);
         }
         t.faces = output.clone().into();
+    }
+    if let Some((_, offsets)) = displacement {
+        // Keep a parameter-space tessellation for corner patches. Moving caps
+        // inward can fold a narrow patch so its 2D projection crosses itself,
+        // although its original triangle connectivity remains valid in 3D.
+        let corner_triangles = output[corner_start..]
+            .iter()
+            .map(|face| crate::triangulate::triangulate(mesh, face))
+            .collect::<Result<Vec<_>, _>>()?;
+        let graph = MeshConnectivity::new(mesh);
+        let mut shifts = BTreeMap::new();
+        for raw in cap_vertices {
+            if let Some(&delta) = offsets.get(&tags[raw as usize]) {
+                shifts.insert(graph.canonical[raw as usize], delta);
+            }
+        }
+        let cap_shifts = shifts.clone();
+        for (sample, first, last, t) in profile_samples {
+            let first = cap_shifts
+                .get(&graph.canonical[first as usize])
+                .copied()
+                .unwrap_or(Vec3::ZERO);
+            let last = cap_shifts
+                .get(&graph.canonical[last as usize])
+                .copied()
+                .unwrap_or(Vec3::ZERO);
+            shifts
+                .entry(graph.canonical[sample as usize])
+                .or_insert(first.lerp(last, t));
+        }
+        // Geometric corner copies at UV seams receive exactly the same shift.
+        for (i, vertex) in mesh.vertices.iter_mut().enumerate() {
+            if let Some(&delta) = shifts.get(&graph.canonical[i]) {
+                vertex.position = (Vec3::from_array(vertex.position) + delta).to_array();
+            }
+        }
+        let corners = output.split_off(corner_start);
+        for (face, triangles) in corners.into_iter().zip(corner_triangles) {
+            if crate::triangulate::triangulate(mesh, &face).is_ok() {
+                output.push(face);
+            } else {
+                output.extend(triangles.chunks_exact(3).map(|triangle| triangle.to_vec()));
+            }
+        }
+        if let Some(topology) = &mut mesh.topology {
+            if !topology.face_materials.is_empty() {
+                topology.face_materials.resize(output.len(), None);
+            }
+            topology.faces = output.clone().into();
+        }
     }
     finish(mesh, output, smooth)?;
     let result = MeshConnectivity::new(mesh);

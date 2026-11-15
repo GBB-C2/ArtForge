@@ -440,7 +440,7 @@ pub enum PrimitiveAction {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AuthorAction {
-    ToolField(u8), ToolArray, ToolMerge, ToolApply, ToolCancel, SubdivideCount, ExtrudeMode(u8), FaceToolMode(u8), ToolPanelDrag, ToolPanelToggle, ToolPanelScroll,
+    ToolField(u8), ToolArray, ToolMerge, ToolMergeDistance, ToolApply, ToolCancel, SubdivideCount, ExtrudeMode(u8), FaceToolMode(u8), ToolPanelDrag, ToolPanelToggle, ToolPanelScroll,
     SnapMode(u8), SnapStep, SnapToggle, SnapGridStep(f32),
     ModifierPreview,
     KnifeSnap,
@@ -998,7 +998,7 @@ impl Action {
         matches!(
             self,
             Self::Author(
-                AuthorAction::ToolField(_) | AuthorAction::SubdivideCount | AuthorAction::ProportionalRadius
+                AuthorAction::ToolField(_) | AuthorAction::ToolMergeDistance | AuthorAction::SubdivideCount | AuthorAction::ProportionalRadius
                     | AuthorAction::LiveField(_)
                     | AuthorAction::WeldDistance
                     | AuthorAction::BridgeSegments | AuthorAction::SnapStep | AuthorAction::BridgeTwist | AuthorAction::BridgeSmooth
@@ -1292,6 +1292,8 @@ impl Action {
             Self::Normal(NormalAction::XRay) => Some("Показывать направления нормалей через поверхности"),
             Self::Author(AuthorAction::LiveDrag(_)) => Some("Тяните стрелку вдоль оси или кольцо от центра; точное значение — в панели операции"),
             Self::Author(AuthorAction::LiveToggle) => Some("Развернуть или свернуть параметры операции"),
+            Self::Author(AuthorAction::ToolMerge) => Some("Объединить точки в пределах заданного расстояния"),
+            Self::Author(AuthorAction::ToolMergeDistance) => Some("Максимальное расстояние между объединяемыми точками, в метрах"),
             Self::Author(AuthorAction::LiveAccept) => Some("Применить предпросмотр и закрыть панель · Ctrl или Enter"),
             Self::Author(AuthorAction::LiveCancel) => Some("Отменить предпросмотр · Esc"),
             Self::SurfaceTab(9) => Some("Настройки программы: тема, акцент, просмотр и импорт"),

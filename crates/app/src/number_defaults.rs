@@ -113,6 +113,7 @@ impl App {
             Action::Author(AuthorAction::ScaleFactor(_) | AuthorAction::ProportionalRadius)=>1.,
             Action::Author(AuthorAction::SnapStep)=>0.1,
             Action::Author(AuthorAction::ToolField(i))=>*modeling_workflow::DEFAULTS.get(i as usize)? as f64,
+            Action::Author(AuthorAction::ToolMergeDistance)=>modeling_workflow::DEFAULT_MERGE_DISTANCE as f64,
             Action::Author(AuthorAction::SubdivideCount)=>2.,
             Action::Author(AuthorAction::BridgeSegments)=>1.,
             Action::Author(AuthorAction::BridgeTwist|AuthorAction::BridgeSmooth)=>0.,

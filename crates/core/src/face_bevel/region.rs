@@ -57,22 +57,17 @@ pub(super) fn apply(
             })
             .collect();
         lengths.sort_by(f32::total_cmp);
-        crate::edge_bevel::apply(
-            mesh,
-            &boundary,
-            lengths[lengths.len() / 2] * inset * 0.5,
-            segments,
-            profile,
-        )?;
+        let width = lengths[lengths.len() / 2] * inset * 0.5;
         if shift != 0. {
-            let (graph, directions) = cap_directions(mesh, selected, mode)?;
-            for (i, vertex) in mesh.vertices.iter_mut().enumerate() {
-                if let Some(direction) = directions.get(&graph.canonical[i]) {
-                    vertex.position =
-                        (Vec3::from_array(vertex.position) + *direction * shift).to_array();
-                }
+            let (_, mut offsets) = cap_directions(mesh, selected, mode)?;
+            for direction in offsets.values_mut() {
+                *direction *= shift;
             }
-            finish(mesh, mesh.smooth_normals_enabled())?;
+            crate::edge_bevel::apply_with_face_offsets(
+                mesh, &boundary, width, segments, profile, selected, &offsets,
+            )?;
+        } else {
+            crate::edge_bevel::apply(mesh, &boundary, width, segments, profile)?;
         }
         return Ok(());
     }

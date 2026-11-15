@@ -117,6 +117,12 @@ impl App {
             self.authoring.workflow.session = Some(session);
             return;
         }
+        // Preview dispatch must not cancel the numeric drag that requested it.
+        let slider = if matches!(self.drag, Some(Drag::Slider(_))) {
+            self.drag.take()
+        } else {
+            None
+        };
         if let Some(job) = self.job.take() {
             job.cancel.store(true, Ordering::Relaxed);
         }
@@ -151,6 +157,9 @@ impl App {
         }
         if let Some(session) = &mut self.authoring.workflow.session {
             session.refreshing = false;
+        }
+        if let Some(slider) = slider {
+            self.drag = Some(slider);
         }
         self.invalidate_geometry();
         self.update_dirty();

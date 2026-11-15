@@ -61,14 +61,79 @@ fn arrow(strokes: &mut Vec<Segment>, center: Vec2, axis: Vec2, sign: f32, length
 }
 
 impl App {
+    fn array_center(&self, op: &LiveOperation) -> Option<Vec2> {
+        // Anchor controls to the source; distant copies must not take the
+        // translation, count and rotation handles outside the viewport.
+        self.project_point(op.anchor).map(Vec2::from_array)
+    }
+    pub(super) fn array_rotation_center(&self, op: &LiveOperation, field: usize) -> Option<[f32;2]> {
+        Some((self.array_center(op)? + Vec2::new((field as f32-5.)*56.,104.)).to_array())
+    }
+    pub(super) fn array_parameter_basis(&self, op: &LiveOperation, field: usize) -> ([f32;2], f32) {
+        if field == 0 { return ([1.,0.],0.1); }
+        if field >= 4 { return ([1.,0.],1.); }
+        let fallback = ([[-0.8,0.6],[0.,-1.],[0.8,0.6]][field-1],op.scale*0.002);
+        let Some(model) = self.editor.project.global_transforms().ok().and_then(|g|g.get(&op.node).copied()) else { return fallback; };
+        let world = op.anchor;
+        let axis = model.transform_vector3([Vec3::X,Vec3::Y,Vec3::Z][field-1]);
+        let sample = op.scale*0.05;
+        if let (Some(a),Some(b)) = (self.project_point(world-axis*sample),self.project_point(world+axis*sample)) {
+            let d = Vec2::from_array(b)-Vec2::from_array(a);
+            if d.length() >= 4. { return (d.normalize().to_array(),2.*sample/d.length()); }
+        }
+        fallback
+    }
+    fn draw_array_handles(&self, u: &mut Ui, op: &LiveOperation) {
+        let Some(center) = self.array_center(op).filter(|p|p.is_finite()) else { return; };
+        let area = self.modeling_area();
+        let mut navigation = self.view_widget_rect(); navigation[3] += 84.;
+        let mut obstacles = vec![navigation,self.shading_toolbar_rect()];
+        if let Some(panel) = self.tool_panel_rect() { obstacles.push(panel); }
+        for field in 0..7 {
+            let mut strokes = Vec::new();
+            let label_at;
+            if (1..=3).contains(&field) {
+                let axis = Vec2::from_array(self.array_parameter_basis(op,field).0);
+                arrow(&mut strokes,center,axis,1.,76.);
+                label_at = center+axis*88.;
+            } else {
+                let point = if field == 0 { center+Vec2::new(-90.,-64.) } else { Vec2::from_array(self.array_rotation_center(op,field).unwrap()) };
+                let radius = if field == 0 { 14. } else { 18. };
+                let arc = |i:usize| { let angle = i as f32*std::f32::consts::TAU/48.; (point+Vec2::new(angle.cos(),angle.sin())*radius).to_array() };
+                strokes.extend((0..48).map(|i|(arc(i),arc(i+1))));
+                if field >= 4 {
+                    let angle = op.values[field].to_radians();
+                    strokes.push((point.to_array(),(point+Vec2::new(angle.cos(),angle.sin())*radius).to_array()));
+                }
+                label_at = point+Vec2::new(0.,if field==0 {0.}else{30.});
+            }
+            let strokes = clip(&strokes,area,&obstacles);
+            if strokes.is_empty() {continue;}
+            let action = Action::Author(A::LiveDrag(field as u8));
+            u.path_hit(action.clone(),strokes.clone(),PICK);
+            let active = matches!(&self.drag,Some(Drag::LiveParameter(d)) if d.field==field);
+            let hovered = self.drag.is_none() && !self.has_modal() && u.hit(self.mouse)==Some(action);
+            let color = if field==0 || active || hovered {u.palette().accent} else {gizmo::axis_color(self.preferences.theme,if field<4 {field-1}else{field-4})};
+            u.smooth_segments(&strokes,5.,[0.,0.,0.,0.45]);
+            u.smooth_segments(&strokes,if active||hovered {3.}else{2.2},color);
+            let r = [label_at.x-18.,label_at.y-8.,36.,18.];
+            if ui::contains(area,[r[0],r[1]]) && ui::contains(area,[r[0]+r[2],r[1]+r[3]])
+                && !obstacles.iter().any(|o| r[0]<o[0]+o[2] && r[0]+r[2]>o[0] && r[1]<o[1]+o[3] && r[1]+r[3]>o[1]) {
+                let label = if field==0 {format!("×{}",op.values[0] as u32)} else { ["X","Y","Z"][(field-1)%3].into() };
+                u.fitted_label(r,&label,11.,color);
+            }
+            if active || hovered { self.draw_live_handle_value(u,op,field,center,area,&obstacles); }
+        }
+    }
     pub(super) fn draw_live_handles(&self, u: &mut Ui, op: &LiveOperation) {
         if op.kind==Kind::Bridge {return;}
+        if op.kind==Kind::Array {self.draw_array_handles(u,op);return;}
         let mut world = op.anchor;
         if matches!(op.kind,Kind::Extrude|Kind::Individual|Kind::VertexExtrude) {
             world += op.direction * op.values[0];
         } else if op.kind == Kind::Cut {
             world += op.direction * (op.values[0] / 100. - 0.5);
-        } else if op.kind == Kind::Face {
+        } else if matches!(op.kind,Kind::Face|Kind::Inset) {
             world += op.direction * op.values[1];
         }
         let Some(center) = self
@@ -87,7 +152,7 @@ impl App {
         let mut obstacles = vec![navigation, self.shading_toolbar_rect()];
         if let Some(panel)=self.tool_panel_rect() { obstacles.push(panel); }
         let p = u.palette();
-        let fields = if op.kind == Kind::Face { 2 } else { 1 };
+        let fields = if matches!(op.kind,Kind::Face|Kind::Inset) { 2 } else { 1 };
         for field in 0..fields {
             let ring = field == 0 && matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Edge | Kind::Face | Kind::Inset);
             let mut strokes = Vec::new();
@@ -199,17 +264,17 @@ impl App {
             if let Some(op) = &self.modeling_live {
                 let hovered_field = match self.ui.hit(self.mouse) {
                     Some(Action::Slide(action,_,_)) => match *action { Action::Author(A::LiveField(i)) => Some(i as usize), _ => None },
-                    Some(Action::Author(A::LiveField(i))) => Some(i as usize),
+                    Some(Action::Author(A::LiveField(i) | A::LiveDrag(i))) => Some(i as usize),
                     _ => None,
                 };
                 let field = if grip && op.kind == Kind::Edge { Some(1) } else { hovered_field };
                 if let Some(field) = field.filter(|i| *i < op.fields()) {
                     let mut values = op.values;
                     let (_,min,max,step) = op.spec(field);
-                    let integer = (op.kind == Kind::Edge && field == 1) || (op.kind==Kind::Bridge && field<2);
+                    let integer = op.integer(field);
                     let step = if integer { 1. } else {
                         let step = if self.modifiers.control_key() {
-                            if op.spec(field).0.ends_with('%') { 5. } else { op.scale*0.01 }
+                            if op.kind==Kind::Array && field>=4 { 15. } else if op.spec(field).0.ends_with('%') { 5. } else { op.scale*0.01 }
                         } else { step };
                         step * if self.modifiers.shift_key() { 0.1 } else { 1. }
                     };

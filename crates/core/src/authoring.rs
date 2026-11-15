@@ -6,8 +6,13 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const MAX_EDIT_VERTICES: usize = 65_536;
 pub const MAX_EDIT_TRIANGLES: usize = 131_072;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FaceTreatment { Region, Normals, Individual }
+
 #[derive(Clone, Debug)]
 pub enum MeshEdit {
+    InsetFaces { faces: BTreeSet<usize>, inset: f32, depth: f32, mode: FaceTreatment },
+    FaceBevelMode { faces: BTreeSet<usize>, inset: f32, shift: f32, segments: u32, profile: f32, mode: FaceTreatment },
     Sections { cuts: Vec<crate::PlaneCut> },
     KnifeGap { cuts: Vec<crate::KnifeCut>, width: f32 },
     KnifeGapClosed { cuts: Vec<crate::KnifeCut>, width: f32 },
@@ -251,6 +256,12 @@ pub(crate) fn apply_mesh_edit(mesh: &mut Mesh, operation: MeshEdit) -> Result<()
     Ok(())
 }
 fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreError> {
+    if let MeshEdit::InsetFaces {faces,inset,depth,mode} = &operation {
+        return crate::face_inset::apply(mesh,faces,*inset,*depth,*mode);
+    }
+    if let MeshEdit::FaceBevelMode {faces,inset,shift,segments,profile,mode} = &operation {
+        return crate::face_bevel::apply_mode(mesh,faces,*inset,*shift,*segments,*profile,*mode);
+    }
     match &operation {
         MeshEdit::FaceBevel{faces,inset,shift,segments,profile}=>return crate::face_bevel::apply(mesh,faces,*inset,*shift,*segments,*profile),
         MeshEdit::Sections {cuts}=>return crate::fracture::sections::apply(mesh,cuts).map_err(|e|invalid(&e)),
@@ -341,7 +352,7 @@ fn apply_mesh_edit_inner(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), Cor
     let keep_policy = mesh.topology.is_some() || matches!(operation, MeshEdit::SmoothNormals);
     match operation {
         MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. }
-        | MeshEdit::Sections {..} | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::KnifeGapClosed {..} | MeshEdit::Dissolve {..} | MeshEdit::Array {..} | MeshEdit::ExtrudeDistributed {..} | MeshEdit::ExtrudeManifold {..} | MeshEdit::FaceBevel {..} => unreachable!(),
+        | MeshEdit::Sections {..} | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::KnifeGapClosed {..} | MeshEdit::Dissolve {..} | MeshEdit::Array {..} | MeshEdit::ExtrudeDistributed {..} | MeshEdit::ExtrudeManifold {..} | MeshEdit::FaceBevel {..} | MeshEdit::InsetFaces {..} | MeshEdit::FaceBevelMode {..} => unreachable!(),
         MeshEdit::Normals { .. }
         | MeshEdit::Shape { .. }
         | MeshEdit::Knife { .. }

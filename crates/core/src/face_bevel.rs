@@ -3,6 +3,71 @@ use crate::mesh_topology_tools::invalid;
 use crate::{CoreError, Mesh, MeshConnectivity, Vec3};
 use std::collections::{BTreeMap, BTreeSet};
 
+pub(crate) fn apply_mode(
+    mesh: &mut Mesh,
+    selection: &BTreeSet<usize>,
+    inset: f32,
+    shift: f32,
+    segments: u32,
+    profile: f32,
+    mode: crate::FaceTreatment,
+) -> Result<(), CoreError> {
+    if selection.is_empty()
+        || selection.iter().any(|&f| f >= mesh.face_count())
+        || !inset.is_finite()
+        || !(0. ..=0.95).contains(&inset)
+        || !shift.is_finite()
+        || shift.abs() > 1000.
+        || !(1..=32).contains(&segments)
+        || !profile.is_finite()
+        || !(-1. ..=1.).contains(&profile)
+    {
+        return Err(invalid(
+            "Проверьте выделение, отступ, высоту, сегменты и профиль фаски",
+        ));
+    }
+    match mode {
+        crate::FaceTreatment::Individual => {
+            individual(mesh, selection, inset, shift, segments, profile)
+        }
+        crate::FaceTreatment::Region | crate::FaceTreatment::Normals => {
+            apply(mesh, selection, inset, 0., segments, profile)?;
+            if shift == 0. {
+                return Ok(());
+            }
+            let graph = MeshConnectivity::new(mesh);
+            let mut normals = BTreeMap::<usize, Vec3>::new();
+            let mut region_normal = Vec3::ZERO;
+            for &f in selection {
+                let face = mesh.face_vertices(f).unwrap();
+                let n = crate::polygon_edit::face_normal(mesh, face);
+                region_normal += n;
+                for &v in face {
+                    *normals.entry(graph.canonical[v as usize]).or_default() += n;
+                }
+            }
+            let region_normal = region_normal.try_normalize();
+            if mode == crate::FaceTreatment::Region && region_normal.is_none() {
+                return Err(invalid(
+                    "У области нет общего направления; выберите «По нормалям»",
+                ));
+            }
+            for (i, v) in mesh.vertices.iter_mut().enumerate() {
+                if let Some(n) = normals.get(&graph.canonical[i]) {
+                    let n = if mode == crate::FaceTreatment::Region {
+                        region_normal.unwrap()
+                    } else {
+                        n.normalize_or_zero()
+                    };
+                    v.position =
+                        (Vec3::from_array(v.position) + n.normalize_or_zero() * shift).to_array();
+                }
+            }
+            finish(mesh, mesh.smooth_normals_enabled())
+        }
+    }
+}
+
 /// The bevel wall is one shared strip per boundary edge. Intermediate rings
 /// share their corner indices; no duplicate side polygons are appended.
 pub(crate) fn apply(
@@ -80,6 +145,17 @@ pub(crate) fn apply(
         }
         return Ok(());
     }
+    individual(mesh, selection, inset, shift, segments, profile)
+}
+
+fn individual(
+    mesh: &mut Mesh,
+    selection: &BTreeSet<usize>,
+    inset: f32,
+    shift: f32,
+    segments: u32,
+    profile: f32,
+) -> Result<(), CoreError> {
     let corners: usize = selection
         .iter()
         .map(|&f| mesh.face_vertices(f).unwrap().len())

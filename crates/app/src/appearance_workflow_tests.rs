@@ -406,7 +406,7 @@ fn appearance_settings_offer_theme_accent_language_and_mesh_appearance() {
         Action::InterfaceTheme(_)
             | Action::Language(_)
             | Action::DropdownOpen(ui::DropdownKind::Accent)
-            | Action::MeshColor | Action::MeshOpacity | Action::OpenColorPicker(_)
+            | Action::MeshColor | Action::MeshOpacity | Action::ToolPanelTransparency | Action::OpenColorPicker(_)
             | Action::ResetColor(_) | Action::ResetNumber(_) | Action::Slide(..)
     )));
     assert!(!a.welcome.open);

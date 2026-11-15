@@ -313,7 +313,7 @@ impl App {
             return;
         }
         match command {
-            A::SnapMode(_) | A::SnapStep | A::SnapToggle | A::SnapGridStep(_) | A::ModifierPreview | A::BridgeTwist | A::BridgeSmooth | A::FillHoles | A::Triangulate | A::Separate | A::ExtrudeIndividual | A::RepairMode(_) | A::SelectIssue | A::RepairIssue | A::KnifeSnap | A::KnifeCloseGap | A::KnifeAngle(_)
+            A::FaceToolMode(_) | A::SnapMode(_) | A::SnapStep | A::SnapToggle | A::SnapGridStep(_) | A::ModifierPreview | A::BridgeTwist | A::BridgeSmooth | A::FillHoles | A::Triangulate | A::Separate | A::ExtrudeIndividual | A::RepairMode(_) | A::SelectIssue | A::RepairIssue | A::KnifeSnap | A::KnifeCloseGap | A::KnifeAngle(_)
             | A::Knife
             | A::KnifeAccept
             | A::KnifeCancel

@@ -131,6 +131,7 @@ pub struct Preferences {
     pub accent: Accent,
     pub mesh_color: [f32; 3],
     pub mesh_opacity: f32,
+    pub tool_panel_transparency: f32,
     pub left_width: Option<f32>,
     pub right_width: Option<f32>,
     pub creation_panel_position: Option<[f32; 2]>,
@@ -162,6 +163,7 @@ impl Default for Preferences {
             accent: Accent::default(),
             mesh_color: [0.5,0.55,0.6],
             mesh_opacity: 0.5,
+            tool_panel_transparency: 0.3,
             left_width: None,
             right_width: None,
             creation_panel_position: None,
@@ -219,6 +221,7 @@ impl Preferences {
                 c.iter().all(|x|x.is_finite()&&(0. ..=1.).contains(x)).then_some(c)
             }).unwrap_or(d.mesh_color),
             mesh_opacity: value["mesh_opacity"].as_f64().filter(|x|x.is_finite()&&(0. ..=1.).contains(x)).map_or(d.mesh_opacity,|x|x as f32),
+            tool_panel_transparency: value["tool_panel_transparency"].as_f64().filter(|x| x.is_finite() && (0. ..=0.9).contains(x)).map_or(d.tool_panel_transparency, |x| x as f32),
             left_width: value["left_width"]
                 .as_f64()
                 .filter(|v| v.is_finite() && (220. ..=520.).contains(v))
@@ -277,6 +280,7 @@ impl Preferences {
             "language": self.language.as_str(), "recent_projects": self.recent_projects,
             "theme": self.theme.as_str(), "accent": self.accent.as_str(),
             "mesh_color": self.mesh_color, "mesh_opacity": self.mesh_opacity,
+            "tool_panel_transparency": self.tool_panel_transparency,
             "left_width":self.left_width,"right_width":self.right_width,
             "creation_panel_position":self.creation_panel_position,
             "tools_expanded": self.tools_expanded,
@@ -440,6 +444,15 @@ pub fn shortened(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn panel_transparency_round_trips_and_migrates_invalid_settings() {
+        let mut p=Preferences::default();p.tool_panel_transparency=0.65;
+        assert_eq!(Preferences::from_json(&p.to_json()).tool_panel_transparency,0.65);
+        for value in [serde_json::json!({}),serde_json::json!({"tool_panel_transparency":-1}),serde_json::json!({"tool_panel_transparency":2}),serde_json::json!({"tool_panel_transparency":"bad"})] {
+            assert_eq!(Preferences::from_json(&value).tool_panel_transparency,0.3);
+        }
+    }
 
     struct RecoveryTestDirectory(PathBuf);
     impl RecoveryTestDirectory {

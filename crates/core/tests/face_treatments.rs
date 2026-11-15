@@ -360,3 +360,127 @@ fn region_bevel_supports_an_open_concave_polygon_without_internal_borders() {
         assert_eq!(e.editable_mesh(1).unwrap().face_count(), 33);
     }
 }
+
+#[test]
+fn region_bevel_distance_moves_the_entire_profile_in_both_directions() {
+    let source = PrimitiveSettings::new(PrimitiveKind::Cube)
+        .mesh(2, None)
+        .unwrap();
+    let faces = BTreeSet::from([0, 2]);
+    let direction = (Vec3::X + Vec3::Y).normalize();
+    for profile in [-0.8, 0., 0.8] {
+        let operation = |shift| MeshEdit::FaceBevelMode {
+            faces: faces.clone(),
+            inset: 0.15,
+            shift,
+            segments: 4,
+            profile,
+            mode: FaceTreatment::Region,
+        };
+        let mut base = editor(source.clone());
+        base.edit_mesh(1, operation(0.)).unwrap();
+        for shift in [-0.3, -0.05, 0.05, 0.3] {
+            let mut result = editor(source.clone());
+            let before = result.project.clone();
+            result
+                .edit_mesh(1, operation(shift))
+                .unwrap_or_else(|e| panic!("profile {profile}, shift {shift}: {e}"));
+            valid(&result);
+            let mesh = result.editable_mesh(1).unwrap();
+            assert_eq!(inspect_topology(mesh).boundary_edges, 0);
+            let original = base.editable_mesh(1).unwrap();
+            assert_eq!(mesh.face_count(), original.face_count());
+            let mut intermediate = 0;
+            for vertex in &mesh.vertices {
+                let point = Vec3::from_array(vertex.position);
+                // Every point remains on its original profile's displacement
+                // line; changing height must not leave only the cap moving.
+                let matching = original
+                    .vertices
+                    .iter()
+                    .filter_map(|v| {
+                        let delta = point - Vec3::from_array(v.position);
+                        let height = delta.dot(direction);
+                        ((delta - direction * height).length() < 1e-5
+                            && (height / shift) >= -1e-5
+                            && (height / shift) <= 1.00001)
+                            .then_some(height / shift)
+                    })
+                    .collect::<Vec<_>>();
+                assert!(
+                    !matching.is_empty(),
+                    "profile {profile}, distance {shift}: {point:?}"
+                );
+                if matching.iter().all(|&t| t > 0.01 && t < 0.99) {
+                    intermediate += 1;
+                }
+            }
+            assert!(
+                intermediate > 0,
+                "the segmented profile stayed still at distance {shift}"
+            );
+            let graph = MeshConnectivity::new(mesh);
+            assert!(graph
+                .edge_faces
+                .values()
+                .any(|adj| adj.contains(&0) && adj.contains(&2)));
+            assert!(result.undo());
+            assert_eq!(result.project, before);
+        }
+    }
+}
+
+#[test]
+fn region_bevel_distance_uses_the_source_direction_at_different_widths() {
+    let mut source = PrimitiveSettings::new(PrimitiveKind::Cube)
+        .mesh(2, None)
+        .unwrap();
+    for vertex in &mut source.vertices {
+        let p = Vec3::from_array(vertex.position) * Vec3::new(1., 1.7, 0.6);
+        vertex.position = [p.x + p.y * 0.4, p.y, p.z];
+    }
+    let faces = BTreeSet::from([0, 2, 4]);
+    let mut direction = Vec3::ZERO;
+    for &f in &faces {
+        let face = source.face_vertices(f).unwrap();
+        let p = |i: usize| Vec3::from_array(source.vertices[face[i] as usize].position);
+        for i in 1..face.len() - 1 {
+            direction += (p(i) - p(0)).cross(p(i + 1) - p(0));
+        }
+    }
+    direction = direction.normalize();
+    for inset in [0.05, 0.35] {
+        let operation = |shift| MeshEdit::FaceBevelMode {
+            faces: faces.clone(),
+            inset,
+            shift,
+            segments: 5,
+            profile: 0.6,
+            mode: FaceTreatment::Region,
+        };
+        let mut base = editor(source.clone());
+        base.edit_mesh(1, operation(0.)).unwrap();
+        for shift in [-0.1, 0.1] {
+            let mut result = editor(source.clone());
+            result
+                .edit_mesh(1, operation(shift))
+                .unwrap_or_else(|e| panic!("inset {inset}, shift {shift}: {e}"));
+            valid(&result);
+            let original = base.editable_mesh(1).unwrap();
+            let mesh = result.editable_mesh(1).unwrap();
+            for &f in &faces {
+                for &v in original.face_vertices(f).unwrap() {
+                    let expected = Vec3::from_array(original.vertices[v as usize].position)
+                        + direction * shift;
+                    assert!(
+                        mesh.face_vertices(f).unwrap().iter().any(|&v| {
+                            Vec3::from_array(mesh.vertices[v as usize].position).distance(expected)
+                                < 1e-5
+                        }),
+                        "inset {inset}, shift {shift}, face {f}: {expected:?}"
+                    );
+                }
+            }
+        }
+    }
+}

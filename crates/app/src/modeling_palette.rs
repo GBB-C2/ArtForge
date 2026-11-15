@@ -195,7 +195,7 @@ impl App {
                 Some(M::Subdivide) => 136.,
                 _ => 98.,
             }) + if self.authoring.knife.is_none() {44.} else {0.}
-        }) + if self.tool_merge_visible() {34.} else {0.}
+        }) + self.tool_merge_height()
     }
     pub(super) fn draw_modeling_palette(&self, u: &mut Ui, x: f32, w: f32) {
         let p = u.palette();
@@ -235,7 +235,7 @@ impl App {
         }
         if tool==M::Extrude { self.draw_extrude_modes(u,x,y,w); y+=90.; }
         if self.face_tool_modes_visible() { self.draw_face_tool_modes(u,x,y,w); y+=90.; }
-        if self.tool_merge_visible() { self.draw_tool_merge(u,x,y,w); y+=34.; }
+        if self.tool_merge_visible() { self.draw_tool_merge(u,x,y,w); y+=self.tool_merge_height(); }
         if self.modeling_live.is_some() {
             self.draw_modeling_live_properties(u, x, y, w);
             return;

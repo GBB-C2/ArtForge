@@ -1,9 +1,11 @@
 //! Floating tool properties and explicit component construction settings.
 use super::*;
 use crate::ui::{AuthorAction as A, MeshSelection as S, ModelingTool as M};
+pub(super) const DEFAULT_MERGE_DISTANCE: f32 = 0.001;
 pub(super) const DEFAULTS: [f32; 13] = [0., 0., 3., 1., 0., 0., 0., 0., 0., 1., 0., 0., 0.];
 pub(super) struct State {
     pub values: [f32; 13],
+    pub merge_distances: [f32; 3],
     pub merge_array: bool,
     pub merge_bevel: bool,
     pub merge_inset: bool,
@@ -23,6 +25,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             values: DEFAULTS,
+            merge_distances: [DEFAULT_MERGE_DISTANCE; 3],
             merge_array: false, merge_bevel: false, merge_inset: false,
             subdivide_segments: 2, session: None,
             extrude_mode: 0,
@@ -49,8 +52,41 @@ impl App {
             _ => false,
         }
     }
+    fn tool_merge_slot(&self) -> Option<usize> {
+        match self.authoring.modeling_tool {
+            Some(M::Array) => Some(0),
+            Some(M::Bevel) => Some(1),
+            Some(M::Inset) => Some(2),
+            _ => None,
+        }
+    }
+    pub(super) fn tool_merge_distance(&self) -> f32 {
+        self.tool_merge_slot().map_or(DEFAULT_MERGE_DISTANCE, |i| {
+            self.authoring.workflow.merge_distances[i]
+        })
+    }
+    pub(super) fn remember_tool_merge_distance(&mut self, value: f32) {
+        if let Some(i) = self.tool_merge_slot() {
+            self.authoring.workflow.merge_distances[i] = value;
+        }
+    }
+    pub(super) fn tool_merge_height(&self) -> f32 {
+        if self.tool_merge_visible() {
+            34. + if self.tool_merge_enabled() { 52. } else { 0. }
+        } else {
+            0.
+        }
+    }
     pub(super) fn draw_tool_merge(&self, u: &mut Ui, x: f32, y: f32, w: f32) {
         u.checkbox([x,y,w,26.], "Объединить", Action::Author(A::ToolMerge), self.tool_merge_enabled());
+        if self.tool_merge_enabled() {
+            let value = self.tool_merge_distance() as f64;
+            u.number_field(
+                [x, y + 34., w, 44.], "Расстояние объединения, м", value,
+                Action::Author(A::ToolMergeDistance),
+                SliderRange::new(0., 1_f64.max(value * 1.2).min(10000.), 0.001),
+            );
+        }
     }
     pub(super) fn dismiss_modeling_tool_panel(&mut self) {
         self.authoring.modeling_tool = None;
@@ -63,7 +99,7 @@ impl App {
         matches!(
             a,
             Action::Author(
-                A::ToolField(_) | A::SubdivideCount
+                A::ToolField(_) | A::ToolMergeDistance | A::SubdivideCount
                     | A::ProportionalRadius
                     | A::SnapStep
                     | A::BridgeSegments
@@ -78,6 +114,7 @@ impl App {
     pub(super) fn workflow_action(&mut self, a: A) -> bool {
         match a {
             A::ToolMerge => self.toggle_tool_merge(),
+            A::ToolMergeDistance => self.input(Action::Author(a),ui::number_caption(self.tool_merge_distance() as f64)),
             A::ToolApply => self.apply_modeling_session(),
             A::ToolCancel => { self.cancel_modeling_session(); self.cancel_modeling_live(); self.dismiss_modeling_tool_panel(); },
             A::SubdivideCount => self.input(Action::Author(a), self.authoring.workflow.subdivide_segments.to_string()),
@@ -107,6 +144,11 @@ impl App {
         true
     }
     pub(super) fn workflow_confirm(&mut self, a: &Action, text: &str) -> Result<bool, String> {
+        if *a == Action::Author(A::ToolMergeDistance) {
+            let distance=surfaces::number(text,0.,10000.)?;
+            self.set_tool_merge_distance(distance)?;
+            return Ok(true);
+        }
         if *a == Action::Author(A::SubdivideCount) {
             let count = surfaces::number(text, 2., 32.)?;
             if count.fract() != 0. { return Err("Количество делений должно быть целым".into()); }

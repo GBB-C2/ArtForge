@@ -34,6 +34,7 @@ pub(super) struct LiveOperation {
     extrude_mode:u8,
     face_mode: u8,
     merge: bool,
+    merge_distance: f32,
     merge_map: Option<poseforge_core::MeshMergeMap>,
     values: [f32; 4],
     defaults: [f32; 4],
@@ -46,7 +47,7 @@ pub(super) struct LiveOperation {
 }
 impl LiveOperation {
     fn preview(&mut self, editor: &mut Editor, values: [f32;4]) -> Result<(),poseforge_core::CoreError> {
-        self.merge_map = editor.preview_mesh_merged(self.node, &self.original, self.edit(values), self.merge)?;
+        self.merge_map = editor.preview_mesh_merge_distance(self.node, &self.original, self.edit(values), self.merge.then_some(self.merge_distance))?;
         Ok(())
     }
 
@@ -187,6 +188,34 @@ pub(super) struct ParameterDrag {
     range: SliderRange,
 }
 impl App {
+    pub(super) fn set_tool_merge_distance(&mut self, value: f32) -> Result<(), String> {
+        if !self.tool_merge_visible() {
+            return Err("Инструмент объединения закрыт".into());
+        }
+        if !value.is_finite() || !(0.0..=10000.0).contains(&value) {
+            return Err("Расстояние объединения: 0–10000 м".into());
+        }
+        if let Some(op) = self.modeling_live.as_mut() {
+            let previous = op.merge_distance;
+            op.merge_distance = value;
+            if op.merge {
+                if let Err(error) = op.preview(&mut self.editor, op.values) {
+                    op.merge_distance = previous;
+                    op.error = Some(error.to_string());
+                    self.status = error.to_string();
+                    return Err(error.to_string());
+                }
+                op.error = None;
+                op.has_preview = true;
+            }
+        }
+        self.remember_tool_merge_distance(value);
+        self.sync_live_selection();
+        self.invalidate_geometry();
+        self.update_dirty();
+        self.redraw();
+        Ok(())
+    }
     pub(super) fn toggle_tool_merge(&mut self) {
         let value = !self.tool_merge_enabled();
         if let Some(op) = self.modeling_live.as_mut() {
@@ -378,6 +407,7 @@ impl App {
         let mut op = LiveOperation {
             node,
             merge: self.tool_merge_enabled(),
+            merge_distance: self.tool_merge_distance(),
             merge_map: None,
             original,
             original_selection: selection.clone(),
@@ -582,7 +612,7 @@ impl App {
             if self
                 .input
                 .as_ref()
-                .is_some_and(|i| matches!(i.purpose, Action::Author(A::LiveField(_))))
+                .is_some_and(|i| matches!(i.purpose, Action::Author(A::LiveField(_) | A::ToolMergeDistance)))
             {
                 self.end_input();
             }
@@ -601,15 +631,16 @@ impl App {
         if self.modeling_live.is_none() {
             return false;
         }
-        if matches!(a,Action::Author(A::LiveDrag(_) | A::LiveField(_) | A::ExtrudeMode(_) | A::FaceToolMode(_) | A::ToolMerge) | Action::Slide(..) | Action::ResetNumber(_)) {
+        if matches!(a,Action::Author(A::LiveDrag(_) | A::LiveField(_) | A::ExtrudeMode(_) | A::FaceToolMode(_) | A::ToolMerge | A::ToolMergeDistance) | Action::Slide(..) | Action::ResetNumber(_)) {
             self.finish_live_selection();
         }
         match a {
             a if Self::preview_navigation_action(a) => false,
             Action::Author(A::SnapToggle|A::SnapMode(_)|A::SnapGridStep(_))
                 | Action::DropdownOpen(ui::DropdownKind::SnapMode)|Action::DropdownChoose(_)|Action::DropdownDismiss=>false,
-            Action::ResetNumber(field) if matches!(**field,Action::Author(A::LiveField(_)))=>false,
-            Action::Author(A::ToolPanelDrag | A::ToolPanelToggle | A::ToolPanelScroll | A::ExtrudeMode(_) | A::FaceToolMode(_) | A::ToolMerge)=>false,
+            Action::ResetNumber(field) if matches!(**field,Action::Author(A::LiveField(_) | A::ToolMergeDistance))=>false,
+            Action::Slide(field,_,_) if **field==Action::Author(A::ToolMergeDistance)=>false,
+            Action::Author(A::ToolPanelDrag | A::ToolPanelToggle | A::ToolPanelScroll | A::ExtrudeMode(_) | A::FaceToolMode(_) | A::ToolMerge | A::ToolMergeDistance)=>false,
             Action::ToggleSection(super::modeling_palette::TOOLS_SECTION) => false,
             Action::ScrollPanel(0) | Action::ToggleRightPanel => false,
             Action::Author(
@@ -763,6 +794,7 @@ impl App {
                     Some(Action::Author(
                         A::LiveDrag(_)
                             | A::LiveField(_)
+                            | A::ToolMergeDistance
                             | A::LiveBackdrop
                             | A::LiveAccept
                             | A::LiveCancel
@@ -770,7 +802,7 @@ impl App {
                     ))
                 )
                 || matches!(self.ui.hit(self.mouse), Some(Action::Slide(a, _, _))
-                if matches!(*a, Action::Author(A::LiveField(_)))))
+                if matches!(*a, Action::Author(A::LiveField(_) | A::ToolMergeDistance))))
     }
     fn live_parameter_basis(&self, op: &LiveOperation, i: usize) -> ([f32; 2], f32) {
         if op.kind == Kind::Array { return self.array_parameter_basis(op,i); }

@@ -471,6 +471,9 @@ fn workflow_capture_ui() {
                 if let Ok(accent) = std::env::var("ARTFORGE_UI_CAPTURE_ACCENT") { a.preferences.accent = ui::Accent::from_name(&accent); }
                 if let Ok(transparency) = std::env::var("ARTFORGE_UI_CAPTURE_TRANSPARENCY") { a.preferences.tool_panel_transparency = transparency.parse().unwrap(); }
                 a.action(Action::ModelingTool(tool));
+                if std::env::var_os("ARTFORGE_UI_CAPTURE_MERGE").is_some() && a.tool_merge_visible() {
+                    a.action(Action::Author(A::ToolMerge));
+                }
                 a.mouse = [0., 0.];
                 let u = a.build_ui();
                 let data = serde_json::json!({"width":a.width,"height":a.height,"background":u.palette().viewport,"source":"Actual App::build_ui primitives; CPU rendering", "rectangles":u.rects.iter().map(|r|serde_json::json!({"rect":r.rect,"color":r.color,"triangle":r.triangle,"segment":r.segment})).collect::<Vec<_>>(),"texts":u.texts.iter().map(|t|serde_json::json!({"x":t.x,"y":t.y,"text":t.text,"size":t.size,"color":t.color})).collect::<Vec<_>>()});
@@ -977,4 +980,135 @@ fn modeling_options_background_result_stays_pending_until_apply_and_cancel_disca
             a.action(Action::Author(A::ToolApply));assert_eq!(a.editor.undo_len(),1);a.action(Action::Undo);assert_eq!(a.editor.project,source);
         }
     }
+}
+
+#[test]
+fn merge_distance_subdivide_pointer_drag_updates_geometry_and_keeps_capture() {
+    for theme in [ui::Theme::Dark,ui::Theme::Light] {for dpi in [1.,2.] {
+        let mut a=app();a.preferences.theme=theme;a.scale=dpi;
+        let before=a.editor.project.clone();a.action(Action::ModelingTool(M::Subdivide));
+        a.ui=a.build_ui();let field=Action::Author(A::SubdivideCount);
+        let rect=a.ui.hits.iter().find(|h|matches!(&h.action,Action::Slide(f,_,_)if **f==field)).unwrap().rect;
+        let point=[rect[0]+rect[2]*0.5,rect[1]+rect[3]*0.5];
+        a.mouse_move(point);a.mouse_down(MouseButton::Left);assert!(matches!(a.drag,Some(Drag::Slider(_))));
+        a.mouse_move([point[0]+rect[2]*0.2,point[1]]);
+        let count=a.authoring.workflow.subdivide_segments;assert!(count>2,"{}",a.status);
+        assert_eq!(a.editor.project.meshes[0].face_count(),5+(count*count) as usize);
+        assert!(matches!(a.drag,Some(Drag::Slider(_))));assert_eq!(a.editor.undo_len(),0);
+        a.mouse_up(MouseButton::Left);assert_eq!(a.editor.undo_len(),0);
+        a.action(Action::Author(A::ToolApply));assert_eq!(a.editor.undo_len(),1);
+        a.action(Action::Undo);assert_eq!(a.editor.project,before);
+    }}
+}
+
+#[test]
+fn merge_distance_pointer_drag_reset_and_entry_keep_array_preview_pending() {
+    for theme in [ui::Theme::Dark,ui::Theme::Light] {for dpi in [1.,2.] {
+        let mut a=app();a.preferences.theme=theme;a.scale=dpi;a.height=1400.;
+        a.authoring.faces=(0..6).collect();let before=a.editor.project.clone();
+        a.action(Action::ModelingTool(M::Array));
+        a.apply_field_value(Action::Author(A::LiveField(0)),"2").unwrap();
+        a.apply_field_value(Action::Author(A::LiveField(1)),"2.02").unwrap();
+        click(&mut a,Action::Author(A::ToolMerge));
+        let field=Action::Author(A::ToolMergeDistance);a.ui=a.build_ui();
+        let rect=a.ui.hits.iter().find(|h|matches!(&h.action,Action::Slide(f,_,_)if **f==field)).unwrap().rect;
+        let p=[rect[0]+rect[2]*0.5,rect[1]+rect[3]*0.5];
+        a.mouse_move(p);a.mouse_down(MouseButton::Left);
+        a.mouse_move([p[0]+rect[2]*0.04,p[1]]);
+        assert!(a.tool_merge_distance()>0.02,"{}",a.status);
+        assert_eq!(a.editor.project.meshes[0].face_count(),10);
+        assert!(matches!(a.drag,Some(Drag::Slider(_))));
+        a.mouse_move([p[0]+rect[2]*0.005,p[1]]);
+        assert_eq!(a.editor.project.meshes[0].face_count(),12);
+        a.mouse_up(MouseButton::Left);
+        assert!(a.modeling_live.is_some());assert!(a.editor.has_active_edit());assert_eq!(a.editor.undo_len(),0);
+        let zoom=a.distance;let old=a.tool_merge_distance();a.ui=a.build_ui();a.scroll(1.);
+        assert!(a.tool_merge_distance()>old);assert_eq!(a.distance,zoom);
+        click(&mut a,Action::ResetNumber(Box::new(field.clone())));
+        assert_eq!(a.tool_merge_distance(),super::modeling_workflow::DEFAULT_MERGE_DISTANCE);
+        a.mouse=point(&mut a,field.clone());a.click_ui_control();a.input.as_mut().unwrap().select_all();a.input.as_mut().unwrap().insert("0.03");
+        a.action(Action::ConfirmInput);assert!(a.input.is_none());
+        assert_eq!(a.editor.project.meshes[0].face_count(),10);
+        let preview=a.editor.project.clone();
+        assert!(a.authoring.faces.iter().all(|&f|f<10));assert_eq!(a.authoring.faces.len(),10);
+        a.mouse=point(&mut a,field);a.click_ui_control();a.focus_next_field(false);
+        assert!(matches!(a.input.as_ref().unwrap().purpose,Action::Author(A::LiveField(_))));
+        a.action(Action::ConfirmInput);
+        click(&mut a,Action::Author(A::LiveAccept));assert!(a.tool_panel_rect().is_none());assert_eq!(a.editor.undo_len(),1);
+        a.action(Action::Undo);assert_eq!(a.editor.project,before);a.action(Action::Redo);assert_eq!(a.editor.project,preview);
+    }}
+}
+
+#[test]
+fn merge_distance_bevel_inset_cancel_and_per_tool_values() {
+    let mut a=app();let before=a.editor.project.clone();
+    for (tool,value) in [(M::Bevel,0.2),(M::Inset,0.3),(M::Array,0.03)] {
+        a.action(Action::ModelingTool(tool));assert_eq!(a.tool_merge_distance(),0.001);
+        click(&mut a,Action::Author(A::ToolMerge));
+        let field=Action::Author(A::ToolMergeDistance);
+        a.apply_field_value(field.clone(),&value.to_string()).unwrap();
+        let result=a.editor.project.clone();
+        for invalid in ["-1","nan","10001"] {
+            assert!(a.apply_field_value(field.clone(),invalid).is_err());assert_eq!(a.editor.project,result);
+        }
+        click(&mut a,Action::Author(A::ToolMerge));
+        assert!(!a.build_ui().hits.iter().any(|h|h.action==field));
+        click(&mut a,Action::Author(A::ToolMerge));assert_eq!(a.editor.project,result);
+        a.mouse=point(&mut a,field);a.click_ui_control();a.input.as_mut().unwrap().select_all();a.input.as_mut().unwrap().insert("nan");
+        a.action(Action::Author(A::LiveCancel));assert!(a.input.is_none());assert!(a.tool_panel_rect().is_none());
+        assert_eq!(a.editor.project,before);assert_eq!(a.editor.undo_len(),0);
+    }
+    for (tool,value) in [(M::Bevel,0.2),(M::Inset,0.3),(M::Array,0.03)] {
+        a.action(Action::ModelingTool(tool));assert_eq!(a.tool_merge_distance(),value);assert!(a.tool_merge_enabled());
+        a.action(Action::Author(A::LiveCancel));
+    }
+}
+
+#[test]
+fn merge_distance_subdivide_fine_drag_rounds_to_whole_steps_and_escape_restores() {
+    let mut a=app();let before=a.editor.project.clone();a.action(Action::ModelingTool(M::Subdivide));
+    a.ui=a.build_ui();let preview=a.editor.project.clone();
+    let field=Action::Author(A::SubdivideCount);
+    let rect=a.ui.hits.iter().find(|h|matches!(&h.action,Action::Slide(f,_,_)if **f==field)).unwrap().rect;
+    let p=[rect[0]+rect[2]*0.5,rect[1]+rect[3]*0.5];
+    a.mouse_move(p);a.mouse_down(MouseButton::Left);a.modifiers=ModifiersState::SHIFT;
+    a.mouse_move([p[0]+rect[2]*0.4,p[1]]);
+    assert!(a.authoring.workflow.subdivide_segments>2,"{}",a.status);
+    assert_eq!(a.editor.project.meshes[0].face_count(),5+a.authoring.workflow.subdivide_segments.pow(2) as usize);
+    a.action(Action::Cancel);assert!(a.drag.is_none());assert_eq!(a.authoring.workflow.subdivide_segments,2);
+    assert_eq!(a.editor.project,preview);assert!(a.authoring.workflow.session.is_some());
+    a.modifiers=ModifiersState::empty();a.action(Action::Author(A::ToolCancel));assert_eq!(a.editor.project,before);
+}
+
+#[test]
+fn merge_distance_region_bevel_distance_accepts_signed_values_without_changing_on_apply() {
+    for shift in ["-0.3","0.3"] {
+        let mut a=app();a.authoring.faces=BTreeSet::from([0,2]);let before=a.editor.project.clone();
+        a.action(Action::ModelingTool(M::Bevel));
+        a.apply_field_value(Action::Author(A::LiveField(2)),"4").unwrap();
+        a.apply_field_value(Action::Author(A::LiveField(3)),"-80").unwrap();
+        a.apply_field_value(Action::Author(A::LiveField(1)),shift).unwrap();
+        let preview=a.editor.project.clone();let mesh=&preview.meshes[0];let graph=poseforge_core::MeshConnectivity::new(mesh);
+        assert!(graph.edge_faces.values().any(|adj|adj.contains(&0)&&adj.contains(&2)));
+        let report=poseforge_core::inspect_topology(mesh);assert_eq!((report.boundary_edges,report.nonmanifold_edges,report.winding_edges),(0,0,0));
+        click(&mut a,Action::Author(A::LiveAccept));assert_eq!(a.editor.project,preview);assert!(a.tool_panel_rect().is_none());assert_eq!(a.editor.undo_len(),1);
+        a.action(Action::Undo);assert_eq!(a.editor.project,before);
+    }
+}
+
+#[test]
+fn merge_distance_small_panels_scroll_to_confirmation_without_changing_preview() {
+    for theme in [ui::Theme::Dark,ui::Theme::Light] {for dpi in [1.,2.] {for tool in [M::Array,M::Bevel,M::Inset] {
+        let mut a=app();a.preferences.theme=theme;a.scale=dpi;a.width=900.;a.height=600.;
+        let before=a.editor.project.clone();a.action(Action::ModelingTool(tool));
+        // The checkbox can itself be below the initial clipped viewport at high DPI.
+        a.action(Action::Author(A::ToolMerge));let preview=a.editor.project.clone();let zoom=a.distance;
+        let rect=a.tool_panel_rect().unwrap();a.ui=a.build_ui();a.mouse=[rect[0]+8.,rect[1]+55.];
+        a.scroll(-100.);assert_eq!(a.authoring.workflow.panel_scroll,a.tool_panel_scroll_max());
+        for action in [Action::Author(A::LiveAccept),Action::Author(A::LiveCancel)] {
+            let p=point(&mut a,action.clone());assert!(ui::contains(rect,p));assert_eq!(a.ui.hit(p),Some(action));
+        }
+        assert_eq!(a.distance,zoom);assert_eq!(a.editor.project,preview);
+        click(&mut a,Action::Author(A::LiveCancel));assert_eq!(a.editor.project,before);assert!(a.tool_panel_rect().is_none());
+    }}}
 }

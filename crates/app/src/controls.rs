@@ -443,7 +443,7 @@ impl App {
             if self.modeling_live.is_some()
                 && !matches!(
                     hit.action,
-                    Action::Author(crate::ui::AuthorAction::LiveField(_))
+                    Action::Author(crate::ui::AuthorAction::LiveField(_) | crate::ui::AuthorAction::ToolMergeDistance)
                 )
             {
                 continue;
@@ -547,7 +547,7 @@ impl App {
         }
         let integer = matches!(
             drag.action,
-            Action::Author(ui::AuthorAction::ToolField(2) | ui::AuthorAction::BridgeSegments | ui::AuthorAction::BridgeTwist)
+            Action::Author(ui::AuthorAction::ToolField(2) | ui::AuthorAction::SubdivideCount | ui::AuthorAction::BridgeSegments | ui::AuthorAction::BridgeTwist)
                 | Action::EditFps
                 | Action::EditWidth
                 | Action::EditHeight

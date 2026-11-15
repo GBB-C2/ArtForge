@@ -653,13 +653,29 @@ impl Editor {
         operation: MeshEdit,
         merge: bool,
     ) -> Result<Option<MeshMergeMap>, CoreError> {
+        self.preview_mesh_merge_distance(id, original, operation, merge.then_some(0.))
+    }
+    /// Weld preview points up to the supplied distance; None disables merging.
+    /// A zero threshold retains exact coincident-point merging.
+    pub fn preview_mesh_merge_distance(
+        &mut self,
+        id: u64,
+        original: &Mesh,
+        operation: MeshEdit,
+        distance: Option<f32>,
+    ) -> Result<Option<MeshMergeMap>, CoreError> {
+        if distance.is_some_and(|value| !value.is_finite() || !(0.0..=10000.0).contains(&value)) {
+            return Err(invalid("Расстояние объединения: 0–10000 м"));
+        }
         if !self.has_active_edit() {
             return Err(invalid("Сначала начните действие редактирования"));
         }
         let current = self.editable_mesh(id)?.id;
         let mut mesh = original.clone();
         apply_mesh_edit(&mut mesh, operation)?;
-        let mapping = if merge { Some(crate::merge_result::apply(&mut mesh, original)?) } else { None };
+        let mapping = distance
+            .map(|distance| crate::merge_result::apply(&mut mesh, original, distance))
+            .transpose()?;
         mesh.validate_topology()?;
         if mesh.vertices.len() > MAX_EDIT_VERTICES
             || mesh.indices.len() / 3 > MAX_EDIT_TRIANGLES

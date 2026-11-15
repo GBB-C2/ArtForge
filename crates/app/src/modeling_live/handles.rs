@@ -248,6 +248,16 @@ impl App {
         if !self.modeling_live_owns_scroll() {
             return false;
         }
+        let merge_distance=matches!(self.ui.hit(self.mouse),Some(Action::Author(A::ToolMergeDistance)))
+            || matches!(self.ui.hit(self.mouse),Some(Action::Slide(field,_,_)) if *field==Action::Author(A::ToolMergeDistance));
+        if merge_distance {
+            if self.drag.is_none() && self.input.is_none() && !self.has_modal() && delta.is_finite() && delta!=0. {
+                let step=0.001*if self.modifiers.shift_key(){0.1}else{1.};
+                let value=(self.tool_merge_distance()+delta.signum()*delta.abs().round().max(1.)*step).clamp(0.,10000.);
+                let _=self.set_tool_merge_distance(value);
+            }
+            return true;
+        }
         let grip = matches!(self.drag, Some(Drag::LiveParameter(ref d)) if d.field == 0 && d.viewport)
             || matches!(
                 self.ui.hit(self.mouse),

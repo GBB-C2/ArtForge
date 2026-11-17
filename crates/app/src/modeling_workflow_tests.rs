@@ -61,7 +61,7 @@ fn workflow_palette_has_one_bridge_and_extrude_and_no_removed_tools() {
             }
         })
         .collect();
-    assert_eq!(tools.len(), 29);
+    assert_eq!(tools.len(), 32);
     for t in [M::Weld, M::Inflate, M::BridgeFaces, M::ExtrudeIndividual] {
         assert!(!tools.contains(&t));
     }

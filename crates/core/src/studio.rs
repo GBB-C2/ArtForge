@@ -58,6 +58,7 @@ impl Atmosphere {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum PhysicsKind {
+    Cable,
     Collider,
     Cloth,
     Muscle,

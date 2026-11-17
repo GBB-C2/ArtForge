@@ -14,7 +14,7 @@ impl App {
         Some((n.id,self.editor.project.mesh(n.mesh?)?))
     }
     pub(super) fn has_morph_panel(&self) -> bool { self.authoring.editing.is_none() && self.morph_owner().is_some() }
-    pub(super) fn morph_panel_start(&self) -> f32 { if self.selected_primitive().is_some() { 278. } else { 232. } }
+    pub(super) fn morph_panel_start(&self) -> f32 { if self.selected_primitive().is_some() { 390. } else { 346. } }
     fn morph_sources(&self) -> Vec<(u64,String)> {
         let Some((id,mesh))=self.morph_owner() else { return vec![]; };
         self.editor.project.nodes.iter().filter(|n| n.id != id && n.skin.is_none() && n.curve.is_none() && n.physics.is_none() && n.fluid.is_none() && n.destruction.is_none())

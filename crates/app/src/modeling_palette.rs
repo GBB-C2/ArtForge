@@ -5,12 +5,12 @@ use crate::ui::{AuthorAction as A, MeshSelection as S, ModelingTool as M, ShapeA
 pub(super) const TOOLS_SECTION: u16 = 740;
 const TOOL_PITCH: f32 = 48.;
 const TOOL_SIZE: f32 = 44.;
-const TOOLS: [M; 29] = [
+const TOOLS: [M; 32] = [
     M::Select(0), M::Select(1), M::Select(2), M::Move, M::Rotate, M::Scale,
     M::Extrude, M::Inset, M::Bevel, M::LoopCut, M::Knife, M::Slide,
     M::Merge, M::Bridge, M::Dissolve, M::DeleteFaces, M::Subdivide, M::FillHoles, M::Triangulate, M::Separate,
     M::Smooth, M::Flat, M::Align, M::Relax,
-    M::Sphere, M::Circle, M::Twist, M::Array, M::Inspect,
+    M::Sphere, M::Circle, M::Twist, M::Array, M::Mirror, M::Boolean, M::Cable, M::Inspect,
 ];
 
 impl M {
@@ -28,12 +28,12 @@ impl M {
             Self::Merge => "Объединить в центре", Self::Weld => "Сварка вершин",
             Self::Bridge => "Мост", Self::Dissolve => "Растворить", Self::Array=>"Массив",
             Self::BridgeFaces => "Мост из граней",
-            Self::DeleteFaces => "Удалить", Self::Subdivide => "Подразделить выделение",
+            Self::DeleteFaces => "Удалить", Self::Subdivide => "Плотность сетки",
             Self::Smooth => "Сгладить нормали", Self::Flat => "Плоские нормали",
             Self::Align => "Выравнивание", Self::Relax => "Релакс сетки",
             Self::Sphere => "Сферизация", Self::Circle => "Окружность",
             Self::Inflate => "Смещение по нормалям", Self::Twist => "Скручивание",
-            Self::Inspect => "Проверить топологию",
+            Self::Inspect => "Проверить топологию", Self::Mirror=>"Зеркало · Mirror", Self::Boolean=>"Булева операция", Self::Cable=>"Кабель",
         }
     }
     pub(super) fn icon(self) -> Icon {
@@ -41,7 +41,7 @@ impl M {
             Self::Select(1) => Icon::SelectBox, Self::Select(2) => Icon::SelectLasso,
             Self::Select(_) => Icon::SelectPointer,
             Self::Move => Icon::Move, Self::Rotate => Icon::Rotate, Self::Scale => Icon::Scale,
-            Self::Array=>Icon::ModelArray, Self::ExtrudeIndividual=>Icon::ExtrudeIndividual,Self::FillHoles=>Icon::FillHoles,Self::Triangulate=>Icon::Triangulate,Self::Separate=>Icon::Separate,
+            Self::Mirror=>Icon::Mirror,Self::Boolean=>Icon::Boolean,Self::Cable=>Icon::Cable, Self::Array=>Icon::ModelArray, Self::ExtrudeIndividual=>Icon::ExtrudeIndividual,Self::FillHoles=>Icon::FillHoles,Self::Triangulate=>Icon::Triangulate,Self::Separate=>Icon::Separate,
             Self::Extrude => Icon::Extrude, Self::Inset => Icon::Inset,
             Self::Bevel => Icon::Bevel,
             Self::LoopCut => Icon::LoopCut, Self::Knife => Icon::Knife, Self::Slide => Icon::SlideEdge,
@@ -57,7 +57,7 @@ impl M {
         Some(match self {
             Self::Select(i) => Action::Author(A::SelectTool(i)),
             Self::Move => Action::Move, Self::Rotate => Action::Rotate, Self::Scale => Action::Scale,
-            Self::Array=>Action::Author(A::ToolArray), Self::ExtrudeIndividual=>Action::Author(A::ExtrudeIndividual),Self::FillHoles=>Action::Author(A::FillHoles),Self::Triangulate=>Action::Author(A::Triangulate),Self::Separate=>Action::Author(A::Separate),
+            Self::Mirror=>Action::Author(A::Mirror),Self::Boolean=>Action::Construction(ui::ConstructionAction::Boolean),Self::Cable=>Action::Construction(ui::ConstructionAction::Cable), Self::Array=>Action::Author(A::ToolArray), Self::ExtrudeIndividual=>Action::Author(A::ExtrudeIndividual),Self::FillHoles=>Action::Author(A::FillHoles),Self::Triangulate=>Action::Author(A::Triangulate),Self::Separate=>Action::Author(A::Separate),
             Self::Extrude => Action::Author(A::Extrude), Self::Inset => Action::Author(A::Inset),
             Self::Bevel => Action::Author(A::Bevel),
             Self::LoopCut => Action::Author(A::LoopCut), Self::Knife => Action::Author(A::Knife),
@@ -103,6 +103,7 @@ impl App {
         }
     }
     pub(super) fn choose_modeling_tool(&mut self, tool: M) {
+        if matches!(tool,M::Boolean|M::Cable){self.start_construction(tool==M::Cable);return;}
         if self.authoring.editing.is_none() || self.job.is_some() || self.editor.playing
             || self.scene_write_pending() || self.editor.has_staged() { return; }
         if self.authoring.modeling_tool == Some(tool) && self.authoring.workflow.session.is_some() {
@@ -152,6 +153,7 @@ impl App {
             M::ExtrudeIndividual | M::Triangulate | M::Separate => !self.selected_face_region().is_empty(),
             M::BridgeFaces => self.selected_face_region().len()>=2,
             M::Bridge => (self.authoring.selection_mode == S::Face && self.selected_face_region().len() >= 2) || self.workflow_bridge_edges().len() >= 2,
+            M::Mirror=>!self.selected_face_region().is_empty(),
             M::Dissolve | M::Array => !self.edit_vertices().is_empty(),
             M::LoopCut => true,
             M::Slide => !self.edit_vertices().is_empty(),
@@ -165,7 +167,7 @@ impl App {
     }
     pub(super) fn modeling_panel_bottom(&self) -> f32 {
         if self.has_morph_panel() { return self.morph_panel_bottom(); }
-        if self.authoring.editing.is_none() { return if self.selected_primitive().is_some() || self.selected_curve().is_some() { 268. } else { 222. }; }
+        if self.authoring.editing.is_none() { return if self.selected_curve().is_some(){268.}else if self.selected_primitive().is_some(){374.}else{336.}; }
         206. + TOOLS.len().div_ceil(self.modeling_columns()) as f32 * TOOL_PITCH + 8.
     }
     pub(super) fn modeling_tool_properties_height(&self) -> f32 {
@@ -192,7 +194,7 @@ impl App {
                 Some(M::Weld) => 132.,
                 Some(M::Bridge | M::BridgeFaces) => 250.,
                 Some(M::Inset) => 194.,
-                Some(M::Subdivide) => 136.,
+                Some(M::Subdivide) => 180., Some(M::Mirror)=>238.,
                 _ => 98.,
             }) + if self.authoring.knife.is_none() {44.} else {0.}
         }) + self.tool_merge_height()
@@ -204,9 +206,10 @@ impl App {
                 u.fitted_label([x, 182., w, 20.], "Точки и геометрия кривой — в объекте", 11., p.muted);
                 u.icon_button([x, 218., w, 32.], "Свойства кривой", Action::SurfaceTab(0), false, Icon::Curve); return;
             }
-            u.fitted_label([x, 182., w, 20.], "Выберите вершины, рёбра или грани", 11., p.muted);
+            u.fitted_label([x, 182., w, 20.], "Инструменты объектов", 11., p.muted);
+            for (i,(label,action,icon)) in [("Зеркало · Mirror",ui::ConstructionAction::Mirror,Icon::Mirror),("Булева операция",ui::ConstructionAction::Boolean,Icon::Boolean),("Кабель",ui::ConstructionAction::Cable,Icon::Cable)].into_iter().enumerate(){u.icon_button([x,210.+i as f32*38.,w,32.],label,Action::Construction(action),false,icon);}
             if self.selected_primitive().is_some() {
-                u.icon_button([x, 218., w, 32.], "Параметры фигуры",
+                u.icon_button([x, 330., w, 32.], "Параметры фигуры",
                     Action::Primitive(ui::PrimitiveAction::Open), false, Icon::Settings);
             }
             return;
@@ -273,6 +276,7 @@ impl App {
             M::Relax => { self.draw_relax_properties(u, x, y, w); }
             M::Sphere|M::Circle|M::Inflate|M::Twist => self.draw_deform_properties(u,x,y,w,tool),
             M::Array => self.draw_array_properties(u,x,y,w),
+            M::Subdivide|M::Mirror => self.draw_density_mirror(u,x,y,w,tool==M::Mirror),
             M::LoopCut if self.authoring.knife.is_some() => self.draw_section_properties(u,x,y,w),
             M::Knife if self.authoring.knife.is_some() => {
                 u.fitted_label([x,y,w,18.],"Backspace — новая линия · Enter — завершить",11.,p.muted);y+=26.;

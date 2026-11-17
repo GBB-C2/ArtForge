@@ -179,7 +179,7 @@ impl App {
     fn collision_owner(&self, kind: K) -> Option<Owner> {
         let id = match kind { K::Fluid => self.selected_fluid()?.0, K::Destruction => self.destruction_source()?, K::Cloth|K::Fx => self.editor.selected? };
         let node = self.editor.project.node(id)?;
-        let present = match kind { K::Fluid => node.fluid.is_some(), K::Destruction => node.destruction.is_some(), K::Cloth => node.physics.is_some_and(|s|s.kind==PhysicsKind::Cloth), K::Fx=>node.fx.is_some() };
+        let present = match kind { K::Fluid => node.fluid.is_some(), K::Destruction => node.destruction.is_some(), K::Cloth => node.physics.is_some_and(|s|matches!(s.kind,PhysicsKind::Cloth|PhysicsKind::Cable)), K::Fx=>node.fx.is_some() };
         present.then_some(Owner { node:id,kind,source:false })
     }
     fn collision_context(&self) -> Option<Owner> {

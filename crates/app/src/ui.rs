@@ -427,6 +427,10 @@ pub enum MeshSelection {
     Face,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConstructionAction {
+    Boolean,Cable,Mirror,Mode(u8),Pick(u8),Pin(u8),Field(u8),Handle(u8),Collisions,Hide,Play,Apply,Cancel,Panel,Collapse,Backdrop,Scroll,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrimitiveAction {
     Orientation(u8),
     CurvePoint(u8),
@@ -440,6 +444,7 @@ pub enum PrimitiveAction {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AuthorAction {
+    DensityMode(bool), SimplifyRatio, Mirror, MirrorAxis(u8), MirrorField(u8), MirrorMerge,
     ToolField(u8), ToolArray, ToolMerge, ToolMergeDistance, ToolApply, ToolCancel, SubdivideCount, ExtrudeMode(u8), FaceToolMode(u8), ToolPanelDrag, ToolPanelToggle, ToolPanelScroll,
     SnapMode(u8), SnapStep, SnapToggle, SnapGridStep(f32),
     ModifierPreview,
@@ -607,6 +612,7 @@ pub enum Action {
     InterfaceTheme(Theme),
     Uv(UvAction),
     Primitive(PrimitiveAction),
+    Construction(ConstructionAction),
     MaterialFavorite,
     MaterialFavorites,
     MaterialCategory,
@@ -871,7 +877,7 @@ pub enum ModelingTool {
     Extrude, ExtrudeIndividual, Inset, Bevel, LoopCut, Knife, Slide, FillHoles, Triangulate, Separate,
     Merge, Weld, Bridge, BridgeFaces, Dissolve, DeleteFaces, Subdivide,
     Smooth, Flat, Align, Relax, Inspect,
-    Sphere, Circle, Inflate, Twist, Array,
+    Sphere, Circle, Inflate, Twist, Array, Mirror, Boolean, Cable,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -959,6 +965,7 @@ impl Action {
     }
 
     pub fn is_field(&self) -> bool {
+        if matches!(self,Self::Construction(ConstructionAction::Field(_))|Self::Author(AuthorAction::SimplifyRatio|AuthorAction::MirrorField(_))) {return true;}
         if matches!(self, Self::MeshOpacity | Self::ToolPanelTransparency | Self::CameraEffectSearch) { return true; }
         if matches!(self, Self::BoneDisplay(BoneDisplayAction::BodyColor | BoneDisplayAction::JointColor | BoneDisplayAction::Size(_))) { return true; }
         if matches!(self,Self::Modifier(ModifierAction::Field(..))) {return true;}
@@ -1050,6 +1057,7 @@ impl Action {
 
     /// Contextual status-bar help. Keep shortcuts aligned with App::keyboard.
     pub fn hint(&self) -> Option<&'static str> {
+        if let Self::Construction(a)=self {return Some(match a {ConstructionAction::Boolean=>"Объединить, вычесть или пересечь два замкнутых объекта",ConstructionAction::Cable=>"Создать кабель с закрепляемыми концами, физикой и столкновениями",ConstructionAction::Mirror=>"Зеркальная копия выбранной геометрии",ConstructionAction::Handle(_)=>"Потяните конец кабеля · Esc отменяет движение",_=>"Предпросмотр · Enter — применить · Esc — отменить"});}
         match self {
             Self::ModelingTool(tool) => Some(tool.title()),
             Self::Author(AuthorAction::SelectAll) => Some("Выбрать все компоненты · A"),

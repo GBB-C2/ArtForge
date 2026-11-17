@@ -3,6 +3,11 @@
 pub mod animation;
 pub mod authoring;
 mod region_offset;
+mod mesh_density;
+mod boolean;
+mod cable;
+pub use cable::CableSettings;
+pub use boolean::{boolean_mesh, BooleanMode};
 pub use authoring::*;
 pub mod camera;
 pub mod studio;

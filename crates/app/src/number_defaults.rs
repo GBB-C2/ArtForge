@@ -19,6 +19,7 @@ impl App {
         let fluid = FluidSettings::default();
         let physics = PhysicsSettings::default();
         Some(match *action {
+            Action::Construction(ui::ConstructionAction::Field(i))=>match i{0..=5=>0.,6=>0.04,7=>48.,8=>25.,9=>9.81,10..=12=>0.,_=>return None},
             Action::MeshOpacity => 50.,
             Action::ToolPanelTransparency => 10.,
             Action::BoneDisplay(ui::BoneDisplayAction::Size(_)) => 1.,
@@ -114,6 +115,8 @@ impl App {
             Action::Author(AuthorAction::SnapStep)=>0.1,
             Action::Author(AuthorAction::ToolField(i))=>*modeling_workflow::DEFAULTS.get(i as usize)? as f64,
             Action::Author(AuthorAction::ToolMergeDistance)=>modeling_workflow::DEFAULT_MERGE_DISTANCE as f64,
+            Action::Author(AuthorAction::SimplifyRatio)=>50.,
+            Action::Author(AuthorAction::MirrorField(i))=>if i==0{0.}else{0.001},
             Action::Author(AuthorAction::SubdivideCount)=>2.,
             Action::Author(AuthorAction::BridgeSegments)=>1.,
             Action::Author(AuthorAction::BridgeTwist|AuthorAction::BridgeSmooth)=>0.,

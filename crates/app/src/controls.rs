@@ -230,6 +230,7 @@ impl App {
     }
 
     pub(super) fn apply_field_value(&mut self, action: Action, value: &str) -> Result<(), String> {
+        if self.construction_confirm(&action,value)?{return Ok(());}
         if action == Action::ToolPanelTransparency {
             self.preferences.tool_panel_transparency = surfaces::number(value, 0., 90.)? / 100.;
             self.persist_preferences(); return Ok(());
@@ -548,6 +549,7 @@ impl App {
         let integer = matches!(
             drag.action,
             Action::Author(ui::AuthorAction::ToolField(2) | ui::AuthorAction::SubdivideCount | ui::AuthorAction::BridgeSegments | ui::AuthorAction::BridgeTwist)
+                | Action::Construction(crate::ui::ConstructionAction::Field(7))
                 | Action::EditFps
                 | Action::EditWidth
                 | Action::EditHeight

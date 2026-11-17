@@ -94,6 +94,7 @@ struct Edge {
 }
 #[derive(Clone)]
 pub struct DeformWorld {
+    cable:bool,
     fields:crate::fields::Fields,
     pub positions: Vec<Vec3>,
     rest: Vec<Vec3>,
@@ -180,6 +181,7 @@ impl DeformWorld {
             }
         }
         Ok(Self {
+            cable:false,
             fields:Default::default(),
             velocities: vec![Vec3::ZERO; positions.len()],
             inverse_mass,
@@ -196,6 +198,17 @@ impl DeformWorld {
             neighbors,
             time: 0.,
         })
+    }
+    /// A centreline solver keeps tube radius independent of cloth stretch constraints.
+    pub fn cable(positions: Vec<Vec3>, pin_start: bool, pin_end: bool) -> Result<Self,String> {
+        if !(5..=129).contains(&positions.len()) {return Err("Кабель: 4–128 сегментов".into());}
+        let mut pinned=vec![false;positions.len()];pinned[0]=pin_start;*pinned.last_mut().unwrap()=pin_end;
+        let mut world=Self::new(positions,&[],&pinned)?;world.cable=true;
+        for step in [1,2] {for a in 0..world.positions.len()-step {let b=a+step;let length=world.positions[a].distance(world.positions[b]);
+            if length<1e-7{return Err("Кабель содержит совпадающие точки".into());}
+            world.edges.push(Edge{a,b,length,axial:0.,bending:step==2,lambda:0.});world.neighbors[a].insert(b);world.neighbors[b].insert(a);
+        }}
+        Ok(world)
     }
     pub fn set_fields(&mut self,fields:crate::fields::Fields) {self.fields=fields;}
     pub fn set_axis(&mut self, axis: Vec3) {
@@ -280,6 +293,23 @@ impl DeformWorld {
                     let correction = d / length * dl;
                     self.positions[e.a] += correction * self.inverse_mass[e.a];
                     self.positions[e.b] -= correction * self.inverse_mass[e.b];
+                }
+                if self.cable {
+                    for edge in self.edges.iter().filter(|e|!e.bending) {
+                        let (a,b)=(edge.a,edge.b);
+                        let min=self.positions[a].min(self.positions[b]).min(previous[a]).min(previous[b]);
+                        let max=self.positions[a].max(self.positions[b]).max(previous[a]).max(previous[b]);
+                        mesh.candidates(min,max,cfg.radius,&mut candidates);
+                        for &index in &candidates {
+                            if let Some((push,t))=mesh.triangle(index).segment_contact([previous[a],previous[b]],[self.positions[a],self.positions[b]],cfg.radius) {
+                                let wa=1.-t;let wb=t;let mass=self.inverse_mass[a]*wa*wa+self.inverse_mass[b]*wb*wb;
+                                if mass<=1e-12 {continue;}
+                                self.positions[a]+=push*(self.inverse_mass[a]*wa/mass);
+                                self.positions[b]+=push*(self.inverse_mass[b]*wb/mass);
+                                if let Some(normal)=push.try_normalize(){for (i,w) in [(a,wa),(b,wb)]{contacts[i]+=normal*w;contact_push[i]+=push.length()*w;}}
+                            }
+                        }
+                    }
                 }
                 if cfg.self_collision {
                     if !self.solve_self_contacts_cancellable(&previous, cfg.radius * 2., cancel) { return false; }

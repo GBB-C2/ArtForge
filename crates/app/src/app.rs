@@ -209,6 +209,13 @@ mod modeling_palette;
 mod modeling_workflow_tests;
 #[path = "modeling_workflow.rs"]
 mod modeling_workflow;
+#[path = "primitive_draw.rs"]
+mod primitive_draw;
+#[path = "construction_tools.rs"]
+mod construction_tools;
+#[cfg(test)]
+#[path="construction_tests.rs"]
+mod construction_tests;
 #[path = "modeling_session.rs"]
 mod modeling_session;
 #[cfg(test)]
@@ -325,6 +332,8 @@ enum Drag {
     Swatch(color_swatches::SwatchDrag),
     CreationPanel { start: [f32; 2], origin: [f32; 2], original: Option<[f32; 2]>, moved: bool },
     Curve(curve_controls::CurveDrag),
+    PrimitiveDraw(primitive_draw::Draw),
+    Construction(construction_tools::Gesture),
     RigPole(rig_pose_controls::PoleDrag),
     Uv(uv_editor::UvDrag),
     UvPan(uv_editor::UvPan),
@@ -589,7 +598,10 @@ struct App {
     uv: uv_editor::UvState,
     authoring: authoring_controls::AuthoringState,
     modeling_live: Option<modeling_live::LiveOperation>,
+    construction:construction_tools::State,
     primitive_panel: Option<u64>,
+    primitive_draw_kind:Option<poseforge_core::PrimitiveKind>,
+    primitive_height:Option<primitive_draw::Draw>,
     curves: curve_controls::CurveState,
     morphs: morph_controls::MorphState,
     assets: asset_library::AssetLibrary,
@@ -772,7 +784,8 @@ impl App {
             uv: Default::default(),
             authoring: authoring_controls::AuthoringState::default(),
             modeling_live: None,
-            primitive_panel: None,
+            construction:Default::default(),
+            primitive_panel: None, primitive_draw_kind:None,primitive_height:None,
             curves: Default::default(),
             morphs: Default::default(),
             assets: Default::default(),
@@ -1017,7 +1030,7 @@ impl App {
             6 if self.selected_fluid().is_some() => fluid_object_controls::PANEL_BOTTOM + 44. + self.collision_layout_shift(poseforge_core::CollisionKind::Fluid),
             6 => self.physics_panel_bottom().max(300.) + 44.,
             11 => if self.editor.selected.and_then(|id| self.editor.project.node(id))
-                .and_then(|n| n.physics).is_some_and(|p| p.kind == poseforge_core::PhysicsKind::Cloth)
+                .and_then(|n| n.physics).is_some_and(|p| matches!(p.kind,poseforge_core::PhysicsKind::Cloth|poseforge_core::PhysicsKind::Cable))
                 { self.physics_panel_bottom() + 44. } else { 350. },
             7 => self.modeling_panel_bottom(),
             0 if self.selected_text().is_some() => text_controls::PANEL_BOTTOM,
@@ -1296,6 +1309,7 @@ impl App {
         Ok([root, middle, id])
     }
     fn selected_gizmo(&self) -> Option<crate::gizmo::Gizmo> {
+        if self.construction.session.is_some(){return None;}
         if self.object_selection().iter().any(|id| self.preview_shard_or_child(*id)) { return None; }
         if self.object_selection().len() > 1 && self.group_transform_mode() {
             return self.group_gizmo();
@@ -1437,6 +1451,8 @@ impl App {
         self.slider_click = None;
         self.view_axis_press = None;
         if let Some(drag) = self.drag.take() {
+            if let Drag::Construction(g)=&drag{self.cancel_construction_gesture(g);}
+            if let Drag::PrimitiveDraw(d)=&drag{self.cancel_primitive_draw(d);}
             if matches!(drag, Drag::Mesh(_)) {
                 self.authoring.last_click = None;
             }
@@ -1465,11 +1481,11 @@ impl App {
             } else if let Drag::Slider(ref slider) = drag {
                 if !Self::workflow_preference_field(&slider.action) {self.editor.cancel_edit();}
                 self.restore_slider_preferences(slider);
-            } else if !matches!(drag, Drag::ToolPanel {..} | Drag::ToolPanelScroll {..} | Drag::ComponentSelection(_) | Drag::LiveParameter(_)
+            } else if !matches!(drag, Drag::Construction(_) | Drag::ToolPanel {..} | Drag::ToolPanelScroll {..} | Drag::ComponentSelection(_) | Drag::LiveParameter(_)
                 | Drag::Orbit {..} | Drag::Pan {..} | Drag::ViewWidget {..} | Drag::CameraEffectScroll {..} | Drag::ObjectScroll {..}) {
                 self.editor.cancel_edit();
                 self.restore_animation_drag(&drag);
-                if matches!(drag, Drag::Uv(_) | Drag::Mesh(_) | Drag::Weights(_) | Drag::Curve(_)) {
+                if matches!(drag, Drag::Uv(_) | Drag::Mesh(_) | Drag::Weights(_) | Drag::Curve(_) | Drag::PrimitiveDraw(_)) {
                     self.invalidate_geometry();
                 }
                 if let Drag::Slider(ref slider) = drag {
@@ -2655,6 +2671,8 @@ impl App {
             self.redraw();
             return;
         }
+        if self.route_construction(&a){return;}
+        if self.route_primitive_draw(&a) {return;}
         if self.route_modeling_session(&a) { return; }
         if self.route_live_action(&a) {
             return;
@@ -2742,6 +2760,7 @@ impl App {
                 self.preferences.theme = theme;
                 self.persist_preferences();
             }
+            Action::Construction(action)=>self.construction_action(action),
             Action::Primitive(action) => self.primitive_action(action),
             Action::ToggleTools => {
                 if !self.tools_expanded() && self.preferences.tools_expanded {
@@ -3926,6 +3945,8 @@ impl App {
             self.redraw();
             return;
         }
+        if button==MouseButton::Left && self.construction_pointer_down(){self.redraw();return;}
+        if button==MouseButton::Left && self.primitive_draw_down(){self.redraw();return;}
         if button == MouseButton::Left && self.curve_pointer_down() { self.redraw(); return; }
         if button == MouseButton::Left && self.mesh_pointer_down() {
             self.redraw();
@@ -4054,6 +4075,7 @@ impl App {
         self.dropdown_pointer_move();
         self.collision_pointer_move();
         self.move_section_plane();
+        self.primitive_height_move();
         if pending_click {
             self.redraw();
             return;
@@ -4068,6 +4090,8 @@ impl App {
             return;
         }
         match self.drag.clone() {
+            Some(Drag::Construction(g))=>self.update_construction_gesture(g),
+            Some(Drag::PrimitiveDraw(d))=>self.update_primitive_draw(d),
             Some(Drag::Swatch(drag)) => self.update_swatch_drag(drag),
             Some(Drag::ToolPanel {start,origin,original}) => self.update_tool_panel_drag(start,origin,original),
             Some(Drag::ToolPanelScroll { start, value, scale }) => {
@@ -4240,6 +4264,8 @@ impl App {
         }
         match drag {
             Some(Drag::Slider(ref s)) if Self::workflow_preference_field(&s.action) => {},
+            Some(Drag::Construction(_))=>{},
+            Some(Drag::PrimitiveDraw(d))=>self.primitive_base_up(d),
             Some(Drag::Swatch(drag)) => self.finish_swatch_drag(drag),
             Some(Drag::CreationPanel { moved, .. }) => {
                 if moved { self.persist_preferences(); }
@@ -4689,6 +4715,7 @@ impl App {
         self.draw_modeling_live(&mut u);
         self.draw_advanced_overlay(&mut u);
         self.draw_tool_panel(&mut u);
+        self.draw_construction(&mut u);
         self.draw_tool_tooltip(&mut u);
         self.draw_snapping(&mut u);
         self.draw_uv_editor(&mut u);
@@ -5245,6 +5272,7 @@ impl App {
             return;
         }
         self.slider_click = None;
+        if self.construction_scroll(delta){return;}
         if self.tool_panel_scroll(delta) { return; }
         if self.knife_scroll(delta) {return;}
         if self.camera_effect_scroll(delta) { return; }
@@ -5483,6 +5511,8 @@ impl App {
             self.redraw();
             return;
         }
+        if event.logical_key==Key::Named(NamedKey::Enter) && self.primitive_height.is_some(){let d=self.primitive_height.take().unwrap();self.finish_primitive_draw(d);return;}
+        if self.construction.session.is_some() && event.logical_key==Key::Named(NamedKey::Enter){self.apply_construction();return;}
         if self.authoring.workflow.session.is_some() && event.logical_key == Key::Named(NamedKey::Enter) {
             self.apply_modeling_session(); return;
         }
@@ -5598,6 +5628,7 @@ impl App {
         self.poll_jobs();
         self.tick_modifiers();
         self.poll_picker();
+        self.poll_construction();
         self.tick_animation(dt);
         self.tick_fx(dt);
         self.tick_fluid_preview();
@@ -5963,6 +5994,8 @@ impl ApplicationHandler for App {
                 self.redraw();
             }
             WindowEvent::Focused(false) => {
+                self.cancel_construction();
+                if let Some(d)=self.primitive_height.take(){self.cancel_primitive_draw(&d);}
                 self.dismiss_swatch_menu();
                 self.path_pick=None;
                 self.path_edit=None;

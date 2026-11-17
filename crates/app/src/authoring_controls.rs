@@ -313,7 +313,7 @@ impl App {
             return;
         }
         match command {
-            A::FaceToolMode(_) | A::SnapMode(_) | A::SnapStep | A::SnapToggle | A::SnapGridStep(_) | A::ModifierPreview | A::BridgeTwist | A::BridgeSmooth | A::FillHoles | A::Triangulate | A::Separate | A::ExtrudeIndividual | A::RepairMode(_) | A::SelectIssue | A::RepairIssue | A::KnifeSnap | A::KnifeCloseGap | A::KnifeAngle(_)
+            A::DensityMode(_) | A::SimplifyRatio | A::Mirror | A::MirrorAxis(_) | A::MirrorField(_) | A::MirrorMerge | A::FaceToolMode(_) | A::SnapMode(_) | A::SnapStep | A::SnapToggle | A::SnapGridStep(_) | A::ModifierPreview | A::BridgeTwist | A::BridgeSmooth | A::FillHoles | A::Triangulate | A::Separate | A::ExtrudeIndividual | A::RepairMode(_) | A::SelectIssue | A::RepairIssue | A::KnifeSnap | A::KnifeCloseGap | A::KnifeAngle(_)
             | A::Knife
             | A::KnifeAccept
             | A::KnifeCancel
@@ -486,11 +486,13 @@ impl App {
                         let edges=if self.authoring.selection_mode==S::Edge {self.authoring.edges.clone()} else {BTreeSet::new()};
                         let faces=if self.authoring.selection_mode==S::Face {self.authoring.faces.clone()} else {BTreeSet::new()};
                         if command==A::DeleteFaces {MeshEdit::DeleteComponents {vertices,edges,faces}}
+                        else if self.authoring.workflow.simplify {MeshEdit::Simplify {region:poseforge_core::MeshRegion {vertices,edges,faces},ratio:self.authoring.workflow.simplify_ratio/100.}}
                         else {MeshEdit::SubdivideSelectedCount {region:poseforge_core::MeshRegion {vertices,edges,faces},segments:self.authoring.workflow.subdivide_segments}}
                     },
                     A::Smooth => MeshEdit::SmoothNormals,
                     _ => MeshEdit::FlatNormals,
                 };
+                if matches!(op,MeshEdit::Simplify{..}) {self.run_mesh_tool(id,op,None);return;}
                 let result = self.editor.edit_mesh(id, op);
                 if self.result(result).is_some() {
                     self.authoring.vertices.clear();

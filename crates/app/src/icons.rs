@@ -9,6 +9,7 @@ pub enum Icon {
     Extrude, ExtrudeIndividual, FillHoles, Triangulate, Separate, Inset, Bevel, LoopCut, Knife, SlideEdge,
     Merge, Weld, Bridge, Dissolve, Flatten, Straighten, EqualSpace, Relax,
     ModelSphere, ModelCircle, Inflate, Twist, ModelArray, Subdivide, InspectMesh, SmoothNormals, FlatNormals, DeleteFaces,
+    Mirror, Boolean, Cable,
     Physics,
     Object,
     Text,
@@ -409,6 +410,9 @@ impl Icon {
                 geometry.arc([12., 20.], [7., 2.5], 0., 360.);
                 geometry.arc([12., 12.], [9., 5.], 280., 390.);
             }
+            Self::Mirror=>{geometry.path(&[[12.,2.],[12.,22.]]);geometry.closed(&[[3.,6.],[9.,10.],[9.,18.],[3.,18.]]);geometry.closed(&[[21.,6.],[15.,10.],[15.,18.],[21.,18.]]);},
+            Self::Boolean=>{geometry.closed(&[[3.,3.],[14.,3.],[14.,14.],[3.,14.]]);geometry.closed(&[[10.,10.],[21.,10.],[21.,21.],[10.,21.]]);},
+            Self::Cable=>{geometry.path(&[[3.,4.],[3.,15.],[5.,19.],[9.,21.],[13.,19.],[15.,15.],[15.,8.],[17.,5.],[21.,4.]]);geometry.closed(&[[1.,2.],[5.,2.],[5.,6.],[1.,6.]]);geometry.closed(&[[19.,2.],[23.,2.],[23.,6.],[19.,6.]]);},
             Self::ModelArray => {
                 for (x,y) in [(3.,3.),(13.,3.),(3.,13.),(13.,13.)] {geometry.closed(&[[x,y],[x+7.,y],[x+7.,y+7.],[x,y+7.]]);}
             }

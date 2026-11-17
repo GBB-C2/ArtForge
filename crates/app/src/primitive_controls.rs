@@ -31,6 +31,8 @@ impl App {
             self.status = "Сначала поставьте ключ или отбросьте временную позу.".into();
             return;
         }
+        if self.modifiers.shift_key(){self.primitive_draw_kind=Some(kind);self.primitive_panel=None;self.status="Shift + ЛКМ — нарисуйте примитив на поверхности или в пустом месте".into();return;}
+        self.primitive_draw_kind=None;
         let settings = PrimitiveSettings::new(kind);
         let id = self.editor.project.next_id();
         let Ok(mesh) = settings.mesh(id + 2, Some(id + 1)) else {
@@ -295,6 +297,7 @@ impl App {
         }
 
         if matches!(action, P::Close) {
+            self.primitive_draw_kind=None;
             self.primitive_panel = None;
             return;
         }

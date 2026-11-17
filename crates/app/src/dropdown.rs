@@ -137,7 +137,7 @@ fn labels(kind: DropdownKind, project: &poseforge_core::Project) -> Vec<String> 
         DropdownKind::FxEmission => poseforge_core::FxEmission::ALL.into_iter().map(|q|q.label()).collect(),
         DropdownKind::FxQuality => poseforge_core::FxQuality::ALL.into_iter().map(|q|q.label()).collect(),
         DropdownKind::TextFont => poseforge_core::TextFont::ALL.into_iter().map(|font|font.label()).collect(),
-        DropdownKind::CurveCreate => poseforge_core::CurvePreset::BASIC.into_iter().map(|p| p.label()).chain(std::iter::once("Нарисовать кривую")).collect(),
+        DropdownKind::CurveCreate => poseforge_core::CurvePreset::BASIC.into_iter().map(|p| p.label()).chain(["Нарисовать кривую","Кабель с физикой"]).collect(),
         DropdownKind::SkeletonCreate => vec!["Пустая кость", "Цепь · 3 кости", "Человек · 67 костей"],
         DropdownKind::SnapMode=>super::snapping::LABELS.into_iter().chain(["Шаг сетки: 0,01 м", "Шаг сетки: 0,1 м", "Шаг сетки: 1 м"]).collect(),
         DropdownKind::KnifeAngle=>vec!["Свободный угол","Шаг 15°","Шаг 30°","Шаг 45°","Шаг 90°"],
@@ -317,7 +317,7 @@ impl App {
                     None => Some(0),
                     Some(poseforge_core::PhysicsKind::Collider) => Some(1),
                     Some(poseforge_core::PhysicsKind::Cloth) => Some(2),
-                    Some(poseforge_core::PhysicsKind::Muscle) => None,
+                    Some(poseforge_core::PhysicsKind::Muscle | poseforge_core::PhysicsKind::Cable) => None,
                 }
             }
             DropdownKind::Background => match settings.background_mode {
@@ -747,6 +747,7 @@ impl App {
             DropdownKind::FxEmission=>Some(Action::Fx(crate::ui::FxAction::Emission(index as u8))),
             DropdownKind::FxQuality=>Some(Action::Fx(crate::ui::FxAction::Quality(index as u8))),
             DropdownKind::TextFont => Some(Action::Text(crate::ui::TextAction::Font(index as u8))),
+            DropdownKind::CurveCreate if index==poseforge_core::CurvePreset::BASIC.len()+1=>Some(Action::Construction(crate::ui::ConstructionAction::Cable)),
             DropdownKind::CurveCreate => Some(Action::Curve(if index == poseforge_core::CurvePreset::BASIC.len() {
                 CurveAction::Draw
             } else {

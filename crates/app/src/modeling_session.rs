@@ -323,7 +323,7 @@ impl App {
             action,
             Action::Normal(ui::NormalAction::Field(_))
                 | Action::Author(
-                    A::SubdivideCount
+                    A::DensityMode(_) | A::SimplifyRatio | A::MirrorAxis(_) | A::MirrorField(_) | A::MirrorMerge | A::SubdivideCount
                         | A::Coordinate(_)
                         | A::RotateDegrees(_)
                         | A::ScaleFactor(_)

@@ -268,6 +268,15 @@ impl Project {
         } else { Ok(node.parent.and_then(|p| globals.get(&p)).copied().unwrap_or(Mat4::IDENTITY)) }
     }
     pub(crate) fn curve_globals_for(&self, overrides: &BTreeMap<NodeId, Transform>, time: f64) -> Result<BTreeMap<NodeId, Mat4>, CoreError> {
+        if self.nodes.iter().all(|n| n.parent.is_none() && n.curve_binding.is_none() && n.fx.and_then(|f| f.source).is_none()) {
+            return self.nodes.iter().map(|node| {
+                let global = overrides.get(&node.id).unwrap_or(&node.transform).matrix();
+                if !global.is_finite() {
+                    return Err(CoreError::Invalid("Переполнение трансформации привязки".into()));
+                }
+                Ok((node.id, global))
+            }).collect();
+        }
         let lookup: BTreeMap<_, _> = self.nodes.iter().map(|n| (n.id, n)).collect();
         let mut out = BTreeMap::new(); let mut state = BTreeMap::new(); let mut paths = BTreeMap::new();
         for node in &self.nodes {

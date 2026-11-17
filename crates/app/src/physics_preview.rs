@@ -131,6 +131,11 @@ pub(super) struct PhysicsPreview {
     collider_boxes: Vec<Collider>,
 }
 pub(super) fn inputs(project: &Project, colliders: bool) -> Vec<BodyInput> {
+    if !project.nodes.iter().any(|n| n.physics.is_some_and(|s|
+        s.visible && (s.kind == PhysicsKind::Collider) == colliders))
+    {
+        return Vec::new();
+    }
     let Ok(globals) = project.global_transforms() else {
         return vec![];
     };

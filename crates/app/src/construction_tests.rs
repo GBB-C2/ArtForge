@@ -684,3 +684,73 @@ fn construction_cable_menu_rejects_stale_shape_and_closed_session() {
     assert!(a.dropdown.is_none());
     assert_eq!(a.editor.undo_len(), 0);
 }
+
+#[test]
+fn construction_boolean_keeps_large_selection_and_only_completes_the_last_slider_position() {
+    let mut a = app();
+    let last = 259;
+    a.editor
+        .project
+        .node_mut(3)
+        .unwrap()
+        .transform
+        .translation
+        .x = 10.;
+    for id in 5..=last {
+        let mut n = Node::new(id, format!("Резак {id}"));
+        n.mesh = Some(4);
+        n.transform.translation.x = if id == last { 1. } else { id as f32 * 4. };
+        a.editor.project.nodes.push(n);
+        a.scene_tools.selected.insert(id);
+    }
+    let before = a.editor.project.clone();
+    a.action(Action::Construction(C::Boolean));
+    for i in 0..40 {
+        a.apply_field_value(
+            Action::Construction(C::Field(10)),
+            &(i as f32 / 100.).to_string(),
+        )
+        .unwrap();
+    }
+    a.apply_field_value(Action::Construction(C::Field(10)), "-0.5")
+        .unwrap();
+    await_boolean(&mut a);
+    let result = &a.editor.project;
+    assert!(result
+        .nodes
+        .iter()
+        .filter(|n| n.id != 1)
+        .all(|n| !n.visible));
+    let owner = result.node(1).unwrap();
+    assert!((mesh_volume(result.mesh(owner.mesh.unwrap()).unwrap()) - 2.).abs() < 0.001);
+
+    // Large lists expose only the on-screen hits, including after scrolling.
+    a.ui = a.build_ui();
+    assert!(
+        a.ui.hits
+            .iter()
+            .filter(|h| matches!(h.action, Action::Construction(C::RemoveCutter(_))))
+            .count()
+            < 24
+    );
+    let panel = a.construction_rect().unwrap();
+    a.mouse = [panel[0] + 32., panel[1] + 100.];
+    a.construction_scroll(-10000.);
+    click(&mut a, Action::Construction(C::RemoveCutter(last)));
+    await_boolean(&mut a);
+    let restored = &a.editor.project;
+    assert!(restored.node(last).unwrap().visible);
+    assert!(
+        (mesh_volume(
+            restored
+                .mesh(restored.node(1).unwrap().mesh.unwrap())
+                .unwrap()
+        ) - 8.)
+            .abs()
+            < 0.001
+    );
+    a.action(Action::Construction(C::Apply));
+    assert_eq!(a.editor.undo_len(), 1);
+    a.action(Action::Undo);
+    assert_eq!(a.editor.project, before);
+}

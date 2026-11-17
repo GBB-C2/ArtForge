@@ -113,18 +113,18 @@ mod tests {
             let global = p.global_transforms().unwrap(); let view = crate::View::default();
             let key = crate::MaterialKey::from_material(&p.materials[0]); let semantic = key.semantic(0);
             renderer.device.push_error_scope(wgpu::ErrorFilter::Validation);
-            renderer.sync_scene(&p,&p,&global,&view,false,false).unwrap();
+            renderer.sync_scene(&p,&p,&crate::SceneAssets::new(&p),&global,&view,false,false).unwrap();
             let image = renderer.textures[&(2,semantic)].texture.clone();
             let binding = renderer.material_bindings[&key].clone();
             for _ in 0..4 {
                 p.textures[0].rgba8[0] = p.textures[0].rgba8[0].wrapping_add(1);
-                renderer.sync_scene(&p,&p,&global,&view,false,false).unwrap();
+                renderer.sync_scene(&p,&p,&crate::SceneAssets::new(&p),&global,&view,false,false).unwrap();
                 assert_eq!(renderer.textures[&(2,semantic)].texture,image);
                 assert_eq!(renderer.material_bindings[&key],binding);
             }
             // Same pixel count and revision, different aspect ratio: the old cache missed this.
             p.textures[0].width = 3; p.textures[0].height = 2;
-            renderer.sync_scene(&p,&p,&global,&view,false,false).unwrap();
+            renderer.sync_scene(&p,&p,&crate::SceneAssets::new(&p),&global,&view,false,false).unwrap();
             assert_ne!(renderer.textures[&(2,semantic)].texture,image);
             assert_ne!(renderer.material_bindings[&key],binding);
             assert_eq!(renderer.textures[&(2,semantic)].texture.width(),3);

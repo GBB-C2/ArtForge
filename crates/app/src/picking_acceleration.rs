@@ -2,12 +2,45 @@
 use super::*;
 use std::{
     cell::RefCell,
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     hash::{Hash, Hasher},
     rc::Rc,
 };
 const CACHE_BYTES: usize = 96 * 1024 * 1024;
 thread_local! { static CACHE: RefCell<VecDeque<(u64, Rc<Geometry>)>> = const { RefCell::new(VecDeque::new()) }; }
+// Bounds are much smaller than a triangle tree. Keep them across clicks even when
+// a scene has thousands of distinct assets, keyed by the copy-on-write vertex revision.
+#[derive(Default)]
+struct BoundsCache {
+    entries: HashMap<u64, (DVec3, DVec3)>,
+    order: VecDeque<u64>,
+}
+thread_local! { static BOUNDS: RefCell<BoundsCache> = RefCell::new(BoundsCache::default()); }
+pub(super) fn local_bounds(mesh: &poseforge_core::Mesh) -> Option<(DVec3, DVec3)> {
+    BOUNDS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let key = mesh.vertices.revision();
+        if let Some(&bounds) = cache.entries.get(&key) {
+            return Some(bounds);
+        }
+        let first = Vec3::from_array(mesh.vertices.first()?.position).as_dvec3();
+        let bounds = mesh
+            .vertices
+            .iter()
+            .skip(1)
+            .fold((first, first), |(lo, hi), v| {
+                let p = Vec3::from_array(v.position).as_dvec3();
+                (lo.min(p), hi.max(p))
+            });
+        if cache.order.len() == 32_768 {
+            let old = cache.order.pop_front().unwrap();
+            cache.entries.remove(&old);
+        }
+        cache.order.push_back(key);
+        cache.entries.insert(key, bounds);
+        Some(bounds)
+    })
+}
 struct Branch {
     min: DVec3,
     max: DVec3,

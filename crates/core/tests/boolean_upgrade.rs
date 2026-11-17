@@ -147,3 +147,109 @@ fn cleanup_reduces_flat_fragments_without_changing_curved_cut_volume() {
     );
     assert!((volume(&clean) - volume(&raw)).abs() < 0.002);
 }
+
+#[test]
+fn bulk_cutters_make_every_hole_and_split_conserves_volume() {
+    let mesh = cube();
+    let mut cutters = Vec::new();
+    for row in 0..4 {
+        for column in 0..8 {
+            let center = Vec3::new(-0.84 + column as f32 * 0.24, -0.66 + row as f32 * 0.44, 0.);
+            cutters.push((
+                &mesh,
+                Mat4::from_scale_rotation_translation(
+                    Vec3::new(0.045, 0.065, 1.4),
+                    Quat::IDENTITY,
+                    center,
+                ),
+            ));
+        }
+    }
+    let (outside, inside) = boolean_mesh_many(
+        &mesh,
+        &cutters,
+        BooleanOperation::Split,
+        BooleanOptions::default(),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    let inside = inside.unwrap();
+    let removed = 32. * 0.09 * 0.13 * 2.;
+    assert!((volume(&inside) - removed).abs() < 0.001);
+    assert!((volume(&outside) - (8. - removed)).abs() < 0.002);
+    for result in [&inside, &outside] {
+        let report = inspect_topology(result);
+        assert_eq!(
+            (
+                report.winding_edges,
+                report.boundary_edges,
+                report.nonmanifold_edges
+            ),
+            (0, 0, 0)
+        );
+    }
+}
+
+#[test]
+fn distant_instances_do_not_exhaust_the_intersection_budget_or_hide_bad_inputs() {
+    let mesh = cube();
+    let mut cutters: Vec<_> = (0..2_000)
+        .map(|i| {
+            (
+                &mesh,
+                Mat4::from_translation(Vec3::X * (3. + i as f32 * 4.)),
+            )
+        })
+        .collect();
+    cutters.push((&mesh, Mat4::from_translation(Vec3::X)));
+    let op = BooleanOperation::Combine(BooleanMode::Difference);
+    let run = |cutters: &[(&Mesh, Mat4)], cancel| {
+        boolean_mesh_many(
+            &mesh,
+            cutters,
+            op,
+            BooleanOptions::default(),
+            &AtomicBool::new(cancel),
+        )
+    };
+    assert!((volume(&run(&cutters, false).unwrap().0) - 4.).abs() < 0.001);
+    assert!(run(&cutters, true).is_err());
+    let mut open = mesh.clone();
+    open.topology.as_mut().unwrap().faces.pop();
+    open.rebuild_polygon_indices().unwrap();
+    cutters.push((&open, Mat4::from_translation(Vec3::X * 200.)));
+    assert!(run(&cutters, false).is_err());
+    cutters.pop();
+    let mut invalid = mesh.clone();
+    invalid.indices[0] = u32::MAX;
+    cutters.push((&invalid, Mat4::IDENTITY));
+    assert!(run(&cutters, false).is_err());
+}
+
+#[test]
+fn bulk_union_keeps_disjoint_shells_and_clips_overlapping_cutters_once() {
+    let mesh = cube();
+    let mut cutters: Vec<_> = (1..=64)
+        .map(|i| (&mesh, Mat4::from_translation(Vec3::X * (i as f32 * 4.))))
+        .collect();
+    // This cutter extends the source by half a cube. Repeating it cannot add volume.
+    cutters.extend([(&mesh, Mat4::from_translation(Vec3::X)); 2]);
+    let (result, _) = boolean_mesh_many(
+        &mesh,
+        &cutters,
+        BooleanOperation::Combine(BooleanMode::Union),
+        BooleanOptions::default(),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    assert!((volume(&result) - (65. * 8. + 4.)).abs() < 0.01);
+    let report = inspect_topology(&result);
+    assert_eq!(
+        (
+            report.boundary_edges,
+            report.nonmanifold_edges,
+            report.winding_edges
+        ),
+        (0, 0, 0)
+    );
+}

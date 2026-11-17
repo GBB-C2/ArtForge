@@ -7,7 +7,7 @@ use glyphon::{
     Cache, Color, FontSystem, Resolution, SwashCache, TextArea, TextAtlas, TextBounds,
     TextRenderer, Viewport,
 };
-use poseforge_core::{AlphaMode, LightKind, Material, Project, ToneMapping, Vertex};
+use poseforge_core::{AlphaMode, LightKind, Material, Mesh, Project, ToneMapping, Vertex};
 mod gpu_timer;
 mod graph;
 mod mipmap;
@@ -36,7 +36,7 @@ const TEXTURE_SEMANTICS: [MipSemantic; 5] = [
     MipSemantic::ColorSrgbOpaque,
 ];
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     path::Path,
     sync::Arc,
 };
@@ -338,22 +338,113 @@ struct ParticleCamera {
     right: [f32; 4],
     up: [f32; 4],
 }
-struct Drawable {
-    mesh_id: u64,
-    vertex_revision: u64,
-    vertex_count: usize,
-    index_revision: u64,
-    topology_revision: Option<u64>,
+// Build once for the render project (which can include generated material parts).
+// Depth, colour and every shadow face resolve the same assets.
+struct SceneAssets<'a> {
+    meshes: HashMap<u64, &'a poseforge_core::Mesh>,
+    materials: HashMap<u64, &'a Material>,
+}
+impl<'a> SceneAssets<'a> {
+    fn new(project: &'a Project) -> Self {
+        Self {
+            meshes: project.meshes.iter().map(|mesh| (mesh.id, mesh)).collect(),
+            materials: project
+                .materials
+                .iter()
+                .map(|material| (material.id, material))
+                .collect(),
+        }
+    }
+
+    fn mesh(&self, node: &poseforge_core::Node) -> Option<&'a poseforge_core::Mesh> {
+        self.meshes.get(&node.mesh?).copied()
+    }
+
+    fn material(&self, node: &poseforge_core::Node) -> Option<&'a Material> {
+        let id = self.mesh(node)?.material?;
+        self.materials.get(&id).copied().filter(|m| m.visible)
+    }
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+struct GeometryKey {
+    vertices: u64,
+    indices: u64,
+    faces: Option<u64>,
+}
+
+impl GeometryKey {
+    fn of(mesh: &Mesh) -> Self {
+        Self {
+            vertices: mesh.vertices.revision(),
+            indices: mesh.indices.revision(),
+            faces: mesh.topology.as_ref().map(|t| t.faces.revision()),
+        }
+    }
+}
+
+struct MeshBuffers {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
     wire_indices: wgpu::Buffer,
     wire_count: u32,
     count: u32,
+    bounds: shadow::MeshBounds,
+}
+
+impl MeshBuffers {
+    fn from_mesh(device: &wgpu::Device, mesh: &Mesh) -> Self {
+        let vertices: Vec<_> = mesh.vertices.iter().copied().map(GpuVertex::from).collect();
+        let lines =
+            wire_indices((0..mesh.face_count()).filter_map(|face| mesh.face_vertices(face)));
+        Self::upload(device, &vertices, &mesh.indices, &lines)
+    }
+
+    fn upload(
+        device: &wgpu::Device,
+        vertices: &[GpuVertex],
+        indices: &[u32],
+        lines: &[u32],
+    ) -> Self {
+        let buffer = |label, contents, usage| {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(label),
+                contents,
+                usage,
+            })
+        };
+        Self {
+            vertices: buffer(
+                "mesh vertices",
+                bytemuck::cast_slice(vertices),
+                wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            ),
+            indices: buffer(
+                "mesh indices",
+                bytemuck::cast_slice(indices),
+                wgpu::BufferUsages::INDEX,
+            ),
+            wire_indices: buffer(
+                "portable wire edges",
+                bytemuck::cast_slice(lines),
+                wgpu::BufferUsages::INDEX,
+            ),
+            wire_count: lines.len() as u32,
+            count: indices.len() as u32,
+            bounds: shadow::MeshBounds::new(vertices),
+        }
+    }
+}
+
+struct Drawable {
+    key: GeometryKey,
+    vertex_count: usize,
+    geometry: Arc<MeshBuffers>,
+    shared: bool,
     uniform: wgpu::Buffer,
     joints: wgpu::Buffer,
     bind: wgpu::BindGroup,
     morph_weights: Vec<f32>,
-    bounds: shadow::MeshBounds,
+    morph_revisions: Vec<(u64, u64)>,
 }
 
 fn wire_indices<'a>(faces: impl Iterator<Item = &'a [u32]>) -> Vec<u32> {
@@ -376,6 +467,102 @@ fn skin_palette_bytes(joints: usize, limits: &wgpu::Limits) -> Result<u64, Strin
         return Err("Палитра суставов превышает лимит буфера GPU".into());
     }
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod mesh_buffer_tests {
+    use super::*;
+    use poseforge_core::{MorphTarget, Node, PrimitiveKind, PrimitiveSettings};
+
+    fn sync(renderer: &mut Renderer, project: &Project) {
+        let globals = project.global_transforms().unwrap();
+        renderer
+            .sync_scene(
+                project,
+                project,
+                &SceneAssets::new(project),
+                &globals,
+                &View::default(),
+                false,
+                false,
+            )
+            .unwrap();
+    }
+
+    fn local_min_x(renderer: &Renderer, node: &Node) -> f32 {
+        renderer.draws[&node.id]
+            .geometry
+            .bounds
+            .world(node, &BTreeMap::new())
+            .unwrap()
+            .min
+            .x
+    }
+
+    #[test]
+    #[ignore = "requires a graphics adapter"]
+    fn instances_share_buffers_until_geometry_or_morph_state_changes() {
+        let mut renderer = pollster::block_on(Renderer::headless(32, 32)).unwrap();
+        let mut project = Project::default();
+        let mesh = PrimitiveSettings::new(PrimitiveKind::Cube)
+            .mesh(1, None)
+            .unwrap();
+        let mut copy = mesh.clone();
+        copy.id = 2;
+        project.meshes = vec![mesh, copy];
+        project.nodes = (1..=1000)
+            .map(|id| {
+                let mut node = Node::new(id, "Instance");
+                node.mesh = Some(if id == 1 { 2 } else { 1 });
+                node
+            })
+            .collect();
+
+        sync(&mut renderer, &project);
+        assert_eq!(renderer.shared_geometry.len(), 1);
+        assert_eq!(renderer.draws.len(), 1000);
+        assert!(renderer
+            .draws
+            .values()
+            .all(|d| Arc::ptr_eq(&d.geometry, &renderer.draws[&1].geometry)));
+        let original_x = local_min_x(&renderer, &project.nodes[0]);
+        for v in project.meshes[1].vertices.iter_mut() {
+            v.position[0] += 3.;
+        }
+        sync(&mut renderer, &project);
+        assert!(!renderer.draws[&1].shared);
+        assert_eq!(local_min_x(&renderer, &project.nodes[0]), original_x + 3.);
+        assert_eq!(local_min_x(&renderer, &project.nodes[1]), original_x);
+
+        let count = project.meshes[1].vertices.len();
+        project.meshes[1].morph_targets.push(MorphTarget {
+            name: "Slide".into(),
+            positions: vec![[2., 0., 0.]; count].into(),
+            normals: Default::default(),
+        });
+        project.nodes[1].mesh = Some(2);
+        project.nodes[1].morph_weights = vec![1.];
+        sync(&mut renderer, &project);
+        assert_eq!(local_min_x(&renderer, &project.nodes[0]), original_x + 3.);
+        assert_eq!(local_min_x(&renderer, &project.nodes[1]), original_x + 5.);
+        project.meshes[1].morph_targets[0]
+            .positions
+            .fill([4., 0., 0.]);
+        sync(&mut renderer, &project);
+        assert_eq!(local_min_x(&renderer, &project.nodes[1]), original_x + 7.);
+
+        project.meshes[1].morph_targets.clear();
+        project.nodes[1].morph_weights.clear();
+        project.nodes[0].mesh = Some(1);
+        sync(&mut renderer, &project);
+        assert_eq!(local_min_x(&renderer, &project.nodes[1]), original_x + 3.);
+        project.meshes[1].indices.clear();
+        project.nodes.truncate(2);
+        sync(&mut renderer, &project);
+        assert!(renderer.shared_geometry.is_empty());
+        assert_eq!(renderer.draws.len(), 1);
+        assert!(renderer.draws.contains_key(&1));
+    }
 }
 
 #[cfg(test)]
@@ -587,6 +774,8 @@ pub struct FrameStats {
     pub ui_rectangles: usize,
     pub ui_upload_bytes: usize,
     pub ui_buffer_allocations: usize,
+    /// Distinct resident mesh buffer sets, excluding the editor grid.
+    pub geometry_sets: usize,
     pub candidates: usize,
     pub culled: usize,
     pub scene_draws: usize,
@@ -600,7 +789,7 @@ fn surface_retry_pending(failures: u8) -> bool { (1..=3).contains(&failures) }
 /// Stack reservation for native GPU initialization workers (including shader compilation).
 pub const RENDERER_STACK_BYTES:usize=shaders::STACK_BYTES;
 /// Parse and validate the exact built-in shaders without a window or graphics adapter.
-pub fn validate_shaders()->Result<(),String> {shaders::sources().map(|_|())}
+pub fn validate_shaders()->Result<(),String> {shaders::sources(shaders::raster_override().unwrap_or(false)).map(|_|())}
 
 async fn startup_checkpoint(device:&wgpu::Device,adapter:&str,stage:&str)->Result<(),String> {
     if let Some(error)=device.pop_error_scope().await {
@@ -666,6 +855,8 @@ pub struct Renderer {
     draw_layout: wgpu::BindGroupLayout,
     texture_layout: wgpu::BindGroupLayout,
     draws: HashMap<u64, Drawable>,
+    shared_geometry: HashMap<GeometryKey, Arc<MeshBuffers>>,
+    raster_preview: bool,
     material_parts: material_parts::MaterialParts,
     textures: HashMap<(u64, MipSemantic), material_texture::CachedTexture>,
     material_bindings: HashMap<MaterialKey, wgpu::BindGroup>,
@@ -703,6 +894,7 @@ impl Renderer {
     pub fn clear_fx_cache(&mut self) {self.fx_gas.clear();}
     /// Share cancellation with FX preparation and GPU frame readback.
     pub fn set_fx_cancel(&mut self,cancel:Arc<std::sync::atomic::AtomicBool>) {self.fx_cancel=cancel;}
+    pub fn uses_raster_preview(&self) -> bool { self.raster_preview }
     pub fn frame_stats(&self) -> FrameStats {
         self.frame_stats
     }
@@ -732,7 +924,9 @@ impl Renderer {
         height: u32,
     ) -> Result<Self, String> {
         eprintln!("GPU: проверка встроенных шейдеров без видеокарты");
-        let sources=shaders::sources()?;
+        let requested = shaders::raster_override();
+        let default_raster = requested.unwrap_or(false);
+        let sources = shaders::sources(default_raster)?;
         eprintln!("GPU: выбор адаптера");
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -743,6 +937,13 @@ impl Renderer {
             .await
             .ok_or("Не найден совместимый графический адаптер")?;
         let adapter_info = adapter.get_info();
+        let raster_preview = shaders::use_raster(adapter_info.device_type, requested);
+        let sources = if raster_preview != default_raster {
+            eprintln!("GPU: программный адаптер {} · выбран растровый режим", adapter_info.name);
+            shaders::sources(raster_preview)?
+        } else {
+            sources
+        };
         let adapter_name = format!("{} ({:?})", adapter_info.name, adapter_info.backend);
         eprintln!("GPU: {adapter_name} · создание устройства");
         let anisotropy = if adapter
@@ -1478,13 +1679,15 @@ impl Renderer {
             color: [1.; 4],
         })
         .collect();
+        let floor_geometry =
+            MeshBuffers::upload(&device, &fv, &[0, 1, 2, 0, 2, 3], &[0, 1, 1, 2, 2, 3, 3, 0]);
         let floor = Self::make_draw(
             &device,
             &draw_layout,
-            u64::MAX,
-            &fv,
-            &[0, 1, 2, 0, 2, 3],
-            &[0, 1, 1, 2, 2, 3, 3, 0],
+            Arc::new(floor_geometry),
+            GeometryKey::default(),
+            fv.len(),
+            false,
             64,
         );
         startup_checkpoint(&device,&adapter_name,"интерфейс и частицы").await?;
@@ -1547,6 +1750,8 @@ impl Renderer {
             draw_layout,
             texture_layout,
             draws: HashMap::new(),
+            shared_geometry: HashMap::new(),
+            raster_preview,
             material_parts: Default::default(),
             textures: HashMap::new(),
             material_bindings: HashMap::new(),
@@ -1769,26 +1974,12 @@ impl Renderer {
     fn make_draw(
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
-        mesh_id: u64,
-        vertices: &[GpuVertex],
-        indices: &[u32],
-        lines: &[u32],
+        geometry: Arc<MeshBuffers>,
+        key: GeometryKey,
+        vertex_count: usize,
+        shared: bool,
         joint_bytes: u64,
     ) -> Drawable {
-        let bounds = shadow::MeshBounds::new(vertices);
-        let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("mesh vertices"),
-            contents: bytemuck::cast_slice(vertices),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
-        let indices_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("mesh indices"),
-            contents: bytemuck::cast_slice(indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        let wire_indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("portable wire edges"), contents: bytemuck::cast_slice(lines), usage: wgpu::BufferUsages::INDEX,
-        });
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("object uniform"),
             size: std::mem::size_of::<DrawUniform>() as u64,
@@ -1816,27 +2007,22 @@ impl Renderer {
             ],
         });
         Drawable {
-            mesh_id,
-            vertex_revision: 0,
-            vertex_count: vertices.size() as usize / std::mem::size_of::<GpuVertex>(),
-            index_revision: 0,
-            topology_revision: None,
-            vertices,
-            indices: indices_buffer,
-            wire_indices,
-            wire_count: lines.len() as u32,
-            count: indices.len() as u32,
+            key,
+            vertex_count,
+            geometry,
+            shared,
             uniform,
             joints,
             bind,
-            morph_weights: vec![],
-            bounds,
+            morph_weights: Vec::new(),
+            morph_revisions: Vec::new(),
         }
     }
     fn sync_scene(
         &mut self,
         project: &Project,
         ray_project: &Project,
+        assets: &SceneAssets,
         globals: &BTreeMap<u64, Mat4>,
         view: &View,
         export: bool,
@@ -1848,7 +2034,7 @@ impl Renderer {
         self.fx_masks.sync_gas(&self.queue,&self.fx_gas);
         if self
             .world
-            .sync(&self.device, &self.queue, ray_project, globals, export, export || self.editor_shading >= 2, self.interactive_preview)?
+            .sync(&self.device, &self.queue, ray_project, globals, export, !self.raster_preview && (export || self.editor_shading >= 2), self.interactive_preview)?
         {
             self.shadow_passes.clear();
             self.shadow_map.bind = Self::make_world_bind(
@@ -2102,16 +2288,29 @@ impl Renderer {
                 true,
             )),
         );
-        let live_nodes: std::collections::HashSet<_> = project
-            .nodes
-            .iter()
-            .filter(|n| n.mesh.is_some())
-            .map(|n| n.id)
-            .collect();
+        let mut live_nodes = HashSet::new();
+        let mut seen = HashSet::new();
+        let mut repeated = HashSet::new();
+        for node in &project.nodes {
+            let Some(mesh) = assets.mesh(node) else {
+                continue;
+            };
+            if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+                continue;
+            }
+            live_nodes.insert(node.id);
+            if mesh.morph_targets.is_empty() {
+                let key = GeometryKey::of(mesh);
+                if !seen.insert(key) {
+                    repeated.insert(key);
+                }
+            }
+        }
         self.draws.retain(|id, _| live_nodes.contains(id));
+        self.shared_geometry.retain(|key, _| repeated.contains(key));
         let fallback_material = Material::default();
         for (object_index, node) in project.nodes.iter().enumerate() {
-            let Some(mesh) = node.mesh.and_then(|id| project.mesh(id)) else {
+            let Some(mesh) = assets.mesh(node) else {
                 continue;
             };
             if mesh.vertices.is_empty() || mesh.indices.is_empty() {
@@ -2129,46 +2328,64 @@ impl Renderer {
                 node.skin.as_ref().map_or(0, |skin| skin.joints.len()),
                 &self.device.limits(),
             )?;
-            let replace = self
-                .draws
-                .get(&node.id)
-                .map(|d| {
-                    d.mesh_id != mesh.id
-                        || d.index_revision != mesh.indices.revision()
-                        || d.topology_revision != mesh.topology.as_ref().map(|t| t.faces.revision())
+            let key = GeometryKey::of(mesh);
+            let shared = mesh.morph_targets.is_empty() && repeated.contains(&key);
+            let previous = self.draws.get(&node.id);
+            let new_binding = previous.is_none_or(|d| d.joints.size() != joint_bytes);
+            let replace_geometry = new_binding
+                || previous.is_none_or(|d| {
+                    d.shared != shared
+                        || d.key.indices != key.indices
+                        || d.key.faces != key.faces
                         || d.vertex_count != mesh.vertices.len()
-                        || d.joints.size() != joint_bytes
-                })
-                .unwrap_or(true);
-            if replace {
-                let vertices: Vec<_> = mesh.vertices.iter().copied().map(GpuVertex::from).collect();
-                self.draws.insert(
-                    node.id,
-                    Self::make_draw(
-                        &self.device,
-                        &self.draw_layout,
-                        mesh.id,
-                        &vertices,
-                        &mesh.indices,
-                        &wire_indices((0..mesh.face_count()).filter_map(|face| mesh.face_vertices(face))),
-                        joint_bytes,
-                    ),
-                );
+                        || (shared && d.key != key)
+                });
+            if replace_geometry {
+                let geometry =
+                    if shared {
+                        Arc::clone(self.shared_geometry.entry(key).or_insert_with(|| {
+                            Arc::new(MeshBuffers::from_mesh(&self.device, mesh))
+                        }))
+                    } else {
+                        Arc::new(MeshBuffers::from_mesh(&self.device, mesh))
+                    };
+                if new_binding {
+                    self.draws.insert(
+                        node.id,
+                        Self::make_draw(
+                            &self.device,
+                            &self.draw_layout,
+                            geometry,
+                            key,
+                            mesh.vertices.len(),
+                            shared,
+                            joint_bytes,
+                        ),
+                    );
+                } else {
+                    let draw = self.draws.get_mut(&node.id).unwrap();
+                    draw.geometry = geometry;
+                    draw.vertex_count = mesh.vertices.len();
+                    draw.shared = shared;
+                }
             }
             let draw = self.draws.get_mut(&node.id).unwrap();
-            let geometry_changed = draw.vertex_revision != mesh.vertices.revision();
-            if !replace && geometry_changed && mesh.morph_targets.is_empty() {
-                let vertices: Vec<_> = mesh.vertices.iter().copied().map(GpuVertex::from).collect();
-                self.queue
-                    .write_buffer(&draw.vertices, 0, bytemuck::cast_slice(&vertices));
-                draw.bounds = shadow::MeshBounds::new(&vertices);
-            }
-            draw.vertex_revision = mesh.vertices.revision();
-            draw.index_revision = mesh.indices.revision();
-            draw.topology_revision = mesh.topology.as_ref().map(|t| t.faces.revision());
-            if !mesh.morph_targets.is_empty()
-                && (replace || geometry_changed || draw.morph_weights != node.morph_weights)
-            {
+            let vertices_changed = draw.key.vertices != key.vertices;
+            let morph_changed = !draw.morph_revisions.iter().copied().eq(mesh
+                .morph_targets
+                .iter()
+                .map(|t| (t.positions.revision(), t.normals.revision())));
+            // CPU morphing is per instance. A private buffer can update positions in place.
+            let update_vertices = !shared
+                && if mesh.morph_targets.is_empty() {
+                    !replace_geometry && (vertices_changed || morph_changed)
+                } else {
+                    replace_geometry
+                        || vertices_changed
+                        || morph_changed
+                        || draw.morph_weights != node.morph_weights
+                };
+            if update_vertices {
                 let mut vertices: Vec<_> =
                     mesh.vertices.iter().copied().map(GpuVertex::from).collect();
                 for (target, &w) in mesh.morph_targets.iter().zip(&node.morph_weights) {
@@ -2184,11 +2401,23 @@ impl Renderer {
                         }
                     }
                 }
+                let geometry = Arc::get_mut(&mut draw.geometry).expect("private instance geometry");
                 self.queue
-                    .write_buffer(&draw.vertices, 0, bytemuck::cast_slice(&vertices));
-                draw.bounds = shadow::MeshBounds::new(&vertices);
-                draw.morph_weights = node.morph_weights.clone();
+                    .write_buffer(&geometry.vertices, 0, bytemuck::cast_slice(&vertices));
+                geometry.bounds = shadow::MeshBounds::new(&vertices);
+                draw.morph_weights.clone_from(&node.morph_weights);
+                draw.morph_revisions.clear();
+                draw.morph_revisions.extend(
+                    mesh.morph_targets
+                        .iter()
+                        .map(|t| (t.positions.revision(), t.normals.revision())),
+                );
             }
+            if replace_geometry && mesh.morph_targets.is_empty() {
+                draw.morph_weights.clear();
+                draw.morph_revisions.clear();
+            }
+            draw.key = key;
             let model = globals.get(&node.id).copied().unwrap_or(Mat4::IDENTITY);
             if let Some(skin) = &node.skin {
                 let inv_model = model.inverse();
@@ -2204,10 +2433,7 @@ impl Renderer {
                 self.queue
                     .write_buffer(&draw.joints, 0, bytemuck::cast_slice(&matrices));
             }
-            let material = mesh
-                .material
-                .and_then(|id| project.material(id)).filter(|m| m.visible)
-                .unwrap_or(&fallback_material);
+            let material = assets.material(node).unwrap_or(&fallback_material);
             let mut uniform = make_uniform(model, material, false);
             if let Some(cutoff) = self.material_parts.layer_mask(node.id) { uniform.params[2] = cutoff; }
             uniform.maps[3] = if node.skin.is_some() { 1. } else { 0. };
@@ -2293,6 +2519,7 @@ impl Renderer {
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         project: &Project,
+        assets: &SceneAssets,
         globals: &BTreeMap<u64, Mat4>,
         visible: &[&poseforge_core::Node],
         show_floor: bool,
@@ -2304,7 +2531,7 @@ impl Renderer {
             .filter_map(|node| {
                 self.draws
                     .get(&node.id)
-                    .and_then(|d| d.bounds.world(node, globals))
+                    .and_then(|d| d.geometry.bounds.world(node, globals))
                     .map(|b| (node.id, b))
             })
             .collect();
@@ -2460,11 +2687,7 @@ impl Renderer {
                 {
                     continue;
                 }
-                let material = node
-                    .mesh
-                    .and_then(|id| project.mesh(id))
-                    .and_then(|mesh| mesh.material)
-                    .and_then(|id| project.material(id)).filter(|m| m.visible);
+                let material = assets.material(node);
                 let draw = &self.draws[&node.id];
                 let mirrored = globals
                     .get(&node.id)
@@ -2478,9 +2701,9 @@ impl Renderer {
                     .unwrap_or(&self.default_material);
                 pass.set_bind_group(0, &draw.bind, &[]);
                 pass.set_bind_group(1, binding, &[]);
-                pass.set_vertex_buffer(0, draw.vertices.slice(..));
-                pass.set_index_buffer(draw.indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..draw.count, 0, 0..1);
+                pass.set_vertex_buffer(0, draw.geometry.vertices.slice(..));
+                pass.set_index_buffer(draw.geometry.indices.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..draw.geometry.count, 0, 0..1);
                 self.frame_stats.shadow_draws += 1;
             }
         }
@@ -2518,7 +2741,8 @@ impl Renderer {
                 .iter()
                 .any(|node| node.mesh.is_some() && selected.contains(&node.id));
         let ray_project = self.material_parts.ray_scene();
-        self.sync_scene(project, ray_project.as_deref().unwrap_or(project), globals, view, export, transparent)?;
+        let assets = SceneAssets::new(project);
+        self.sync_scene(project, ray_project.as_deref().unwrap_or(project), &assets, globals, view, export, transparent)?;
         let samples = self.effective_antialiasing(project.render_settings.antialiasing);
         let quality_index = usize::from(samples == 4);
         if self
@@ -2838,7 +3062,10 @@ impl Renderer {
                     usage: wgpu::BufferUsages::VERTEX,
                 })
         });
-        self.frame_stats = FrameStats::default();
+        self.frame_stats = FrameStats {
+            geometry_sets: self.shared_geometry.len() + self.draws.values().filter(|d| !d.shared).count(),
+            ..FrameStats::default()
+        };
         let visible_ids = project.visible_node_ids(export);
         let mut visible: Vec<_> = project
             .nodes
@@ -2846,33 +3073,8 @@ impl Renderer {
             .filter(|n| visible_ids.contains(&n.id))
             .filter(|n| self.draws.contains_key(&n.id))
             .collect();
-        visible.sort_by(|a, b| {
-            let blend = |n: &&poseforge_core::Node| {
-                n.mesh
-                    .and_then(|id| project.mesh(id))
-                    .and_then(|m| m.material)
-                    .and_then(|id| project.material(id)).filter(|m| m.visible)
-                    .map(|m| m.is_transparent())
-                    .unwrap_or(false)
-            };
-            blend(a).cmp(&blend(b)).then_with(|| {
-                let da = globals
-                    .get(&a.id)
-                    .unwrap_or(&Mat4::IDENTITY)
-                    .w_axis
-                    .truncate()
-                    .distance_squared(view.eye);
-                let db = globals
-                    .get(&b.id)
-                    .unwrap_or(&Mat4::IDENTITY)
-                    .w_axis
-                    .truncate()
-                    .distance_squared(view.eye);
-                db.total_cmp(&da)
-            })
-        });
         self.render_shadows(
-            encoder, project, globals, &visible,
+            encoder, project, &assets, globals, &visible,
             false, // The helper grid must never change shadow bounds or receive shadows.
             export,
         );
@@ -2884,15 +3086,18 @@ impl Renderer {
         visible.retain(|node| {
             self.draws
                 .get(&node.id)
-                .and_then(|d| d.bounds.world(node, globals))
+                .and_then(|d| d.geometry.bounds.world(node, globals))
                 .is_none_or(|b| b.intersects_clip(clip))
         });
         self.frame_stats.culled = self.frame_stats.candidates - visible.len();
+        // Only camera-visible objects need sorting. Resolve each key once.
+        visible.sort_by_cached_key(|node| {
+            let transparent = assets.material(node).is_some_and(Material::is_transparent);
+            let position = globals.get(&node.id).unwrap_or(&Mat4::IDENTITY).w_axis.truncate();
+            (transparent, std::cmp::Reverse(position.distance_squared(view.eye).to_bits()))
+        });
         let transmission = visible.iter().any(|node| {
-            node.mesh
-                .and_then(|id| project.mesh(id))
-                .and_then(|m| m.material)
-                .and_then(|id| project.material(id)).filter(|m| m.visible)
+            assets.material(node)
                 .is_some_and(|m| m.uses_transmission())
         });
         let grid_visible = self.editor_appearance.grid_visible(export, transparent);
@@ -2902,10 +3107,7 @@ impl Renderer {
             || fx_count > 0
             || project.render_settings.ambient_occlusion > 0.;
         let transparent_objects = visible.iter().any(|n| {
-            n.mesh
-                .and_then(|id| project.mesh(id))
-                .and_then(|m| m.material)
-                .and_then(|id| project.material(id)).filter(|m| m.visible)
+            assets.material(n)
                 .is_some_and(|m| m.is_transparent())
         });
         for (needed, for_dof) in [
@@ -2960,11 +3162,7 @@ impl Renderer {
             pass.set_viewport(x, y, w, h, 0., 1.);
             pass.set_bind_group(2, &self.shadow_map.bind, &[]);
             for node in &visible {
-                let material = node
-                    .mesh
-                    .and_then(|id| project.mesh(id))
-                    .and_then(|m| m.material)
-                    .and_then(|id| project.material(id)).filter(|m| m.visible);
+                let material = assets.material(node);
                 if !for_dof && material.is_some_and(|m| m.is_transparent()) {
                     continue;
                 }
@@ -2979,9 +3177,9 @@ impl Renderer {
                     .unwrap_or(&self.default_material);
                 pass.set_bind_group(0, &draw.bind, &[]);
                 pass.set_bind_group(1, binding, &[]);
-                pass.set_vertex_buffer(0, draw.vertices.slice(..));
-                pass.set_index_buffer(draw.indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..draw.count, 0, 0..1);
+                pass.set_vertex_buffer(0, draw.geometry.vertices.slice(..));
+                pass.set_index_buffer(draw.geometry.indices.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..draw.geometry.count, 0, 0..1);
                 self.frame_stats.depth_draws += 1;
             }
         }
@@ -3017,11 +3215,7 @@ impl Renderer {
             pass.set_viewport(x, y, w, h, 0., 1.);
             pass.set_bind_group(2, &self.shadow_map.bind, &[]);
             for node in visible.iter().filter(|n| selected.contains(&n.id)) {
-                let material = node
-                    .mesh
-                    .and_then(|id| project.mesh(id))
-                    .and_then(|m| m.material)
-                    .and_then(|id| project.material(id)).filter(|m| m.visible);
+                let material = assets.material(node);
                 let draw = &self.draws[&node.id];
                 let mirrored = globals.get(&node.id).is_some_and(|m| m.determinant() < 0.);
                 let index = usize::from(material.is_some_and(|m| m.double_sided)) * 2
@@ -3033,9 +3227,9 @@ impl Renderer {
                     .unwrap_or(&self.default_material);
                 pass.set_bind_group(0, &draw.bind, &[]);
                 pass.set_bind_group(1, binding, &[]);
-                pass.set_vertex_buffer(0, draw.vertices.slice(..));
-                pass.set_index_buffer(draw.indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..draw.count, 0, 0..1);
+                pass.set_vertex_buffer(0, draw.geometry.vertices.slice(..));
+                pass.set_index_buffer(draw.geometry.indices.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..draw.geometry.count, 0, 0..1);
                 self.frame_stats.depth_draws += 1;
             }
         }
@@ -3103,11 +3297,7 @@ impl Renderer {
             }
             for node in &visible {
                 let draw = &self.draws[&node.id];
-                let material = node
-                    .mesh
-                    .and_then(|id| project.mesh(id))
-                    .and_then(|m| m.material)
-                    .and_then(|id| project.material(id)).filter(|m| m.visible);
+                let material = assets.material(node);
                 if material.is_some_and(|m| m.is_transparent()) != transparent_pass {
                     continue;
                 }
@@ -3128,9 +3318,9 @@ impl Renderer {
                     .unwrap_or(&self.default_material);
                 pass.set_bind_group(0, &draw.bind, &[]);
                 pass.set_bind_group(1, binding, &[]);
-                pass.set_vertex_buffer(0, draw.vertices.slice(..));
-                pass.set_index_buffer(if wire { draw.wire_indices.slice(..) } else { draw.indices.slice(..) }, wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..if wire { draw.wire_count } else { draw.count }, 0, 0..1);
+                pass.set_vertex_buffer(0, draw.geometry.vertices.slice(..));
+                pass.set_index_buffer(if wire { draw.geometry.wire_indices.slice(..) } else { draw.geometry.indices.slice(..) }, wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..if wire { draw.geometry.wire_count } else { draw.geometry.count }, 0, 0..1);
                 self.frame_stats.scene_draws += 1;
             }
         }
@@ -3162,9 +3352,9 @@ impl Renderer {
             pass.set_bind_group(1, &self.default_material, &[]);
             pass.set_bind_group(2, &self.shadow_map.bind, &[]);
             pass.set_bind_group(3, &targets.grid_bind, &[]);
-            pass.set_vertex_buffer(0, self.floor.vertices.slice(..));
-            pass.set_index_buffer(self.floor.indices.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..self.floor.count, 0, 0..1);
+            pass.set_vertex_buffer(0, self.floor.geometry.vertices.slice(..));
+            pass.set_index_buffer(self.floor.geometry.indices.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..self.floor.geometry.count, 0, 0..1);
         }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

@@ -11,7 +11,9 @@ pub(super) enum Kind {
 }
 pub(super) struct Session {
     pub(super) kind: Kind,
-    source: Project,
+    source: Arc<Project>,
+    pick_scene: Option<poseforge_core::EvaluatedScene>,
+    owner_ancestors: BTreeSet<u64>,
     owner: u64,
     selected: Option<u64>,
     selection: BTreeSet<u64>,
@@ -68,18 +70,32 @@ struct BooleanPreview {
     project: Project,
     selection: BTreeSet<u64>,
 }
-fn cutter_is_ancestor(source: &Project, owner: u64, cutter: u64) -> bool {
-    let mut id = source.node(owner).and_then(|n| n.parent);
-    for _ in 0..source.nodes.len() {
-        let Some(parent) = id else {
-            return false;
-        };
-        if parent == cutter {
-            return true;
-        }
-        id = source.node(parent).and_then(|n| n.parent);
+fn owner_ancestors(source: &Project, owner: u64) -> BTreeSet<u64> {
+    let mut parents = BTreeSet::new();
+    if source.node(owner).is_none_or(|n| n.parent.is_none()) {
+        return parents;
     }
-    false
+    let nodes: std::collections::HashMap<_, _> =
+        source.nodes.iter().map(|n| (n.id, n.parent)).collect();
+    let mut current = owner;
+    while let Some(&Some(parent)) = nodes.get(&current) {
+        if !parents.insert(parent) {
+            break;
+        }
+        current = parent;
+    }
+    parents
+}
+
+fn is_boolean_mesh(node: &Node, mesh: Option<&poseforge_core::Mesh>) -> bool {
+    mesh.is_some_and(|m| m.morph_targets.is_empty())
+        && node.skin.is_none()
+        && node.physics.is_none()
+        && node.cable.is_none()
+        && node.curve.is_none()
+        && node.text.is_none()
+        && node.fluid.is_none()
+        && node.destruction.is_none()
 }
 fn build_boolean(
     source: &Project,
@@ -91,71 +107,73 @@ fn build_boolean(
     cleanup: bool,
     cancel: &AtomicBool,
 ) -> Result<BooleanPreview, String> {
-    if targets.is_empty() || targets.len() > 16 {
-        return Err("Выберите от 1 до 16 объектов-резаков".into());
+    use poseforge_core::{BooleanOperation, BooleanOptions};
+    use std::collections::HashMap;
+    if targets.is_empty() {
+        return Err("Добавьте объект-резак в сцене".into());
     }
+    let ancestors = owner_ancestors(source, owner);
     if targets
         .iter()
-        .any(|&id| cutter_is_ancestor(source, owner, id))
+        .any(|id| ancestors.contains(id) || *id == owner)
     {
-        return Err("Родитель исходного объекта не может быть резаком".into());
+        return Err("Исходный объект и его родители не могут быть резаками".into());
     }
-    let evaluated = source.evaluated(None, 0.).map_err(|e| e.to_string())?;
-    let get = |id| {
-        evaluated
-            .modifier_meshes
-            .get(&id)
-            .or_else(|| source.mesh(source.node(id)?.mesh?))
-            .ok_or("Объект больше недоступен".to_string())
-    };
-    let a = get(owner)?;
-    let model = evaluated.global[&owner];
+    let globals = source.global_transforms().map_err(|e| e.to_string())?;
+    let model = globals.get(&owner).ok_or("Исходник удалён")?;
     if model.determinant().abs() < 1e-8 {
         return Err("Восстановите ненулевой масштаб".into());
     }
-    let options = poseforge_core::BooleanOptions {
-        dissolve_coplanar: cleanup,
-    };
-    let run = |a: &poseforge_core::Mesh, b: &poseforge_core::Mesh, transform: Mat4, mode| {
-        poseforge_core::boolean_mesh_with_options(a, b, transform, mode, options, cancel)
-            .map_err(|e| e.to_string())
-    };
-    let mut cutters = a.clone();
-    cutters.vertices = Default::default();
-    cutters.indices = Default::default();
-    cutters.material = None;
-    cutters.topology = Some(poseforge_core::MeshTopology {
-        faces: Default::default(),
-        face_materials: Default::default(),
-        loose_edges: vec![],
-        uv_seams: vec![],
-        primitive: None,
-        smooth_normals: false,
-    });
-    for &id in targets {
-        if id == owner {
-            return Err("Объект не может быть собственным резаком".into());
+    let group_transform = model.inverse() * Mat4::from_translation(Vec3::from_array(offset));
+    let nodes: HashMap<_, _> = source.nodes.iter().map(|node| (node.id, node)).collect();
+    let meshes: HashMap<_, _> = source.meshes.iter().map(|mesh| (mesh.id, mesh)).collect();
+
+    // Only participating modifiers affect this operation. A heavy unrelated stack
+    // must not delay sliding a cutter or prevent a valid pair from being used.
+    let participants: std::collections::HashSet<_> = std::iter::once(owner)
+        .chain(targets.iter().copied())
+        .collect();
+    let mut modified = HashMap::new();
+    for (id, input) in
+        source.prepare_enabled_modifiers(&globals, |node| participants.contains(&node.id))
+    {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Булева операция отменена".into());
         }
-        let transform = model.inverse()
-            * Mat4::from_translation(Vec3::from_array(offset))
-            * evaluated.global[&id];
-        cutters = run(&cutters, get(id)?, transform, BooleanMode::Union)?;
+        let mesh = input
+            .and_then(|stack| stack.evaluate(cancel))
+            .map_err(|e| e.to_string())?;
+        modified.insert(id, mesh);
     }
-    let mut mesh = run(
-        a,
-        &cutters,
-        Mat4::IDENTITY,
-        match mode {
-            0 => BooleanMode::Union,
-            2 => BooleanMode::Intersection,
-            _ => BooleanMode::Difference,
-        },
-    )?;
-    let mut inside = if mode == 3 {
-        Some(run(a, &cutters, Mat4::IDENTITY, BooleanMode::Intersection)?)
-    } else {
-        None
+    let mesh_for = |id: u64| {
+        modified
+            .get(&id)
+            .or_else(|| meshes.get(&nodes.get(&id)?.mesh?).copied())
+            .ok_or_else(|| "Объект больше недоступен".to_string())
     };
+    let cutters: Vec<_> = targets
+        .iter()
+        .map(|&id| Ok((mesh_for(id)?, group_transform * globals[&id])))
+        .collect::<Result<_, String>>()?;
+    let operation = match mode {
+        0 => BooleanOperation::Combine(BooleanMode::Union),
+        2 => BooleanOperation::Combine(BooleanMode::Intersection),
+        3 => BooleanOperation::Split,
+        _ => BooleanOperation::Combine(BooleanMode::Difference),
+    };
+    let (mut mesh, mut inside) = poseforge_core::boolean_mesh_many(
+        mesh_for(owner)?,
+        &cutters,
+        operation,
+        BooleanOptions {
+            dissolve_coplanar: cleanup,
+        },
+        cancel,
+    )
+    .map_err(|e| e.to_string())?;
+    if cancel.load(Ordering::Relaxed) {
+        return Err("Булева операция отменена".into());
+    }
     if mesh.indices.is_empty() && inside.as_ref().is_some_and(|m| !m.indices.is_empty()) {
         mesh = inside.take().unwrap();
     }
@@ -177,8 +195,11 @@ fn build_boolean(
         p.meshes.push(mesh);
     }
     if hide {
-        for &id in targets {
-            p.node_mut(id).ok_or("Резак удалён")?.visible = false;
+        let hidden: std::collections::HashSet<_> = targets.iter().copied().collect();
+        for node in &mut p.nodes {
+            if hidden.contains(&node.id) {
+                node.visible = false;
+            }
         }
     }
     p.validate().map_err(|e| e.to_string())?;
@@ -201,7 +222,7 @@ impl App {
         self.cancel_modeling_live();
         self.cancel_drag();
         self.dismiss_modeling_tool_panel();
-        let source = self.editor.project.clone();
+        let source = Arc::new(self.editor.project.clone());
         let selected = self.editor.selected;
         let selection = self.scene_tools.selected.clone();
         let existing = selected.and_then(|id| {
@@ -223,14 +244,36 @@ impl App {
             };
             id
         };
-        let targets: Vec<_> = selection
-            .iter()
-            .copied()
-            .filter(|&id| {
-                id != owner && self.boolean_candidate(id) && !cutter_is_ancestor(&source, owner, id)
-            })
-            .take(16)
-            .collect();
+        let owner_ancestors = if cable {
+            BTreeSet::new()
+        } else {
+            owner_ancestors(&source, owner)
+        };
+        let mut targets = Vec::new();
+        if !cable && selection.len() > usize::from(selection.contains(&owner)) {
+            let selectable = source.selectable_node_ids();
+            let isolated = (!self.scene_tools.isolated.is_empty())
+                .then(|| source.descendants_of(&self.scene_tools.isolated));
+            let meshes: std::collections::HashMap<_, _> =
+                source.meshes.iter().map(|m| (m.id, m)).collect();
+            for node in &source.nodes {
+                if node.id != owner
+                    && selection.contains(&node.id)
+                    && selectable.contains(&node.id)
+                    && !owner_ancestors.contains(&node.id)
+                    && isolated.as_ref().is_none_or(|ids| ids.contains(&node.id))
+                    && is_boolean_mesh(node, node.mesh.and_then(|id| meshes.get(&id).copied()))
+                {
+                    targets.push(node.id);
+                }
+            }
+            targets.sort_unstable();
+        }
+        let pick_scene = if cable {
+            None
+        } else {
+            self.evaluated_interactive().ok()
+        };
         let needs_target = targets.is_empty();
         let mut settings = existing.map_or_else(CableSettings::default, |v| v.1);
         if existing.is_none() {
@@ -263,6 +306,8 @@ impl App {
         self.construction.session = Some(Session {
             kind: if cable { Kind::Cable } else { Kind::Boolean },
             source,
+            pick_scene,
+            owner_ancestors,
             owner,
             selected,
             selection,
@@ -309,22 +354,11 @@ impl App {
         (s.kind == Kind::Cable).then_some((s.owner, s.cable))
     }
     fn boolean_candidate(&self, id: u64) -> bool {
+        let project = &self.editor.project;
         self.node_selectable(id)
-            && self.editor.project.node(id).is_some_and(|n| {
-                n.mesh.is_some()
-                    && n.skin.is_none()
-                    && n.physics.is_none()
-                    && n.cable.is_none()
-                    && n.curve.is_none()
-                    && n.text.is_none()
-                    && n.fluid.is_none()
-                    && n.destruction.is_none()
-                    && self
-                        .editor
-                        .project
-                        .mesh(n.mesh.unwrap())
-                        .is_some_and(|m| m.morph_targets.is_empty())
-            })
+            && project
+                .node(id)
+                .is_some_and(|n| is_boolean_mesh(n, n.mesh.and_then(|id| project.mesh(id))))
     }
     pub(super) fn construction_action(&mut self, a: C) {
         match a {
@@ -497,37 +531,25 @@ impl App {
         let Some(mut s) = self.construction.session.take() else {
             return;
         };
-        if let Some((_, cancel)) = s.worker.take() {
+        if let Some((_, cancel)) = &s.worker {
             cancel.store(true, Ordering::Relaxed);
         }
         s.error = None;
         s.ready = false;
         if s.kind == Kind::Boolean {
             if !s.targets.is_empty() {
-                let (tx, rx) = mpsc::channel();
-                let cancel = Arc::new(AtomicBool::new(false));
-                let worker = cancel.clone();
-                let source = s.source.clone();
-                let (owner, mode, offset, hide, cleanup) =
-                    (s.owner, s.mode, s.offset, s.hide, s.cleanup);
-                let targets = s.targets.clone();
-                std::thread::spawn(move || {
-                    let result = build_boolean(
-                        &source, owner, &targets, mode, offset, hide, cleanup, &worker,
-                    );
-                    let _ = tx.send(result);
-                });
-                s.worker = Some((rx, cancel));
+                if s.worker.is_none() {
+                    Self::start_boolean_worker(&mut s, self.window.clone());
+                }
                 self.status = "Булева операция · предпросмотр рассчитывается".into();
             } else {
                 self.editor.reset_tool_edit();
-                self.editor.project = s.source.clone();
                 self.editor.selected = Some(s.owner);
                 self.scene_tools.selected = s.selection.clone();
                 s.error = Some("Добавьте объект-резак в сцене".into());
             }
         } else {
-            let mut p = s.source.clone();
+            let mut p = s.source.as_ref().clone();
             let existing = p.node(s.owner).is_some();
             let mesh_id = if existing { p.next_id() } else { s.owner + 2 };
             let material = if existing {
@@ -601,42 +623,75 @@ impl App {
         self.construction.session = Some(s);
         self.redraw();
     }
-    pub(super) fn poll_construction(&mut self) {
-        let result = self
-            .construction
-            .session
-            .as_ref()
-            .and_then(|s| s.worker.as_ref())
-            .map(|(rx, _)| rx.try_recv());
-        match result {
-            Some(Ok(result)) => {
-                let s = self.construction.session.as_mut().unwrap();
-                s.worker = None;
-                match result {
-                    Ok(result) => {
-                        self.editor.reset_tool_edit();
-                        self.editor.project = result.project;
-                        self.editor.selected = Some(s.owner);
-                        s.outputs = result.selection;
-                        self.scene_tools.selected = s.outputs.clone();
-                        s.ready = true;
-                        self.status = "Предпросмотр готов · Применить или Отмена".into();
-                    }
-                    Err(e) => {
-                        s.error = Some(e.clone());
-                        self.status = e;
-                    }
+    fn start_boolean_worker(s: &mut Session, window: Option<Arc<Window>>) {
+        let (tx, rx) = mpsc::channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let worker = cancel.clone();
+        let source = Arc::clone(&s.source);
+        let (owner, mode, offset, hide, cleanup) = (s.owner, s.mode, s.offset, s.hide, s.cleanup);
+        let targets = s.targets.clone();
+        let started = std::thread::Builder::new()
+            .name("boolean-preview".into())
+            .spawn(move || {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    build_boolean(
+                        &source, owner, &targets, mode, offset, hide, cleanup, &worker,
+                    )
+                }))
+                .unwrap_or_else(|_| Err("Расчёт булевой операции прерван".into()));
+                let _ = tx.send(result);
+                // A stationary camera lets the event loop sleep during a tool edit.
+                if let Some(window) = window {
+                    window.request_redraw();
                 }
-                self.invalidate_geometry();
-                self.redraw();
-            }
-            Some(Err(mpsc::TryRecvError::Disconnected)) => {
-                let s = self.construction.session.as_mut().unwrap();
-                s.worker = None;
-                s.error = Some("Расчёт прерван; измените параметр для повтора".into());
-            }
-            _ => {}
+            });
+        match started {
+            Ok(_) => s.worker = Some((rx, cancel)),
+            Err(error) => s.error = Some(format!("Не удалось запустить расчёт: {error}")),
         }
+    }
+
+    pub(super) fn poll_construction(&mut self) {
+        let Some(s) = self.construction.session.as_mut() else {
+            return;
+        };
+        let Some((rx, cancel)) = &s.worker else {
+            return;
+        };
+        let result = match rx.try_recv() {
+            Ok(result) => result,
+            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                Err("Расчёт прерван; измените параметр для повтора".into())
+            }
+        };
+        let superseded = cancel.load(Ordering::Relaxed);
+        s.worker = None;
+        if superseded {
+            // One job at a time. All slider positions received while it was
+            // stopping have already been folded into the current parameters.
+            if !s.targets.is_empty() {
+                Self::start_boolean_worker(s, self.window.clone());
+            }
+            self.redraw();
+            return;
+        }
+        match result {
+            Ok(result) => {
+                self.editor.project = result.project;
+                self.editor.selected = Some(s.owner);
+                s.outputs = result.selection;
+                self.scene_tools.selected = s.outputs.clone();
+                s.ready = true;
+                self.status = "Предпросмотр готов · Применить или Отмена".into();
+            }
+            Err(e) => {
+                s.error = Some(e.clone());
+                self.status = e;
+            }
+        }
+        self.invalidate_geometry();
+        self.redraw();
     }
     pub(super) fn apply_construction(&mut self) {
         if self.input.is_some() && !self.resolve_input() {
@@ -729,25 +784,21 @@ impl App {
             return true;
         };
         if index == 2 {
-            if let Ok(e) = s.source.evaluated(None, 0.) {
+            if let Some(e) = &s.pick_scene {
                 if let Some(hit) = crate::picking::pick_surface(
                     &s.source,
-                    &e,
+                    e,
                     self.view().view_projection(),
                     self.viewport(),
                     self.mouse,
                 ) {
-                    if cutter_is_ancestor(&s.source, s.owner, hit.node) {
+                    if s.owner_ancestors.contains(&hit.node) {
                         self.status = "Родитель исходного объекта не может быть резаком".into();
                         return true;
                     }
                     if hit.node != s.owner && self.boolean_candidate(hit.node) {
                         let s = self.construction.session.as_mut().unwrap();
                         if !s.targets.contains(&hit.node) {
-                            if s.targets.len() >= 16 {
-                                self.status = "Не более 16 резаков за одну операцию".into();
-                                return true;
-                            }
                             s.targets.push(hit.node);
                         }
                         s.pick = None;
@@ -1065,7 +1116,13 @@ impl App {
                 s.pick == Some(2),
             );
             row += 36.;
-            for &id in &s.targets {
+            let first = ((body[1] + scroll - row) / 32.).floor().max(0.) as usize;
+            let end = (((body[1] + scroll + body[3] - row) / 32.).ceil().max(0.) as usize)
+                .min(s.targets.len());
+            let list_y = row;
+            for index in first.min(end)..end {
+                let id = s.targets[index];
+                let row = list_y + index as f32 * 32.;
                 let name = s.source.node(id).map_or("Недоступен", |n| n.name.as_str());
                 u.fitted_label([left + 6., row + 7., width - 38., 20.], name, 11., p.text);
                 u.quiet_icon_button(
@@ -1075,8 +1132,8 @@ impl App {
                     false,
                     Icon::Close,
                 );
-                row += 32.;
             }
+            row += s.targets.len() as f32 * 32.;
             if !s.targets.is_empty() {
                 u.quiet_button(
                     [left, row, width, 26.],

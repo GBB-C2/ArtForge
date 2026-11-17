@@ -228,7 +228,16 @@ impl App {
                 .any(|root| self.is_descendant(id, *root))
     }
     pub(super) fn picking_project(&self) -> std::borrow::Cow<'_, Project> {
-        let mut p = self.editor.project.clone();
+        let project = &self.editor.project;
+        let backfaces = self.preferences.show_backfaces;
+        if self.studio.physics.snapshots.is_empty()
+            && self.scene_tools.isolated.is_empty()
+            && project.materials.iter().all(|m| m.double_sided == backfaces)
+            && (!backfaces || project.meshes.iter().all(|mesh| mesh.material.is_some()))
+        {
+            return std::borrow::Cow::Borrowed(project);
+        }
+        let mut p = project.clone();
         self.apply_viewport_backfaces(&mut p);
         self.apply_physics_preview(&mut p);
         self.isolation_preview(&mut p);
@@ -238,20 +247,31 @@ impl App {
     /// tools. Visible bones win on their silhouette; a skin surface stays its
     /// own object instead of being promoted to its armature parent.
     pub(super) fn pick_viewport_node(&self, eval: &poseforge_core::EvaluatedScene) -> Option<u64> {
-        let preview = self.picking_project();
+        let preview = if self.studio.physics.snapshots.is_empty() && self.scene_tools.isolated.is_empty() {
+            std::borrow::Cow::Borrowed(&self.editor.project)
+        } else {
+            self.picking_project()
+        };
         let view = self.view();
         let viewport = self.viewport();
-        if self.preferences.skeleton {
+        if self.preferences.skeleton && preview.nodes.iter().any(|n| n.is_joint) {
             let bones = crate::bones::BoneOverlay::new(&preview, eval, &view, viewport);
             if let Some(id) = bones.hit(self.mouse) { return Some(id); }
         }
-        let mesh = crate::picking::pick_mesh(&preview, eval, view.view_projection(), viewport, self.mouse);
+        let mesh = crate::picking::pick_viewport_mesh(
+            &preview, eval, view.view_projection(), viewport, self.mouse, self.preferences.show_backfaces,
+        );
         // Invisible parent origins must not steal a mesh's visible surface.
         if self.editor.mode == EditorMode::Scene && mesh.is_some() { return mesh; }
+        let selectable = self.editor.project.selectable_node_ids();
+        let isolated = (!self.scene_tools.isolated.is_empty())
+            .then(|| self.editor.project.descendants_of(&self.scene_tools.isolated));
+        let matrix = view.view_projection();
         let origin = self.editor.project.nodes.iter()
-            .filter(|n| !n.is_joint && !n.shadow_only && self.node_selectable(n.id))
+            .filter(|n| !n.is_joint && !n.shadow_only && selectable.contains(&n.id)
+                && isolated.as_ref().is_none_or(|ids| ids.contains(&n.id)))
             .filter_map(|n| {
-                let p = self.project_point(eval.global.get(&n.id)?.w_axis.truncate())?;
+                let p = Self::project_with_matrix(matrix, viewport, eval.global.get(&n.id)?.w_axis.truncate())?;
                 let distance = (p[0]-self.mouse[0]).hypot(p[1]-self.mouse[1]);
                 (distance < 16.).then_some((distance, n.id))
             })

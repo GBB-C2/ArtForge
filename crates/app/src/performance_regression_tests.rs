@@ -97,3 +97,47 @@ fn large_scene_cpu_benchmark() {
         println!("rounded_controls=500 scale={scale} rounded_ms={elapsed:.3}");
     }
 }
+
+// Exercise real mesh picking, including a background click that falls through to object origins.
+#[test]
+#[ignore = "manual CPU benchmark for populated scenes; no timing thresholds"]
+fn populated_scene_cpu_benchmark() {
+    use poseforge_core::{PrimitiveKind, PrimitiveSettings};
+    for count in [1_000, 5_000] {
+        let mut app = large_scene(count);
+        let mesh = PrimitiveSettings::new(PrimitiveKind::Cube)
+            .mesh(count as u64 + 1, None)
+            .unwrap();
+        for (i, node) in app.editor.project.nodes.iter_mut().enumerate() {
+            let mut asset = mesh.clone();
+            asset.id += i as u64;
+            node.mesh = Some(asset.id);
+            if i != 0 {
+                node.transform.translation =
+                    Vec3::new(500. + (i % 100) as f32 * 3., (i / 100) as f32 * 3., 0.);
+            }
+            app.editor.project.meshes.push(asset);
+        }
+        app.target = Vec3::ZERO;
+        app.distance = 10.;
+        app.yaw = 0.;
+        app.pitch = 0.;
+        let eval = app.evaluated_interactive().unwrap();
+        let center = app.project_point(Vec3::ZERO).unwrap();
+        app.mouse = center;
+        let pick = measure(|| {
+            assert_eq!(black_box(app.pick_viewport_node(&eval)), Some(1));
+        });
+        app.mouse = [center[0] - 150., center[1] - 120.];
+        let miss = measure(|| {
+            assert_eq!(black_box(app.pick_viewport_node(&eval)), None);
+        });
+        let modifiers = measure(|| {
+            app.tick_modifiers();
+        });
+        let ui = measure(|| {
+            black_box(app.build_ui());
+        });
+        println!("models={count} pick_ms={pick:.3} empty_ms={miss:.3} idle_modifiers_ms={modifiers:.3} ui_ms={ui:.3}");
+    }
+}

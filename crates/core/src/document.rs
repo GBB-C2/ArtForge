@@ -2,7 +2,7 @@ use crate::animation::{Clip, EvaluatedScene};
 use crate::humanoid::RigProfile;
 use glam::{Mat4, Quat, Vec3};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use thiserror::Error;
 
 pub type NodeId = u64;
@@ -975,16 +975,17 @@ impl Project {
         if !(1..=240).contains(&self.fps) || !self.duration.is_finite() || self.duration < 0. {
             return Err(invalid("частота или длительность проекта"));
         }
-        for (kind, ids) in [
-            (
-                "объекты",
-                self.nodes.iter().map(|x| x.id).collect::<Vec<_>>(),
-            ),
-            ("геометрия", self.meshes.iter().map(|x| x.id).collect()),
-            ("материалы", self.materials.iter().map(|x| x.id).collect()),
-            ("текстуры", self.textures.iter().map(|x| x.id).collect()),
+        let nodes: HashMap<_, _> = self.nodes.iter().map(|n| (n.id, n)).collect();
+        let meshes: HashMap<_, _> = self.meshes.iter().map(|m| (m.id, m)).collect();
+        let materials: HashSet<_> = self.materials.iter().map(|m| m.id).collect();
+        let textures: HashMap<_, _> = self.textures.iter().map(|t| (t.id, t)).collect();
+        for (kind, unique, count) in [
+            ("объекты", nodes.len(), self.nodes.len()),
+            ("геометрия", meshes.len(), self.meshes.len()),
+            ("материалы", materials.len(), self.materials.len()),
+            ("текстуры", textures.len(), self.textures.len()),
         ] {
-            if ids.iter().copied().collect::<BTreeSet<_>>().len() != ids.len() {
+            if unique != count {
                 return Err(CoreError::Invalid(format!("повторяющиеся ID: {kind}")));
             }
         }
@@ -994,8 +995,7 @@ impl Project {
         let globals = self.global_transforms()?;
         if self.lights.iter().any(|l| l.curve_binding.is_some()) { self.evaluated_lights(&globals, 0.)?; }
         self.validate_scene_cameras()?;
-        self.validate_collections()?;
-        let node_ids: BTreeSet<_> = self.nodes.iter().map(|n| n.id).collect();
+        self.validate_collections(|id| nodes.contains_key(&id))?;
         let mut skin_matrices = 0usize;
         for n in &self.nodes {
             if n.bone_display.is_some_and(|display| !display.is_valid()) {
@@ -1014,7 +1014,7 @@ impl Project {
                 return Err(CoreError::Invalid(format!("трансформация {}", n.name)));
             }
             if let Some(m) = n.mesh {
-                if self.mesh(m).is_none() {
+                if !meshes.contains_key(&m) {
                     return Err(invalid("отсутствует геометрия объекта"));
                 }
             }
@@ -1023,14 +1023,14 @@ impl Project {
             }
             let mut layer_ids = BTreeSet::new();
             for layer in &n.material_layers {
-                if self.material(layer.material).is_none() || !layer_ids.insert(layer.material) {
+                if !materials.contains(&layer.material) || !layer_ids.insert(layer.material) {
                     return Err(invalid("Отсутствующий или повторный материал слоя"));
                 }
             }
             if n.morph_weights.iter().any(|v| !v.is_finite()) {
                 return Err(invalid("нечисловой morph weight"));
             }
-            if let Some(mesh) = n.mesh.and_then(|id| self.mesh(id)) {
+            if let Some(mesh) = n.mesh.and_then(|id| meshes.get(&id).copied()) {
                 if !n.morph_weights.is_empty() && n.morph_weights.len() != mesh.morph_targets.len()
                 {
                     return Err(invalid("число morph weights не соответствует геометрии"));
@@ -1048,11 +1048,11 @@ impl Project {
                     return Err(invalid("Суммарные матрицы skin превышают бюджет 64 МиБ"));
                 }
                 for (j, ibm) in skin.joints.iter().zip(&skin.inverse_bind_matrices) {
-                    if !node_ids.contains(j) || !ibm.is_finite() {
+                    if !nodes.contains_key(j) || !ibm.is_finite() {
                         return Err(invalid("сустав skin или inverse bind matrix"));
                     }
                 }
-                if let Some(mesh) = n.mesh.and_then(|id| self.mesh(id)) {
+                if let Some(mesh) = n.mesh.and_then(|id| meshes.get(&id).copied()) {
                     for v in &mesh.vertices {
                         for i in 0..4 {
                             if v.weights[i] > 0. && v.joints[i] as usize >= skin.joints.len() {
@@ -1071,7 +1071,7 @@ impl Project {
                 return Err(invalid("индексы треугольников"));
             }
             for id in m.assigned_materials() {
-                if self.material(id).is_none() {
+                if !materials.contains(&id) {
                     return Err(invalid("отсутствует материал"));
                 }
             }
@@ -1127,7 +1127,7 @@ impl Project {
         let mut video_bytes = 0usize;
         for video in &self.video_textures {
             video.validate()?;
-            if !video_ids.insert(video.texture) || self.textures.iter().find(|t| t.id == video.texture)
+            if !video_ids.insert(video.texture) || textures.get(&video.texture)
                 .is_none_or(|t| t.width != video.width || t.height != video.height) {
                 return Err(invalid("Отсутствует или повторяется текстура видео"));
             }
@@ -1210,7 +1210,7 @@ impl Project {
             .into_iter()
             .flatten()
             {
-                if !self.textures.iter().any(|t| t.id == id) {
+                if !textures.contains_key(&id) {
                     return Err(invalid("отсутствует текстура материала"));
                 }
             }
@@ -1222,7 +1222,7 @@ impl Project {
             if pose
                 .transforms
                 .iter()
-                .any(|(id, t)| self.node(*id).is_none() || !t.is_valid())
+                .any(|(id, t)| !nodes.contains_key(id) || !t.is_valid())
             {
                 return Err(invalid("повреждённая сохранённая поза"));
             }
@@ -1245,7 +1245,7 @@ impl Project {
         for light in &self.lights {
             if light
                 .target
-                .is_some_and(|t| !t.local_center.is_finite() || self.node(t.node).is_none())
+                .is_some_and(|t| !t.local_center.is_finite() || !nodes.contains_key(&t.node))
             {
                 return Err(invalid("Некорректная цель источника света"));
             }
@@ -1291,17 +1291,17 @@ impl Project {
         for n in &self.nodes {
             if let Some(settings) = n.destruction {
                 settings.validate()?;
-                if settings.interior_material.is_some_and(|id| self.material(id).is_none()) {
+                if settings.interior_material.is_some_and(|id| !materials.contains(&id)) {
                     return Err(invalid("материал внутренних граней разрушения отсутствует"));
                 }
                 if n.mesh.is_none() || n.fluid.is_some() || n.physics.is_some() || n.skin.is_some() {
                     return Err(invalid("разрушение требует отдельный меш без жидкости, ткани и skin"));
                 }
                 if let Some(root) = settings.result {
-                    if root == n.id || self.node(root).is_none() || !destruction_results.insert(root) {
+                    if root == n.id || !nodes.contains_key(&root) || !destruction_results.insert(root) {
                         return Err(invalid("результат разрушения отсутствует или назначен нескольким объектам"));
                     }
-                    let result = self.node(root).unwrap();
+                    let result = nodes[&root];
                     if result.mesh.is_some() || result.camera.is_some() || result.destruction.is_some() {
                         return Err(invalid("результат разрушения должен быть отдельной группой"));
                     }
@@ -1314,14 +1314,14 @@ impl Project {
                             if id == forbidden || !seen.insert(id) {
                                 return Err(invalid("исходник и осколки не могут быть вложены друг в друга"));
                             }
-                            cursor = self.node(id).and_then(|node| node.parent);
+                            cursor = nodes.get(&id).and_then(|node| node.parent);
                         }
                     }
                 }
             }
             if let Some(settings) = n.fluid {
                 settings.validate()?;
-                let mesh = n.mesh.and_then(|id| self.mesh(id))
+                let mesh = n.mesh.and_then(|id| meshes.get(&id).copied())
                     .ok_or_else(|| invalid("контейнер жидкости требует меш"))?;
                 if n.physics.is_some() || n.skin.is_some() || !mesh.morph_targets.is_empty() {
                     return Err(invalid("контейнер жидкости: без ткани, skin и morph"));
@@ -1338,7 +1338,7 @@ impl Project {
             if let Some(cable)=n.cable {cable.validate()?;if n.mesh.is_none(){return Err(invalid("кабель требует меш"));}}
             if let Some(settings) = n.physics {
                 settings.validate()?;
-                let Some(mesh) = n.mesh.and_then(|id| self.mesh(id)) else {
+                let Some(mesh) = n.mesh.and_then(|id| meshes.get(&id).copied()) else {
                     return Err(invalid("физика требует меш"));
                 };
                 if settings.kind != crate::PhysicsKind::Collider
@@ -1403,7 +1403,7 @@ impl Project {
                     .nodes
                     .iter()
                     .filter_map(|n| n.texture)
-                    .any(|id| !self.textures.iter().any(|t| t.id == id))
+                    .any(|id| !textures.contains_key(&id))
                 {
                     return Err(invalid("изображение узла материала отсутствует"));
                 }

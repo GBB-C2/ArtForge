@@ -2366,6 +2366,7 @@ fn frustum_culling_reduces_draws_without_changing_pixels_or_leaking_unused_glass
     let baseline = material_picture(&mut renderer, &project, &view, "cull-baseline");
     let base = renderer.frame_stats();
     assert_eq!(base.scene_draws, 1);
+    assert_eq!(base.geometry_sets, 1);
     assert!(!base.depth_prepass);
     project.materials.push(Material {
         id: 900,
@@ -2373,7 +2374,7 @@ fn frustum_culling_reduces_draws_without_changing_pixels_or_leaking_unused_glass
         alpha_mode: AlphaMode::Blend,
         ..Material::default()
     });
-    for index in 0..32 {
+    for index in 0..1000 {
         let mut n = Node::new(1000 + index, "Outside");
         n.mesh = Some(2);
         n.transform.translation = Vec3::new(100. + index as f32 * 2., 0., 0.);
@@ -2382,15 +2383,18 @@ fn frustum_culling_reduces_draws_without_changing_pixels_or_leaking_unused_glass
     let actual = material_picture(&mut renderer, &project, &view, "cull-outside");
     assert_eq!(baseline, actual);
     let stats = renderer.frame_stats();
-    assert_eq!(stats.candidates, 33);
-    assert_eq!(stats.culled, 32);
+    assert_eq!(stats.geometry_sets, 1);
+    assert_eq!(stats.candidates, 1001);
+    assert_eq!(stats.culled, 1000);
     assert_eq!(stats.scene_draws, 1);
     assert!(!stats.depth_prepass && !stats.refraction_copy);
     project.nodes.last_mut().unwrap().transform.translation = Vec3::new(0.1, 0., 0.);
     let _ = material_picture(&mut renderer, &project, &view, "cull-enter");
     assert_eq!(renderer.frame_stats().scene_draws, 2);
     project.render_settings.atmosphere.density = 0.03;
-    for light in &mut project.lights { light.volume.enabled = true; }
+    let mut light = poseforge_core::Light::default();
+    light.volume.enabled = true;
+    project.lights.push(light);
     let _ = material_picture(&mut renderer, &project, &view, "cull-fog");
     assert!(renderer.frame_stats().depth_prepass);
     assert_eq!(renderer.frame_stats().depth_draws, 2);

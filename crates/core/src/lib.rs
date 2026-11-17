@@ -7,7 +7,7 @@ mod mesh_density;
 mod boolean;
 mod cable;
 pub use cable::{CableKind,CableSettings};
-pub use boolean::{boolean_mesh, boolean_mesh_with_options, BooleanMode, BooleanOptions};
+pub use boolean::{boolean_mesh, boolean_mesh_many, boolean_mesh_with_options, BooleanMode, BooleanOperation, BooleanOptions};
 pub use authoring::*;
 pub mod camera;
 pub mod studio;

@@ -917,6 +917,8 @@ pub(super) fn build_geometry_cancellable(project: &Project, globals: &BTreeMap<u
         .enumerate()
         .map(|(i, m)| (m.id, if m.visible { i as f32 + 1. } else { 0. }))
         .collect();
+    let meshes: HashMap<_, _> = project.meshes.iter().map(|m| (m.id, m)).collect();
+    let mut volume_signs = HashMap::new();
     let mut layer_indices = HashMap::new();
     let mut next = project.materials.len() + 1;
     for (node, chain) in layer_chains(project) { layer_indices.insert(node, next as f32); next += chain.len(); }
@@ -927,12 +929,17 @@ pub(super) fn build_geometry_cancellable(project: &Project, globals: &BTreeMap<u
         if !visible_ids.contains(&node.id) {
             continue;
         }
-        let Some(mesh) = node.mesh.and_then(|id| project.mesh(id)) else { continue; };
+        let Some(mesh) = node.mesh.and_then(|id| meshes.get(&id).copied()) else { continue; };
         if triangles.len() + mesh.indices.len() / 3 > MAX_TRIANGLES {
             return Err("Трассировка поддерживает до 1 000 000 видимых треугольников. Отключите лучевые эффекты или упростите сцену.".into());
         }
         let model = globals.get(&node.id).copied().unwrap_or(Mat4::IDENTITY);
-        let volume = closed_volume_sign_cancellable(mesh, cancel)? * model.determinant().signum();
+        let key = (mesh.vertices.revision(), mesh.indices.revision());
+        let sign = match volume_signs.entry(key) {
+            std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+            std::collections::hash_map::Entry::Vacant(entry) => *entry.insert(closed_volume_sign_cancellable(mesh, cancel)?),
+        };
+        let volume = sign * model.determinant().signum();
         let normal_model = if model.determinant().abs() > 1e-8 { model.inverse().transpose() } else { Mat4::IDENTITY };
         let palette: Vec<Mat4> = node
             .skin

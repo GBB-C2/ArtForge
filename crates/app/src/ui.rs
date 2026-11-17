@@ -1060,7 +1060,7 @@ impl Action {
 
     /// Contextual status-bar help. Keep shortcuts aligned with App::keyboard.
     pub fn hint(&self) -> Option<&'static str> {
-        if let Self::Construction(a)=self {return Some(match a {ConstructionAction::Boolean=>"Объединение, вычитание, пересечение или разделение · до 16 резаков",ConstructionAction::Cable=>"Создать кабель с закрепляемыми концами, физикой и столкновениями",ConstructionAction::Mirror=>"Зеркальная копия выбранной геометрии",
+        if let Self::Construction(a)=self {return Some(match a {ConstructionAction::Boolean=>"Объединение, вычитание, пересечение или разделение выбранными резаками",ConstructionAction::Cable=>"Создать кабель с закрепляемыми концами, физикой и столкновениями",ConstructionAction::Mirror=>"Зеркальная копия выбранной геометрии",
             ConstructionAction::BooleanCleanup=>"Объединять плоские фрагменты с сохранением отверстий и разрывов UV",
             ConstructionAction::RemoveCutter(_)=>"Убрать резак из операции; сам объект останется в сцене",
             ConstructionAction::ClearCutters=>"Вернуть исходную форму и выбрать другие резаки",

@@ -257,6 +257,7 @@ impl SliderRange {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DropdownKind {
+    CableType,
     Alignment,
     SnapMode,
     KnifeAngle,
@@ -428,6 +429,8 @@ pub enum MeshSelection {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConstructionAction {
+    RemoveCutter(u64),ClearCutters,BooleanCleanup,
+    CableType(u8),CableTab(u8),CablePreset(u8),CableCaps,SwapEnds,
     Boolean,Cable,Mirror,Mode(u8),Pick(u8),Pin(u8),Field(u8),Handle(u8),Collisions,Hide,Play,Apply,Cancel,Panel,Collapse,Backdrop,Scroll,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1057,7 +1060,16 @@ impl Action {
 
     /// Contextual status-bar help. Keep shortcuts aligned with App::keyboard.
     pub fn hint(&self) -> Option<&'static str> {
-        if let Self::Construction(a)=self {return Some(match a {ConstructionAction::Boolean=>"Объединить, вычесть или пересечь два замкнутых объекта",ConstructionAction::Cable=>"Создать кабель с закрепляемыми концами, физикой и столкновениями",ConstructionAction::Mirror=>"Зеркальная копия выбранной геометрии",ConstructionAction::Handle(_)=>"Потяните конец кабеля · Esc отменяет движение",_=>"Предпросмотр · Enter — применить · Esc — отменить"});}
+        if let Self::Construction(a)=self {return Some(match a {ConstructionAction::Boolean=>"Объединение, вычитание, пересечение или разделение · до 16 резаков",ConstructionAction::Cable=>"Создать кабель с закрепляемыми концами, физикой и столкновениями",ConstructionAction::Mirror=>"Зеркальная копия выбранной геометрии",
+            ConstructionAction::BooleanCleanup=>"Объединять плоские фрагменты с сохранением отверстий и разрывов UV",
+            ConstructionAction::RemoveCutter(_)=>"Убрать резак из операции; сам объект останется в сцене",
+            ConstructionAction::ClearCutters=>"Вернуть исходную форму и выбрать другие резаки",
+            ConstructionAction::CablePreset(_)=>"Задать поведение физики; форма и закреплённые концы сохраняются",
+            ConstructionAction::CableCaps=>"Создать крышки на обоих концах каждой жилы",
+            ConstructionAction::SwapEnds=>"Поменять начало и конец вместе с закреплением",
+            ConstructionAction::Field(16)=>"Количество витков; отрицательное значение меняет направление скручивания",
+            ConstructionAction::Field(23)=>"Дополнительный отступ кабеля от препятствий",
+            ConstructionAction::Handle(_)=>"Потяните конец кабеля · Esc отменяет движение",_=>"Предпросмотр · Enter — применить · Esc — отменить"});}
         match self {
             Self::ModelingTool(tool) => Some(tool.title()),
             Self::Author(AuthorAction::SelectAll) => Some("Выбрать все компоненты · A"),
@@ -1125,6 +1137,7 @@ impl Action {
             Self::DropdownOpen(DropdownKind::MaterialCreate) => Some("Создать и назначить материал"),
             Self::DropdownOpen(DropdownKind::SceneFilter) => Some("Фильтр объектов: меши, кости, освещение, камеры"),
             Self::SceneTool(SceneTool::NewCollection) => Some("Создать папку с выделенными объектами"),
+            Self::DropdownOpen(DropdownKind::CableType) => Some("Выбрать сечение и конструкцию кабеля"),
             Self::DropdownOpen(DropdownKind::Accent) => Some("Цвет акцента интерфейса · ↑/↓ и Enter"),
             Self::DropdownOpen(DropdownKind::MaterialLibrary) => Some("Библиотека материалов · выбор и перетаскивание · Alt+↓"),
             Self::DropdownOpen(DropdownKind::AssetLibrary) => Some("Библиотека · категории, поиск и миниатюры"),

@@ -549,7 +549,7 @@ impl App {
         let integer = matches!(
             drag.action,
             Action::Author(ui::AuthorAction::ToolField(2) | ui::AuthorAction::SubdivideCount | ui::AuthorAction::BridgeSegments | ui::AuthorAction::BridgeTwist)
-                | Action::Construction(crate::ui::ConstructionAction::Field(7))
+                | Action::Construction(crate::ui::ConstructionAction::Field(7|13|15|18|30))
                 | Action::EditFps
                 | Action::EditWidth
                 | Action::EditHeight

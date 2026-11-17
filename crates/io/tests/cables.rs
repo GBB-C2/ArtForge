@@ -55,3 +55,76 @@ fn schema_45_loads_with_no_cable_and_without_rewriting() {
     assert!(loaded.nodes.iter().all(|n| n.cable.is_none()));
     assert_eq!(std::fs::read(file).unwrap(), bytes);
 }
+
+#[test]
+fn all_cable_profiles_and_extended_settings_roundtrip() {
+    for kind in CableKind::ALL {
+        let settings = CableSettings {
+            kind,
+            strands: 5,
+            turns: -9.,
+            spread: 0.2,
+            groove: 0.6,
+            ribs: 30,
+            width: 0.4,
+            thickness: 0.06,
+            taper: 0.5,
+            rotation: 25.,
+            uv_repeat: 6.,
+            collision_margin: 0.02,
+            ..Default::default()
+        };
+        let mut node = Node::new(1, "Кабель");
+        node.cable = Some(settings);
+        node.mesh = Some(2);
+        node.physics = Some(PhysicsSettings {
+            kind: PhysicsKind::Cable,
+            ..Default::default()
+        });
+        let p = Project {
+            nodes: vec![node],
+            meshes: vec![settings.mesh(2, None).unwrap()],
+            ..Default::default()
+        };
+        let d = tempfile::tempdir().unwrap();
+        let file = d.path().join("profile.artforge");
+        save_project(&p, &file).unwrap();
+        assert_eq!(load_project(&file).unwrap(), p);
+    }
+}
+#[test]
+fn schema_46_cable_gets_round_profile_defaults_without_rewriting() {
+    let settings = CableSettings::default();
+    let mut node = Node::new(1, "Кабель");
+    node.cable = Some(settings);
+    node.mesh = Some(2);
+    let p = Project {
+        nodes: vec![node],
+        meshes: vec![settings.mesh(2, None).unwrap()],
+        ..Default::default()
+    };
+    let mut old = serde_json::to_value(&p).unwrap();
+    old["version"] = 46.into();
+    old["nodes"][0]["cable"]
+        .as_object_mut()
+        .unwrap()
+        .retain(|k, _| {
+            [
+                "start",
+                "end",
+                "radius",
+                "segments",
+                "sides",
+                "sag",
+                "pin_start",
+                "pin_end",
+            ]
+            .contains(&k.as_str())
+        });
+    let bytes = serde_json::to_vec(&old).unwrap();
+    let d = tempfile::tempdir().unwrap();
+    let file = d.path().join("legacy.artforge");
+    std::fs::write(&file, &bytes).unwrap();
+    assert_eq!(load_project(&file).unwrap(), p);
+    assert_eq!(std::fs::read(file).unwrap(), bytes);
+}

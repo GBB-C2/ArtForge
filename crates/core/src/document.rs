@@ -7,7 +7,7 @@ use thiserror::Error;
 
 pub type NodeId = u64;
 pub type AssetId = u64;
-pub const SCHEMA_VERSION: u32 = 46;
+pub const SCHEMA_VERSION: u32 = 47;
 /// Every enabled light is evaluated by the realtime renderer. Disabled lights
 /// remain in the document without consuming a GPU light slot.
 pub const MAX_ENABLED_LIGHTS: usize = 8;
@@ -1344,7 +1344,7 @@ impl Project {
                 if settings.kind != crate::PhysicsKind::Collider
                     && (n.skin.is_some()
                         || !mesh.morph_targets.is_empty()
-                        || mesh.vertices.len() > 8192)
+                        || (settings.kind != crate::PhysicsKind::Cable && mesh.vertices.len() > 8192))
                 {
                     return Err(invalid("ткань и мышца: до 8192 вершин, без skin/morph"));
                 }

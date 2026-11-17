@@ -114,3 +114,49 @@ fn a_thin_obstacle_catches_the_interior_of_a_cable_segment() {
         w.positions
     );
 }
+
+#[test]
+fn cable_bending_is_independent_of_stretch_stiffness() {
+    let p: Vec<_> = (0..=24)
+        .map(|i| {
+            Vec3::new(
+                i as f32 * 0.1,
+                3. - 0.15 * (i as f32 / 24. * std::f32::consts::PI).sin(),
+                0.,
+            )
+        })
+        .collect();
+    let mut stiff = DeformWorld::cable(p.clone(), true, true).unwrap();
+    let mut soft = stiff.clone();
+    let mut cfg = config();
+    cfg.compliance = 0.;
+    cfg.bending = 1.;
+    for _ in 0..240 {
+        stiff.step(cfg, &[]);
+        let mut other = cfg;
+        other.bending = 100.;
+        soft.step(other, &[]);
+    }
+    assert!(
+        soft.positions[12].y < stiff.positions[12].y - 0.005,
+        "{} vs {}",
+        soft.positions[12].y,
+        stiff.positions[12].y
+    );
+    assert_eq!(stiff.positions[0], p[0]);
+    assert_eq!(soft.positions[24], p[24]);
+}
+#[test]
+fn high_detail_centerlines_stay_finite_and_pinned() {
+    let p: Vec<_> = (0..=512)
+        .map(|i| Vec3::new(i as f32 * 0.01, 3., 0.))
+        .collect();
+    let mut world = DeformWorld::cable(p.clone(), true, true).unwrap();
+    for _ in 0..12 {
+        world.step(config(), &[]);
+    }
+    assert_eq!(world.positions.len(), 513);
+    assert!(world.positions.iter().all(|p| p.is_finite()));
+    assert_eq!(world.positions[0], p[0]);
+    assert_eq!(world.positions[512], p[512]);
+}

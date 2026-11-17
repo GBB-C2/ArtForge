@@ -13,6 +13,7 @@ use winit::{
 
 #[derive(Clone)]
 enum Target {
+    Cable(u64,poseforge_core::CableSettings),
     CameraEffects { node: u64, effects: poseforge_core::CameraEffects },
     Scene,
     Bone(Vec<poseforge_core::Node>),
@@ -122,6 +123,7 @@ fn labels(kind: DropdownKind, project: &poseforge_core::Project) -> Vec<String> 
             .map(|n|format!("{} · №{}",n.name,n.id)).collect();
     }
     let items = match kind {
+        DropdownKind::CableType=>poseforge_core::CableKind::ALL.into_iter().map(|k|k.label()).collect(),
         DropdownKind::CameraEffectAdd => poseforge_core::CameraEffects::LABELS.to_vec(),
         DropdownKind::ModifierTarget(..) | DropdownKind::ArrayCurve(..) => unreachable!(),
         DropdownKind::ArrayMode(..)=>vec!["Линейный массив","По окружности","Вдоль кривой"],
@@ -247,6 +249,7 @@ impl App {
     pub(super) fn dropdown_selected(&self, kind: DropdownKind) -> Option<usize> {
         let settings = self.editor.project.render_settings;
         match kind {
+            DropdownKind::CableType=>self.cable_dropdown_target().and_then(|(_,s)|poseforge_core::CableKind::ALL.iter().position(|&k|k==s.kind)),
             DropdownKind::SnapMode=>Some(self.authoring.snapping.mode as usize),
             DropdownKind::KnifeAngle=>Some(self.authoring.knife_angle as usize),
             DropdownKind::RepairKind=>Some(self.authoring.repair_kind as usize),
@@ -419,6 +422,7 @@ impl App {
         match &dropdown.target {
             Target::CameraEffects {node,effects} => self.surface.tab==0 && self.camera_effect_editable()
                 && self.selected_camera_effects()==Some((*node,*effects)),
+            Target::Cable(id,settings)=>self.cable_dropdown_target()==Some((*id,*settings)),
             Target::Scene => true,
             Target::Array {node,modifier,curves}=>self.surface.tab==8 && self.editor.selected==Some(node.id) && self.modifier_editable(node.id)
                 && self.editor.project.node(node.id)==Some(node) && self.selected_modifier().is_some_and(|(owner,m)|owner==node.id && m.id==*modifier)
@@ -523,6 +527,7 @@ impl App {
             return;
         };
         let target = match kind {
+            DropdownKind::CableType=>{let Some((id,s))=self.cable_dropdown_target()else{return;};Target::Cable(id,s)},
             DropdownKind::CameraEffectAdd => {
                 if self.surface.tab!=0 || !self.camera_effect_editable() {return;}
                 let Some((node,effects))=self.selected_camera_effects() else {return;};
@@ -662,6 +667,7 @@ impl App {
             return;
         }
         let action = match dropdown.kind {
+            DropdownKind::CableType=>(index<poseforge_core::CableKind::ALL.len()).then_some(Action::Construction(crate::ui::ConstructionAction::CableType(index as u8))),
             DropdownKind::CameraEffectAdd => (index<7).then_some(Action::CameraTool(crate::ui::CameraTool::AddEffect(index+4))),
             DropdownKind::ArrayMode(node,id)=>(index<3).then_some(Action::Modifier(crate::ui::ModifierAction::ArrayMode(node,id,index as u8))),
             DropdownKind::ArrayCurve(node,id)=>match &dropdown.target {Target::Array {curves,..}=> {

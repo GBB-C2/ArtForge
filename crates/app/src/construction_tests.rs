@@ -205,6 +205,11 @@ fn construction_cable_sliders_handles_and_scroll_keep_cancel_atomic() {
         let id = a.editor.selected.unwrap();
         let initial = a.editor.project.clone();
         for index in [6, 7, 8, 9] {
+            a.action(Action::Construction(C::CableTab(if index == 9 {
+                2
+            } else {
+                0
+            })));
             a.ui = a.build_ui();
             let r=a.ui.hits.iter().find(|h|matches!(&h.action,Action::Slide(f,..) if **f==Action::Construction(C::Field(index)))).unwrap().rect;
             let p = [r[0] + r[2] * 0.4, r[1] + r[3] * 0.5];
@@ -239,6 +244,7 @@ fn construction_cable_sliders_handles_and_scroll_keep_cancel_atomic() {
         let panel = a.construction_rect().unwrap();
         let area = a.modeling_area();
         assert!(panel[0] >= area[0] && panel[0] + panel[2] <= area[0] + area[2]);
+        a.action(Action::Construction(C::CableTab(2)));
         a.width = 900.;
         a.height = 540.;
         a.ui = a.build_ui();
@@ -320,15 +326,66 @@ fn construction_capture_ui() {
     std::fs::create_dir_all(&dir).unwrap();
     for theme in [ui::Theme::Dark, ui::Theme::Light] {
         for (width, height) in [(1440., 1000.), (900., 620.)] {
-            for name in ["cable", "boolean", "mirror", "density"] {
-                let mut a = app();
+            for name in [
+                "cable",
+                "cable-ribbon",
+                "cable-twisted",
+                "cable-coiled",
+                "cable-corrugated",
+                "cable-bundle",
+                "cable-ends",
+                "cable-physics",
+                "cable-menu",
+                "boolean",
+                "boolean-split",
+                "mirror",
+                "density",
+            ] {
+                let mut a = if name == "boolean-split" {
+                    two_cutters()
+                } else {
+                    app()
+                };
                 a.width = width;
                 a.height = height;
                 a.preferences.theme = theme;
                 match name {
-                    "cable" => a.action(Action::Construction(C::Cable)),
-                    "boolean" => {
+                    name if name.starts_with("cable") => {
+                        a.action(Action::Construction(C::Cable));
+                        let kind = match name {
+                            "cable-ribbon" => 1,
+                            "cable-twisted" => 2,
+                            "cable-coiled" => 3,
+                            "cable-corrugated" => 4,
+                            "cable-bundle" => 5,
+                            _ => 0,
+                        };
+                        a.action(Action::Construction(C::CableType(kind)));
+                        if name == "cable-ends" {
+                            a.action(Action::Construction(C::CableTab(1)));
+                        }
+                        if name == "cable-physics" {
+                            a.action(Action::Construction(C::CableTab(2)));
+                        }
+                        if name == "cable-menu" {
+                            a.ui = a.build_ui();
+                            a.action(Action::DropdownOpen(ui::DropdownKind::CableType));
+                        }
+                        if theme == ui::Theme::Dark && width == 1440. && name != "cable-menu" {
+                            let n = a.editor.project.node(a.editor.selected.unwrap()).unwrap();
+                            let m = a.editor.project.mesh(n.mesh.unwrap()).unwrap();
+                            std::fs::write(
+                                dir.join(format!("mesh-{name}.json")),
+                                serde_json::to_vec(m).unwrap(),
+                            )
+                            .unwrap();
+                        }
+                    }
+                    "boolean" | "boolean-split" => {
                         a.action(Action::Construction(C::Boolean));
+                        if name == "boolean-split" {
+                            a.action(Action::Construction(C::Mode(3)));
+                        }
                         await_boolean(&mut a);
                     }
                     "mirror" => a.action(Action::Construction(C::Mirror)),
@@ -409,4 +466,221 @@ fn construction_cable_preserves_collision_choices_and_rejects_locked_edits() {
     a.action(Action::Construction(C::Cable));
     assert!(a.construction.session.is_none());
     assert_eq!(a.editor.project, before);
+}
+
+fn mesh_volume(m: &poseforge_core::Mesh) -> f32 {
+    m.indices
+        .chunks_exact(3)
+        .map(|t| {
+            let p = |i: usize| Vec3::from_array(m.vertices[t[i] as usize].position);
+            p(0).dot(p(1).cross(p(2))) / 6.
+        })
+        .sum::<f32>()
+        .abs()
+}
+fn two_cutters() -> App {
+    let mut a = app();
+    let b = a.editor.project.node_mut(3).unwrap();
+    b.transform.translation = Vec3::new(-0.5, 0., 0.);
+    b.transform.scale = Vec3::new(0.35, 0.35, 2.);
+    let mut c = b.clone();
+    c.id = 5;
+    c.name = "Второй резак".into();
+    c.transform.translation.x = 0.5;
+    a.editor.project.nodes.push(c);
+    a.scene_tools.selected = BTreeSet::from([1, 3, 5]);
+    a
+}
+#[test]
+fn construction_boolean_multiple_cutters_split_and_undo_preserve_both_parts() {
+    let mut a = two_cutters();
+    let before = a.editor.project.clone();
+    a.action(Action::Construction(C::Boolean));
+    await_boolean(&mut a);
+    for (mode, expected) in [(0, 9.96), (2, 1.96), (1, 6.04), (3, 8.)] {
+        click(&mut a, Action::Construction(C::Mode(mode)));
+        await_boolean(&mut a);
+        let volume: f32 = a
+            .scene_tools
+            .selected
+            .iter()
+            .map(|&id| {
+                let n = a.editor.project.node(id).unwrap();
+                mesh_volume(a.editor.project.mesh(n.mesh.unwrap()).unwrap())
+            })
+            .sum();
+        assert!(
+            (volume - expected).abs() < 0.002,
+            "mode {mode}, volume {volume}"
+        );
+        assert!(
+            !a.editor.project.node(3).unwrap().visible
+                && !a.editor.project.node(5).unwrap().visible
+        );
+        assert_eq!(a.editor.project.mesh(4), before.mesh(4));
+    }
+    assert_eq!(a.scene_tools.selected.len(), 2);
+    let split = a.editor.project.clone();
+    click(&mut a, Action::Construction(C::Apply));
+    assert!(a.construction.session.is_none());
+    assert_eq!(a.editor.undo_len(), 1);
+    assert_eq!(a.editor.project, split);
+    a.action(Action::Undo);
+    assert_eq!(a.editor.project, before);
+}
+#[test]
+fn construction_boolean_remove_and_clear_cutters_restore_source_and_cancel_workers() {
+    let mut a = two_cutters();
+    let before = a.editor.project.clone();
+    a.action(Action::Construction(C::Boolean));
+    await_boolean(&mut a);
+    click(&mut a, Action::Construction(C::RemoveCutter(5)));
+    await_boolean(&mut a);
+    let owner = a.editor.project.node(1).unwrap();
+    assert!(
+        (mesh_volume(a.editor.project.mesh(owner.mesh.unwrap()).unwrap()) - 7.02).abs() < 0.001
+    );
+    assert!(a.editor.project.node(5).unwrap().visible);
+    click(&mut a, Action::Construction(C::ClearCutters));
+    assert_eq!(a.editor.project, before);
+    a.action(Action::Construction(C::Apply));
+    assert!(a.construction.session.is_some());
+    assert_eq!(a.editor.undo_len(), 0);
+    click(&mut a, Action::Construction(C::Cancel));
+    assert_eq!(a.editor.project, before);
+    a.action(Action::Construction(C::Boolean));
+    for mode in [0, 3, 1, 2] {
+        a.action(Action::Construction(C::Mode(mode)));
+    }
+    a.action(Action::Construction(C::Cancel));
+    a.poll_construction();
+    assert_eq!(a.editor.project, before);
+    assert_eq!(a.scene_tools.selected, BTreeSet::from([1, 3, 5]));
+}
+#[test]
+fn construction_boolean_cannot_hide_its_parent_cutter() {
+    let mut a = app();
+    a.editor.project.node_mut(1).unwrap().parent = Some(3);
+    let before = a.editor.project.clone();
+    a.action(Action::Construction(C::Boolean));
+    a.action(Action::Construction(C::Apply));
+    assert_eq!(a.editor.project, before);
+    assert!(a.construction.session.is_some());
+    a.action(Action::Construction(C::Cancel));
+    assert_eq!(a.editor.undo_len(), 0);
+}
+#[test]
+fn construction_cable_type_menu_settings_reset_and_theme_keep_one_transaction() {
+    use poseforge_core::CableKind;
+    for scale in [1., 2.] {
+        let mut a = app();
+        a.scale = scale;
+        let before = a.editor.project.clone();
+        a.action(Action::Construction(C::Cable));
+        let id = a.editor.selected.unwrap();
+        for (i, kind) in CableKind::ALL.into_iter().enumerate() {
+            click(&mut a, Action::DropdownOpen(ui::DropdownKind::CableType));
+            click(&mut a, Action::DropdownChoose(i));
+            let n = a.editor.project.node(id).unwrap();
+            assert_eq!(n.cable.unwrap().kind, kind);
+            assert!(a.dropdown.is_none());
+        }
+        a.action(Action::Construction(C::CableType(2)));
+        a.apply_field_value(Action::Construction(C::Field(15)), "5")
+            .unwrap();
+        a.apply_field_value(Action::Construction(C::Field(16)), "-9")
+            .unwrap();
+        assert!(a
+            .apply_field_value(Action::Construction(C::Field(15)), "2.5")
+            .is_err());
+        a.action(Action::ResetNumber(Box::new(Action::Construction(
+            C::Field(15),
+        ))));
+        assert_eq!(a.editor.project.node(id).unwrap().cable.unwrap().strands, 3);
+        let shape = a.editor.project.clone();
+        a.action(Action::InterfaceTheme(ui::Theme::Light));
+        assert!(a.construction.session.is_some());
+        assert_eq!(a.editor.project, shape);
+        click(&mut a, Action::Construction(C::CableTab(1)));
+        let original = a.editor.project.node(id).unwrap().cable.unwrap();
+        click(&mut a, Action::Construction(C::SwapEnds));
+        let swapped = a.editor.project.node(id).unwrap().cable.unwrap();
+        assert_eq!(swapped.start, original.end);
+        assert_eq!(swapped.end, original.start);
+        click(&mut a, Action::Construction(C::CableTab(2)));
+        click(&mut a, Action::Construction(C::CablePreset(1)));
+        a.apply_field_value(Action::Construction(C::Field(23)), "0.02")
+            .unwrap();
+        let n = a.editor.project.node(id).unwrap();
+        assert_eq!(n.physics.unwrap().compliance, 0.);
+        assert_eq!(n.physics.unwrap().bending, 1.);
+        let input = physics_preview::inputs(&a.editor.project, false)
+            .into_iter()
+            .find(|i| i.id == id)
+            .unwrap();
+        assert!((input.config().radius - n.cable.unwrap().collision_radius()).abs() < 1e-6);
+        let mut world = input.world().unwrap();
+        for _ in 0..30 {
+            world.step(input.config(), &[]);
+        }
+        let deformed = input.snapshot(&world);
+        assert_eq!(deformed.indices, input.mesh.indices);
+        assert_eq!(deformed.vertices.len(), input.mesh.vertices.len());
+        click(&mut a, Action::Construction(C::Apply));
+        assert_eq!(a.editor.undo_len(), 1);
+        assert!(a.construction.session.is_none());
+        a.action(Action::Undo);
+        assert_eq!(a.editor.project, before);
+    }
+}
+#[test]
+fn construction_cable_profile_controls_scroll_without_covering_footer() {
+    for theme in [ui::Theme::Dark, ui::Theme::Light] {
+        for kind in 0..6 {
+            let mut a = app();
+            a.width = 900.;
+            a.height = 540.;
+            a.preferences.theme = theme;
+            a.action(Action::Construction(C::Cable));
+            a.action(Action::Construction(C::CableType(kind)));
+            for (tab, last) in [(0, C::CableCaps), (1, C::SwapEnds), (2, C::Play)] {
+                click(&mut a, Action::Construction(C::CableTab(tab)));
+                let r = a.construction_rect().unwrap();
+                a.mouse = [r[0] + 30., r[1] + 100.];
+                a.construction_scroll(-100.);
+                a.ui = a.build_ui();
+                for action in [
+                    Action::Construction(last),
+                    Action::Construction(C::Apply),
+                    Action::Construction(C::Cancel),
+                ] {
+                    let p = a
+                        .ui
+                        .action_point(&action)
+                        .unwrap_or_else(|| panic!("Missing {action:?}, type {kind}, tab {tab}"));
+                    assert_eq!(a.ui.hit(p), Some(action));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn construction_cable_menu_rejects_stale_shape_and_closed_session() {
+    let mut a = app();
+    let original = a.editor.project.clone();
+    a.action(Action::Construction(C::Cable));
+    click(&mut a, Action::DropdownOpen(ui::DropdownKind::CableType));
+    a.apply_field_value(Action::Construction(C::Field(6)), "0.12")
+        .unwrap();
+    let changed = a.editor.project.clone();
+    a.action(Action::DropdownChoose(2));
+    assert_eq!(a.editor.project, changed);
+    assert!(a.dropdown.is_none());
+    click(&mut a, Action::DropdownOpen(ui::DropdownKind::CableType));
+    a.cancel_construction();
+    a.action(Action::DropdownChoose(3));
+    assert_eq!(a.editor.project, original);
+    assert!(a.dropdown.is_none());
+    assert_eq!(a.editor.undo_len(), 0);
 }

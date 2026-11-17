@@ -211,6 +211,8 @@ mod modeling_workflow_tests;
 mod modeling_workflow;
 #[path = "primitive_draw.rs"]
 mod primitive_draw;
+#[path = "cable_controls.rs"]
+mod cable_controls;
 #[path = "construction_tools.rs"]
 mod construction_tools;
 #[cfg(test)]

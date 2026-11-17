@@ -19,7 +19,7 @@ impl App {
         let fluid = FluidSettings::default();
         let physics = PhysicsSettings::default();
         Some(match *action {
-            Action::Construction(ui::ConstructionAction::Field(i))=>match i{0..=5=>0.,6=>0.04,7=>48.,8=>25.,9=>9.81,10..=12=>0.,_=>return None},
+            Action::Construction(ui::ConstructionAction::Field(i))=>cable_controls::field_default(i)?,
             Action::MeshOpacity => 50.,
             Action::ToolPanelTransparency => 10.,
             Action::BoneDisplay(ui::BoneDisplayAction::Size(_)) => 1.,

@@ -71,7 +71,7 @@ impl BodyInput {
             damping: s.damping,
             gravity: s.gravity,
             wind: s.wind,
-            radius: self.cable.map_or(s.thickness,|c|c.radius*self.model.x_axis.truncate().length().max(self.model.y_axis.truncate().length()).max(self.model.z_axis.truncate().length())),
+            radius: self.cable.map_or(s.thickness,|c|c.collision_radius()*self.model.x_axis.truncate().length().max(self.model.y_axis.truncate().length()).max(self.model.z_axis.truncate().length())),
             activation: s.activation,
             contraction: s.contraction,
             muscle: s.kind == PhysicsKind::Muscle,

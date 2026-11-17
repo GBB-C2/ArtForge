@@ -9,6 +9,17 @@ pub enum BooleanMode {
     Difference,
     Intersection,
 }
+#[derive(Clone, Copy, Debug)]
+pub struct BooleanOptions {
+    pub dissolve_coplanar: bool,
+}
+impl Default for BooleanOptions {
+    fn default() -> Self {
+        Self {
+            dissolve_coplanar: true,
+        }
+    }
+}
 #[derive(Clone)]
 struct Corner {
     p: DVec3,
@@ -286,7 +297,28 @@ impl Bsp {
         self.nodes.into_iter().flat_map(|n| n.polygons).collect()
     }
 }
-fn polygons(mesh: &Mesh, model: Mat4) -> Result<Vec<Polygon>, CoreError> {
+fn convex(p: &Polygon, eps: f64) -> bool {
+    if p.corners
+        .iter()
+        .any(|c| (p.normal.dot(c.p) - p.w).abs() > eps)
+    {
+        return false;
+    }
+    // Testing all vertices against each edge also rejects collinear backtracking
+    // and overlapping boundary chains, which a local turn test cannot detect.
+    (0..p.corners.len()).all(|i| {
+        let a = p.corners[i].p;
+        let edge = p.corners[(i + 1) % p.corners.len()].p - a;
+        let tolerance = eps * edge.length();
+        p.corners
+            .iter()
+            .all(|c| edge.cross(c.p - a).dot(p.normal) >= -tolerance)
+    })
+}
+fn polygons(mesh: &Mesh, model: Mat4, cancel: &AtomicBool) -> Result<Vec<Polygon>, CoreError> {
+    if cancel.load(Ordering::Relaxed) {
+        return Err(error("Булева операция отменена"));
+    }
     let report = crate::inspect_topology(mesh);
     if report.boundary_edges
         + report.nonmanifold_edges
@@ -294,44 +326,165 @@ fn polygons(mesh: &Mesh, model: Mat4) -> Result<Vec<Polygon>, CoreError> {
         + report.degenerate_faces
         > 0
     {
-        return Err(error(
-            "Булевы операции требуют замкнутых мешей без проблемных рёбер",
-        ));
+        return Err(error(&format!(
+            "{}: открытых рёбер {}, разветвлений {}, ошибок направления {}, вырожденных граней {}",
+            mesh.name,
+            report.boundary_edges,
+            report.nonmanifold_edges,
+            report.winding_edges,
+            report.degenerate_faces
+        )));
     }
     if mesh.indices.len() > 60000 {
-        return Err(error("Булева операция: до 20000 треугольников на объект"));
+        return Err(error(
+            "Булева операция: до 20000 треугольников на объект или группу резаков",
+        ));
     }
     let normal = model.inverse().transpose();
     let reverse = model.determinant() < 0.;
+    let double = model.as_dmat4();
     let mut result = Vec::new();
+    let corners = |ids: &[u32]| {
+        let mut values: Vec<_> = ids
+            .iter()
+            .map(|&i| {
+                let mut v = mesh.vertices[i as usize];
+                v.normal = normal
+                    .transform_vector3(Vec3::from_array(v.normal))
+                    .normalize_or_zero()
+                    .to_array();
+                Corner {
+                    p: double.transform_point3(Vec3::from_array(v.position).as_dvec3()),
+                    v,
+                }
+            })
+            .collect();
+        if reverse {
+            values.reverse();
+        }
+        values
+    };
     for f in 0..mesh.face_count() {
-        let indices = crate::triangulate::triangulate(mesh, mesh.face_vertices(f).unwrap())?;
-        for t in indices.chunks_exact(3) {
-            let mut corners: Vec<_> = t
-                .iter()
-                .map(|&i| {
-                    let mut v = mesh.vertices[i as usize];
-                    v.normal = normal
-                        .transform_vector3(Vec3::from_array(v.normal))
-                        .normalize_or_zero()
-                        .to_array();
-                    Corner {
-                        p: model
-                            .transform_point3(Vec3::from_array(v.position))
-                            .as_dvec3(),
-                        v,
-                    }
-                })
-                .collect();
-            if reverse {
-                corners.reverse();
-            }
-            if let Some(p) = Polygon::new(corners, mesh.face_material(f)) {
+        if f % 128 == 0 && cancel.load(Ordering::Relaxed) {
+            return Err(error("Булева операция отменена"));
+        }
+        let ring = mesh.face_vertices(f).unwrap();
+        let whole = Polygon::new(corners(ring), mesh.face_material(f));
+        if whole.as_ref().is_some_and(|p| convex(p, 1e-8)) {
+            result.push(whole.unwrap());
+            continue;
+        }
+        for tri in crate::triangulate::triangulate(mesh, ring)?.chunks_exact(3) {
+            if let Some(p) = Polygon::new(corners(tri), mesh.face_material(f)) {
                 result.push(p);
             }
         }
     }
+    // Imported closed shells may have consistently inward winding. Classify the solid outward.
+    let origin = result.first().map_or(DVec3::ZERO, |p| p.corners[0].p);
+    let volume: f64 = result
+        .iter()
+        .map(|p| {
+            let a = p.corners[0].p - origin;
+            (1..p.corners.len() - 1)
+                .map(|i| a.dot((p.corners[i].p - origin).cross(p.corners[i + 1].p - origin)))
+                .sum::<f64>()
+        })
+        .sum();
+    if volume < 0. {
+        for p in &mut result {
+            p.flip();
+        }
+    }
     Ok(result)
+}
+// Merge only convex, coplanar neighbours. Convex unions cannot bridge or fill a hole.
+fn clean_polygons(mut polygons: Vec<Polygon>, work: &mut Work) -> Result<Vec<Polygon>, CoreError> {
+    use std::collections::BTreeMap;
+    let epsilon = work.eps;
+    let key = |p: DVec3| p.to_array().map(|x| (x / epsilon).round() as i64);
+    for _ in 0..12 {
+        work.check(polygons.len())?;
+        let mut edges = BTreeMap::new();
+        let mut pairs = Vec::new();
+        for (face, p) in polygons.iter().enumerate() {
+            for i in 0..p.corners.len() {
+                let a = key(p.corners[i].p);
+                let b = key(p.corners[(i + 1) % p.corners.len()].p);
+                if let Some(&(other, j)) = edges.get(&(b, a)) {
+                    pairs.push((other, j, face, i));
+                }
+                edges.insert((a, b), (face, i));
+            }
+        }
+        let mut changed = vec![false; polygons.len()];
+        let mut remove = vec![false; polygons.len()];
+        let mut count = 0;
+        for (a, i, b, j) in pairs {
+            if a == b || changed[a] || changed[b] {
+                continue;
+            }
+            let p = &polygons[a];
+            let q = &polygons[b];
+            if p.material != q.material
+                || p.normal.dot(q.normal) < 1. - 1e-10
+                || (p.w - q.w).abs() > work.eps * 2.
+            {
+                continue;
+            }
+            let equal = |a: &Corner, b: &Corner| {
+                a.v.uv
+                    .iter()
+                    .zip(b.v.uv)
+                    .all(|(a, b)| (*a - b).abs() < 1e-5)
+                    && a.v
+                        .color
+                        .iter()
+                        .zip(b.v.color)
+                        .all(|(a, b)| (*a - b).abs() < 1e-5)
+            };
+            if !equal(&p.corners[i], &q.corners[(j + 1) % q.corners.len()])
+                || !equal(&p.corners[(i + 1) % p.corners.len()], &q.corners[j])
+            {
+                continue;
+            }
+            let mut corners = Vec::new();
+            for k in 1..p.corners.len() {
+                corners.push(p.corners[(i + 1 + k) % p.corners.len()].clone());
+            }
+            for k in 1..q.corners.len() {
+                corners.push(q.corners[(j + 1 + k) % q.corners.len()].clone());
+            }
+            if corners.len() > crate::MAX_FACE_CORNERS
+                || corners.iter().enumerate().any(|(i, c)| {
+                    corners[..i]
+                        .iter()
+                        .any(|d| c.p.distance_squared(d.p) < work.eps.powi(2))
+                })
+            {
+                continue;
+            }
+            work.check(corners.len() * corners.len())?;
+            if let Some(merged) = Polygon::new(corners, p.material) {
+                if merged.normal.dot(p.normal) > 1. - 1e-10 && convex(&merged, work.eps * 2.) {
+                    polygons[a] = merged;
+                    remove[b] = true;
+                    changed[a] = true;
+                    changed[b] = true;
+                    count += 1;
+                }
+            }
+        }
+        if count == 0 {
+            break;
+        }
+        polygons = polygons
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, p)| (!remove[i]).then_some(p))
+            .collect();
+    }
+    Ok(polygons)
 }
 pub fn boolean_mesh(
     a: &Mesh,
@@ -340,29 +493,54 @@ pub fn boolean_mesh(
     mode: BooleanMode,
     cancel: &AtomicBool,
 ) -> Result<Mesh, CoreError> {
+    boolean_mesh_with_options(a, b, b_to_a, mode, BooleanOptions::default(), cancel)
+}
+pub fn boolean_mesh_with_options(
+    a: &Mesh,
+    b: &Mesh,
+    b_to_a: Mat4,
+    mode: BooleanMode,
+    options: BooleanOptions,
+    cancel: &AtomicBool,
+) -> Result<Mesh, CoreError> {
     if !b_to_a.is_finite() || b_to_a.determinant().abs() < 1e-10 {
         return Err(error("Восстановите ненулевой масштаб объекта"));
     }
-    let pa = polygons(a, Mat4::IDENTITY)?;
-    let pb = polygons(b, b_to_a)?;
-    let (min, max) = pa
-        .iter()
-        .chain(&pb)
-        .flat_map(|p| p.corners.iter().map(|c| c.p))
-        .fold(
-            (DVec3::splat(f64::INFINITY), DVec3::splat(f64::NEG_INFINITY)),
-            |(lo, hi), p| (lo.min(p), hi.max(p)),
-        );
+    let pa = polygons(a, Mat4::IDENTITY, cancel)?;
+    let pb = polygons(b, b_to_a, cancel)?;
+    let bounds = |polys: &[Polygon]| {
+        polys
+            .iter()
+            .flat_map(|p| p.corners.iter().map(|c| c.p))
+            .fold(
+                (DVec3::splat(f64::INFINITY), DVec3::splat(f64::NEG_INFINITY)),
+                |(lo, hi), p| (lo.min(p), hi.max(p)),
+            )
+    };
+    let (amin, amax) = bounds(&pa);
+    let (bmin, bmax) = bounds(&pb);
+    let extent = if pa.is_empty() {
+        0.
+    } else {
+        (amax - amin).length()
+    }
+    .max(if pb.is_empty() {
+        0.
+    } else {
+        (bmax - bmin).length()
+    });
     let mut work = Work {
-        eps: if min.is_finite() {
-            (max - min).length().max(1.) * 1e-7
-        } else {
-            1e-7
-        },
+        eps: extent.max(0.001) * 1e-7,
         steps: 0,
         cancel,
     };
-    let polygons = if pa.is_empty() || pb.is_empty() {
+    work.check(0)?;
+    let disjoint = amax.cmplt(bmin - DVec3::splat(work.eps)).any()
+        || bmax.cmplt(amin - DVec3::splat(work.eps)).any();
+    if disjoint && mode == BooleanMode::Difference {
+        return Ok(a.clone());
+    }
+    let polygons = if pa.is_empty() || pb.is_empty() || disjoint {
         match mode {
             BooleanMode::Union => pa.into_iter().chain(pb).collect(),
             BooleanMode::Difference => pa,
@@ -403,6 +581,11 @@ pub fn boolean_mesh(
             }
         }
         left.collect()
+    };
+    let polygons = if options.dissolve_coplanar {
+        clean_polygons(polygons, &mut work)?
+    } else {
+        polygons
     };
     let mut unique = std::collections::BTreeMap::new();
     for p in &polygons {

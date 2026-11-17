@@ -201,7 +201,7 @@ impl DeformWorld {
     }
     /// A centreline solver keeps tube radius independent of cloth stretch constraints.
     pub fn cable(positions: Vec<Vec3>, pin_start: bool, pin_end: bool) -> Result<Self,String> {
-        if !(5..=129).contains(&positions.len()) {return Err("Кабель: 4–128 сегментов".into());}
+        if !(5..=513).contains(&positions.len()) {return Err("Кабель: 4–512 расчётных сегментов".into());}
         let mut pinned=vec![false;positions.len()];pinned[0]=pin_start;*pinned.last_mut().unwrap()=pin_end;
         let mut world=Self::new(positions,&[],&pinned)?;world.cable=true;
         for step in [1,2] {for a in 0..world.positions.len()-step {let b=a+step;let length=world.positions[a].distance(world.positions[b]);
@@ -281,13 +281,9 @@ impl DeformWorld {
                         } else {
                             1.
                         };
-                    let alpha = cfg.compliance.max(0.)
-                        * if e.bending {
-                            cfg.bending.clamp(1., 100.)
-                        } else {
-                            1.
-                        }
-                        / (dt * dt);
+                    let alpha = if self.cable && e.bending {
+                        ((cfg.bending.clamp(1.,100.)-1.)*0.000001+0.00000001)/(dt*dt)
+                    } else {cfg.compliance.max(0.) * if e.bending {cfg.bending.clamp(1.,100.)} else {1.} / (dt*dt)};
                     let dl = (-(length - target) - alpha * e.lambda) / (sum + alpha);
                     e.lambda += dl;
                     let correction = d / length * dl;

@@ -10,6 +10,8 @@ pub(super) struct State {
     pub merge_bevel: bool,
     pub merge_inset: bool,
     pub subdivide_segments: u32,
+    pub simplify: bool, pub simplify_ratio: f32,
+    pub mirror_axis: u8, pub mirror_plane: f32, pub mirror_merge: bool, pub mirror_distance: f32,
     pub session: Option<super::modeling_session::Session>,
     pub extrude_mode: u8,
     pub inset_mode: u8,
@@ -28,6 +30,7 @@ impl Default for State {
             merge_distances: [DEFAULT_MERGE_DISTANCE; 3],
             merge_array: false, merge_bevel: false, merge_inset: false,
             subdivide_segments: 2, session: None,
+            simplify:false,simplify_ratio:50.,mirror_axis:0,mirror_plane:0.,mirror_merge:true,mirror_distance:0.001,
             extrude_mode: 0,
             inset_mode: 0,
             bevel_mode: 0,
@@ -95,11 +98,12 @@ impl App {
         self.authoring.workflow.collapsed = false;
     }
     pub(super) fn workflow_preference_field(a: &Action) -> bool {
+        if matches!(a,Action::Construction(ui::ConstructionAction::Field(_))) {return true;}
         if matches!(a, Action::MeshOpacity | Action::ToolPanelTransparency) { return true; }
         matches!(
             a,
             Action::Author(
-                A::ToolField(_) | A::ToolMergeDistance | A::SubdivideCount
+                A::ToolField(_) | A::ToolMergeDistance | A::SubdivideCount | A::SimplifyRatio | A::MirrorField(_)
                     | A::ProportionalRadius
                     | A::SnapStep
                     | A::BridgeSegments
@@ -113,6 +117,12 @@ impl App {
     }
     pub(super) fn workflow_action(&mut self, a: A) -> bool {
         match a {
+            A::DensityMode(value)=>{self.authoring.workflow.simplify=value;self.refresh_modeling_session();},
+            A::SimplifyRatio=>self.input(Action::Author(a),ui::number_caption(self.authoring.workflow.simplify_ratio as f64)),
+            A::MirrorField(i)=>self.input(Action::Author(a),ui::number_caption(if i==0{self.authoring.workflow.mirror_plane as f64}else{self.authoring.workflow.mirror_distance as f64})),
+            A::MirrorAxis(axis)=>{self.authoring.workflow.mirror_axis=axis.min(2);self.refresh_modeling_session();},
+            A::MirrorMerge=>{self.authoring.workflow.mirror_merge = !self.authoring.workflow.mirror_merge;self.refresh_modeling_session();},
+            A::Mirror=>{if let Some(id)=self.authoring.editing {let s=&self.authoring.workflow;let op=poseforge_core::MeshEdit::Mirror{region:poseforge_core::MeshRegion{faces:self.selected_face_region(),..Default::default()},axis:s.mirror_axis as usize,plane:s.mirror_plane,merge:s.mirror_merge,distance:s.mirror_distance};self.run_mesh_tool(id,op,None);}},
             A::ToolMerge => self.toggle_tool_merge(),
             A::ToolMergeDistance => self.input(Action::Author(a),ui::number_caption(self.tool_merge_distance() as f64)),
             A::ToolApply => self.apply_modeling_session(),
@@ -144,6 +154,8 @@ impl App {
         true
     }
     pub(super) fn workflow_confirm(&mut self, a: &Action, text: &str) -> Result<bool, String> {
+        if *a==Action::Author(A::SimplifyRatio) {self.authoring.workflow.simplify_ratio=surfaces::number(text,1.,100.)?;self.refresh_modeling_session();return Ok(true);}
+        if let Action::Author(A::MirrorField(i))=*a {let v=surfaces::number(text,if i==0{-10000.}else{0.},if i==0{10000.}else{1000.})?;if i==0{self.authoring.workflow.mirror_plane=v;}else{self.authoring.workflow.mirror_distance=v;}self.refresh_modeling_session();return Ok(true);}
         if *a == Action::Author(A::ToolMergeDistance) {
             let distance=surfaces::number(text,0.,10000.)?;
             self.set_tool_merge_distance(distance)?;
@@ -580,5 +592,24 @@ impl App {
             }
         }
         default
+    }
+}
+
+impl App {
+    pub(super) fn draw_density_mirror(&self,u:&mut Ui,x:f32,mut y:f32,w:f32,mirror:bool){
+        let s=&self.authoring.workflow;let p=u.palette();
+        if mirror {
+            for (i,label) in ["X","Y","Z"].into_iter().enumerate(){u.quiet_button([x+i as f32*(w+6.)/3.,y,(w-12.)/3.,30.],label,Action::Author(A::MirrorAxis(i as u8)),s.mirror_axis==i as u8);}y+=38.;
+            u.number_field([x,y,w,44.],"Положение плоскости, м",s.mirror_plane as f64,Action::Author(A::MirrorField(0)),SliderRange::new(-10.,10.,0.01));y+=52.;
+            u.checkbox([x,y,w,26.],"Объединить на плоскости",Action::Author(A::MirrorMerge),s.mirror_merge);y+=34.;
+            if s.mirror_merge {u.number_field([x,y,w,44.],"Расстояние, м",s.mirror_distance as f64,Action::Author(A::MirrorField(1)),SliderRange::new(0.,1.,0.001));y+=52.;}
+        }else{
+            let half=(w-6.)*0.5;
+            u.quiet_button([x,y,half,30.],"Подразделить",Action::Author(A::DensityMode(false)),!s.simplify);
+            u.quiet_button([x+half+6.,y,half,30.],"Упростить",Action::Author(A::DensityMode(true)),s.simplify);y+=38.;
+            if s.simplify {u.number_field([x,y,w,44.],"Оставить, %",s.simplify_ratio as f64,Action::Author(A::SimplifyRatio),SliderRange::new(1.,100.,1.));}
+            else {u.number_field([x,y,w,44.],"Делений на ребро",s.subdivide_segments as f64,Action::Author(A::SubdivideCount),SliderRange::new(2.,32.,1.));}y+=52.;
+        }
+        u.fitted_label([x,y,w,20.],"Shift — изменить выделение",10.,p.muted);
     }
 }

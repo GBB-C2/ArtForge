@@ -59,7 +59,7 @@ fn icons_reveal_only_the_chosen_properties_without_changing_the_mesh() {
         assert_eq!(a.property_sections()[0].id, modeling_palette::TOOLS_SECTION);
         let mut u = Ui::new(1.); a.draw_authoring_panel(&mut u, 0., width - properties::RAIL_WIDTH);
         let tools: Vec<_> = u.hits.iter().filter(|h| matches!(h.action, Action::ModelingTool(_))).collect();
-        assert_eq!(tools.len(), 29);
+        assert_eq!(tools.len(), 32);
         for h in tools {
             assert!(h.action.hint().is_some());
             assert!(!u.texts.iter().any(|t| ui::contains(h.rect, [t.x, t.y])));

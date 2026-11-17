@@ -49,6 +49,28 @@ impl Triangle {
         let w = vc / denominator;
         (a + ab * v + ac * w, [1. - v - w, v, w])
     }
+    /// Capsule contact, including the interior of a cable segment rather than only its ends.
+    pub fn segment_contact(self, previous: [Vec3;2], current: [Vec3;2], radius: f32) -> Option<(Vec3,f32)> {
+        let [a,b]=current; let ab=b-a; let length=ab.length_squared();
+        if length<1e-16 {return self.contact(previous[0],a,radius).map(|(push,_)|(push,0.));}
+        let mut best=(f32::INFINITY,0.);
+        let mut consider=|t:f32|{let p=a+ab*t;let d=self.closest(p).0.distance_squared(p);if d<best.0{best=(d,t);}};
+        consider(0.);consider(1.);
+        let [p,q,r]=self.0;let normal=(q-p).cross(r-p);
+        let denom=normal.dot(ab);
+        if denom.abs()>1e-12 {let t=normal.dot(p-a)/denom;if (0. ..=1.).contains(&t){consider(t);}}
+        for (c,d) in [(p,q),(q,r),(r,p)] {
+            let cd=d-c;let e=cd.length_squared();
+            if e<1e-16 {consider(((c-a).dot(ab)/length).clamp(0.,1.));continue;}
+            let delta=a-c;let dot=ab.dot(cd);let f=cd.dot(delta);let g=ab.dot(delta);let divisor=length*e-dot*dot;
+            let mut t=if divisor>1e-16{((dot*f-g*e)/divisor).clamp(0.,1.)}else{0.};
+            let u=(dot*t+f)/e;
+            if u<0. {t=(-g/length).clamp(0.,1.);}else if u>1.{t=((dot-g)/length).clamp(0.,1.);}
+            consider(t);
+        }
+        let t=best.1;
+        self.contact(previous[0].lerp(previous[1],t),a+ab*t,radius).map(|(push,_)|(push,t))
+    }
     /// Correction and triangle barycentrics; preserves the particle's original side.
     pub fn contact(self, start: Vec3, end: Vec3, radius: f32) -> Option<(Vec3, [f32; 3])> {
         let [a, b, c] = self.0;

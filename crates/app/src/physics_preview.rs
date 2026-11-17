@@ -12,12 +12,17 @@ pub(super) struct BodyInput {
     pub mesh: Mesh,
     pub model: Mat4,
     pub settings: PhysicsSettings,
+    pub cable: Option<poseforge_core::CableSettings>,
     pub colliders: Vec<scene_colliders::Input>,
 }
 impl BodyInput {
     pub fn world(&self) -> Result<DeformWorld, String> {
         if !self.model.is_finite() || self.model.determinant().abs() < 1e-8 {
             return Err("Ткань: восстановите ненулевой масштаб объекта".into());
+        }
+        if let Some(cable)=self.cable {
+            let points=cable.centers().map_err(|e|e.to_string())?.into_iter().map(|p|self.model.transform_point3(p)).collect();
+            let mut world=DeformWorld::cable(points,cable.pin_start,cable.pin_end)?;world.set_fields(self.fields.clone());return Ok(world);
         }
         let local: Vec<_> = self
             .mesh
@@ -66,13 +71,17 @@ impl BodyInput {
             damping: s.damping,
             gravity: s.gravity,
             wind: s.wind,
-            radius: s.thickness,
+            radius: self.cable.map_or(s.thickness,|c|c.radius*self.model.x_axis.truncate().length().max(self.model.y_axis.truncate().length()).max(self.model.z_axis.truncate().length())),
             activation: s.activation,
             contraction: s.contraction,
             muscle: s.kind == PhysicsKind::Muscle,
         }
     }
     pub fn snapshot(&self, world: &DeformWorld) -> Mesh {
+        if let Some(cable)=self.cable {
+            let inverse=self.model.inverse();let points:Vec<_>=world.positions.iter().map(|&p|inverse.transform_point3(p)).collect();
+            return cable.mesh_at(&points,self.mesh.id,self.mesh.material).unwrap_or_else(|_|self.mesh.clone());
+        }
         let normals = world.normals(&self.mesh.indices);
         let inverse = self.model.inverse();
         let mut mesh = self.mesh.clone();
@@ -144,6 +153,7 @@ pub(super) fn inputs(project: &Project, colliders: bool) -> Vec<BodyInput> {
                 mesh: project.mesh(n.mesh?)?.clone(),
                 model: *globals.get(&n.id)?,
                 settings,
+                cable:if settings.kind==PhysicsKind::Cable{n.cable}else{None},
                 colliders: if colliders {vec![]} else {scene_colliders::inputs(project, &globals, false, Some(n.id), Mat4::IDENTITY, None, n.collision_targets.cloth.as_deref())},
             })
         })
@@ -360,7 +370,7 @@ impl App {
                 continue;
             }
             let matches = project.node(input.id).is_some_and(|n| {
-                n.physics == Some(input.settings) && n.mesh == Some(input.mesh.id)
+                n.physics == Some(input.settings) && (input.settings.kind!=PhysicsKind::Cable || n.cable==input.cable) && n.mesh == Some(input.mesh.id)
             }) && globals.get(&input.id) == Some(&input.model)
                 && project.mesh(input.mesh.id) == Some(&input.mesh);
             if !matches || scene_fields::collect(&self.editor.project,&globals,false,1,Mat4::IDENTITY)!=input.fields || scene_colliders::inputs(&self.editor.project, &globals, false, Some(input.id), Mat4::IDENTITY, None,
@@ -384,6 +394,7 @@ impl App {
             if let Some(n) = preview.node_mut(snapshot.input.id) {
                 if n.mesh != Some(snapshot.input.mesh.id) {
                     n.physics = None;
+                    n.cable = None;
                 }
             }
         }

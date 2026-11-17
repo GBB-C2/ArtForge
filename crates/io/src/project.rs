@@ -106,7 +106,8 @@ fn migrate_loaded_project(mut project: Project) -> Result<Project> {
         // Schema 43 adds opt-in artistic surfaces; absent settings are disabled.
         // Schema 44 adds non-destructive per-object modifier stacks; absent stacks are empty.
         // Schema 45 adds bevel, radial and curve-array modifier settings.
-        1..=44 => {
+        // Schema 46 adds editable cable settings and centreline physics.
+        1..=45 => {
             // Earlier projects scattered every source in their shared fog.
             if project.version <= 21 && project.render_settings.atmosphere.density > 0. {
                 for light in &mut project.lights { light.volume.enabled = true; }

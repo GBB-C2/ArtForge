@@ -588,7 +588,7 @@ impl App {
             .and_then(|n| n.physics)
             .map(|s| s.kind)
         {
-            Some(PhysicsKind::Cloth) => 1000. + self.cloth_collision_shift(),
+            Some(PhysicsKind::Cloth | PhysicsKind::Cable) => 1000. + self.cloth_collision_shift(),
             Some(PhysicsKind::Muscle) => 1064.,
             Some(PhysicsKind::Collider) => 285.,
             None => 240.,
@@ -613,8 +613,9 @@ impl App {
             );
             return;
         }
-        let cloth=self.editor.selected.and_then(|id|self.editor.project.node(id)).and_then(|n|n.physics).is_some_and(|s|s.kind==PhysicsKind::Cloth);
-        if cloth {u.fitted_label([x,174.,width,30.],"Ткань · симуляция",12.,u.palette().text);}
+        let cloth=self.editor.selected.and_then(|id|self.editor.project.node(id)).and_then(|n|n.physics).is_some_and(|s|matches!(s.kind,PhysicsKind::Cloth|PhysicsKind::Cable));
+        let cable=self.editor.selected.and_then(|id|self.editor.project.node(id)).and_then(|n|n.physics).is_some_and(|p|p.kind==PhysicsKind::Cable);
+        if cloth {u.fitted_label([x,174.,width,30.],if cable{"Кабель · симуляция"}else{"Ткань · симуляция"},12.,u.palette().text);}
         else {self.draw_dropdown_button(u,[x,174.,width,30.],DropdownKind::PhysicsType,"Ранее созданная мышца");}
         if let Some(settings) = self
             .editor
@@ -656,25 +657,25 @@ impl App {
                 Action::Studio(S::PhysicsBake),
                 false,
             );
-            u.checkbox(
+            if cable {u.button([x,302.,width,30.],"Параметры кабеля",Action::Construction(ui::ConstructionAction::Cable),false);}else{u.checkbox(
                 [x, 302., width, 30.],
                 "Закрепить край",
                 Action::Studio(S::PhysicsPin),
                 settings.pinned,
-            );
-            let mut fields = vec![40, 41, 42, 43, 44, 47, 48, 49];
+            );}
+            let mut fields = if cable{vec![40,41,42,43,44,47,49]}else{vec![40, 41, 42, 43, 44, 47, 48, 49]};
             if settings.kind == PhysicsKind::Muscle {
                 fields.extend([45, 46]);
             }
             let shift=if cloth {self.cloth_collision_shift()} else {0.};
             if cloth {self.draw_collision_list(u,poseforge_core::CollisionKind::Cloth,x,342.,width);}
             let bottom = 342. + shift + fields.len() as f32 * 52.;
-            u.checkbox(
+            if !cable {u.checkbox(
                 [x, bottom, width, 30.],
                 "Самостолкновения ткани",
                 Action::Studio(S::PhysicsSelfCollision),
                 settings.self_collision,
-            );
+            );}
             self.studio_number(u, x, bottom + 42., width, 50);
             u.button(
                 [x, bottom + 104., width, 30.],
@@ -688,7 +689,7 @@ impl App {
                 10.,
                 u.palette().muted,
             );
-            if cloth {u.button([x,bottom+180.,width,30.],"Убрать ткань с объекта",Action::Studio(S::Physics(0)),false);}
+            if cloth {u.button([x,bottom+180.,width,30.],if cable{"Убрать физику кабеля"}else{"Убрать ткань с объекта"},Action::Studio(S::Physics(0)),false);}
             for (row, field) in fields.into_iter().enumerate() {
                 self.studio_number(u, x, 342. + shift + row as f32 * 52., width, field);
             }

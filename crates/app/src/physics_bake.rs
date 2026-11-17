@@ -69,6 +69,7 @@ pub(super) fn bake(
     let mut result = project.clone();
     let node = result.node_mut(id).ok_or("Объект удалён")?;
     node.physics = None;
+    node.cable = None;
     node.mesh = Some(mesh.id);
     node.morph_weights = vec![0.; frames];
     node.morph_weights[0] = 1.;

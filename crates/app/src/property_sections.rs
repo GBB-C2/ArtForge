@@ -121,8 +121,8 @@ impl App {
                     (494. + self.collision_layout_shift(poseforge_core::CollisionKind::Fluid), "Параметры жидкости", 0.),
                 ],
             ),
-            6 | 11 if self.editor.selected.and_then(|id|self.editor.project.node(id)).and_then(|n|n.physics).is_some_and(|s|s.kind==poseforge_core::PhysicsKind::Cloth) =>
-                (600,vec![(171.,"Физика ткани",0.),(386.,"Столкновения",0.),(386.+self.cloth_collision_shift(),"Параметры симуляции",0.)]),
+            6 | 11 if self.editor.selected.and_then(|id|self.editor.project.node(id)).and_then(|n|n.physics).is_some_and(|s|matches!(s.kind,poseforge_core::PhysicsKind::Cloth|poseforge_core::PhysicsKind::Cable)) =>
+                (600,vec![(171.,if self.editor.selected.and_then(|id|self.editor.project.node(id)).is_some_and(|n|n.cable.is_some()){"Физика кабеля"}else{"Физика ткани"},0.),(386.,"Столкновения",0.),(386.+self.cloth_collision_shift(),"Параметры симуляции",0.)]),
             6 | 11 if bottom > 400. => (
                 600,
                 vec![

@@ -62,7 +62,7 @@ pub(crate) fn apply(mesh: &mut Mesh, operation: MeshEdit) -> Result<(), CoreErro
     let smooth = mesh.smooth_normals_enabled();
     let shading_only = matches!(operation, MeshEdit::SmoothNormals | MeshEdit::FlatNormals);
     match operation {
-        MeshEdit::InsetFacesOffset {..} | MeshEdit::FaceBevelOffset {..}
+        MeshEdit::Simplify {..} | MeshEdit::Mirror {..} | MeshEdit::InsetFacesOffset {..} | MeshEdit::FaceBevelOffset {..}
         | MeshEdit::ExtrudeVertices { .. } | MeshEdit::DeleteComponents { .. }
         | MeshEdit::SubdivideSelectedCount { .. } | MeshEdit::SubdivideSelected { .. } | MeshEdit::BridgeFaces { .. } | MeshEdit::BridgeAdvanced {..} | MeshEdit::Topology {..} | MeshEdit::KnifeStroke {..} | MeshEdit::KnifeGap {..} | MeshEdit::Sections {..} | MeshEdit::KnifeGapClosed {..} | MeshEdit::Dissolve {..} | MeshEdit::Array {..} | MeshEdit::ExtrudeDistributed {..} | MeshEdit::ExtrudeManifold {..} | MeshEdit::FaceBevel {..} | MeshEdit::InsetFaces {..} | MeshEdit::FaceBevelMode {..} => unreachable!(),
         MeshEdit::Normals { .. }

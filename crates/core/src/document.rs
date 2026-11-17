@@ -7,7 +7,7 @@ use thiserror::Error;
 
 pub type NodeId = u64;
 pub type AssetId = u64;
-pub const SCHEMA_VERSION: u32 = 45;
+pub const SCHEMA_VERSION: u32 = 46;
 /// Every enabled light is evaluated by the realtime renderer. Disabled lights
 /// remain in the document without consuming a GPU light slot.
 pub const MAX_ENABLED_LIGHTS: usize = 8;
@@ -72,6 +72,8 @@ impl Transform {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Node {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cable: Option<crate::CableSettings>,
     #[serde(default)]
     pub empty: bool,
     #[serde(default)]
@@ -138,6 +140,7 @@ fn yes() -> bool {
 impl Node {
     pub fn new(id: NodeId, name: impl Into<String>) -> Self {
         Self {
+            cable: None,
             curve_binding: None,
             empty: false,
             empty_shape: Default::default(), empty_size: 1., force_field: None, fx: None,
@@ -1331,6 +1334,8 @@ impl Project {
                     return Err(invalid("контейнер жидкости должен иметь объём: каждая сторона от 0.08"));
                 }
             }
+            if n.physics.is_some_and(|p|p.kind==crate::PhysicsKind::Cable)&&n.cable.is_none(){return Err(invalid("Физика кабеля требует параметров кабеля"));}
+            if let Some(cable)=n.cable {cable.validate()?;if n.mesh.is_none(){return Err(invalid("кабель требует меш"));}}
             if let Some(settings) = n.physics {
                 settings.validate()?;
                 let Some(mesh) = n.mesh.and_then(|id| self.mesh(id)) else {

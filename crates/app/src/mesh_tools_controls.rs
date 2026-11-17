@@ -269,7 +269,7 @@ impl App {
             None,
         );
     }
-    fn run_mesh_tool(&mut self, id: u64, edit: MeshEdit, faces: Option<BTreeSet<usize>>) {
+    pub(super) fn run_mesh_tool(&mut self, id: u64, edit: MeshEdit, faces: Option<BTreeSet<usize>>) {
         if self.editor.has_staged() {
             self.status = "Сначала поставьте ключ или отмените временную позу".into();
             return;
@@ -278,7 +278,7 @@ impl App {
             self.status = "Нужен редактируемый статический меш".into();
             return;
         };
-        if mesh.vertices.len() > 12000 || mesh.indices.len() > 48000 {
+        if mesh.vertices.len() > 12000 || mesh.indices.len() > 48000 || (matches!(edit,MeshEdit::Simplify{..}) && mesh.indices.len()>3000) {
             let before = self.editor.project.clone();
             let (tx, rx) = mpsc::channel();
             let cancel = Arc::new(AtomicBool::new(false));

@@ -584,6 +584,7 @@ enum JobMessage {
     Exported(usize, PathBuf),
     Error(String),
 }
+const IMAGE_EXPORT_JOB: &str = "Рендер";
 struct Job {
     receiver: Receiver<JobMessage>,
     cancel: Arc<AtomicBool>,
@@ -2073,9 +2074,10 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let c = cancel.clone();
+        let window = self.window.clone();
         let spawned = std::thread::Builder::new().name("image-export".into())
             .stack_size(poseforge_render::RENDERER_STACK_BYTES).spawn(move || {
-            let result = (|| -> Result<usize, String> {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<usize, String> {
                 let mut renderer = pollster::block_on(Renderer::headless(width, height))?;
                 renderer.set_fx_cancel(c.clone());
                 let frames = if sequence {
@@ -2093,7 +2095,7 @@ impl App {
                 let mut videos = poseforge_io::video::VideoFrameCache::default();
                 for frame in 0..frames {
                     if c.load(Ordering::Relaxed) {
-                        break;
+                        return Err("Рендер отменён".into());
                     }
                     let t = if sequence {
                         frame as f64 / p.fps as f64
@@ -2120,6 +2122,17 @@ impl App {
                     let frame_view =
                         camera_controls::export_camera_view(&sampled, &eval.global, &view);
                     renderer.set_effect_time(if sequence {t}else{effect_time});
+                    let progress = tx.clone();
+                    let progress_window = window.clone();
+                    let mut last_update = Instant::now();
+                    renderer.set_volume_progress(move |done, total| {
+                        if done < total && last_update.elapsed() < Duration::from_millis(400) { return; }
+                        last_update = Instant::now();
+                        let _ = progress.send(JobMessage::Progress(format!(
+                            "Объёмный свет · {}% · кадр {} из {}", done * 100 / total, frame + 1, frames,
+                        )));
+                        if let Some(w) = &progress_window { w.request_redraw(); }
+                    });
                     renderer.export_png(
                         &sampled,
                         &eval.global,
@@ -2144,13 +2157,15 @@ impl App {
                         frame + 1,
                         frames
                     )));
+                    if let Some(w) = &window { w.request_redraw(); }
                 }
                 Ok(completed.len())
-            })();
+            })).unwrap_or_else(|_| Err("Не удалось завершить рендер кадра".into()));
             let _ = tx.send(match result {
                 Ok(n) => JobMessage::Exported(n, path),
                 Err(e) => JobMessage::Error(e),
             });
+            if let Some(w) = &window { w.request_redraw(); }
         });
         if let Err(error) = spawned {
             self.status = format!("Не удалось запустить рендер: {error}");
@@ -2159,8 +2174,9 @@ impl App {
         self.job = Some(Job {
             receiver: rx,
             cancel,
-            label: "Рендер".into(),
+            label: IMAGE_EXPORT_JOB.into(),
         });
+        self.status = "Подготовка рендера…".into();
         self.editor.playing = false;
     }
     fn poll_jobs(&mut self) {
@@ -2205,10 +2221,15 @@ impl App {
                         | JobMessage::FluidCacheReady(..)
                 )
             {
-                if !matches!(msg, JobMessage::Progress(_)) {
+                let finished = !matches!(msg, JobMessage::Progress(_));
+                self.status = match (self.job.as_ref().is_some_and(|j| j.label == IMAGE_EXPORT_JOB), finished) {
+                    (true, false) => "Остановка рендера…",
+                    (true, true) => "Рендер отменён.",
+                    _ => "Операция отменена; сцена сохранена без изменений.",
+                }.into();
+                if finished {
                     self.job = None;
                 }
-                self.status = "Операция отменена; сцена сохранена без изменений.".into();
                 continue;
             }
             match msg {
@@ -6051,7 +6072,8 @@ impl ApplicationHandler for App {
             || self.destruction.preview.running()
             || self.destruction.preview.is_pending()
             || self.fluid_domains.any_playing()
-            || self.job.is_some()
+            // Image export wakes the window on progress and completion.
+            || self.job.as_ref().is_some_and(|job| job.label != IMAGE_EXPORT_JOB)
             || self.native_picker.is_some()
             || (self.preferences.adaptive_preview && self.performance.needs_refinement())
         {
@@ -6067,7 +6089,7 @@ impl ApplicationHandler for App {
         } else if self.drag.is_some() || self.editor.has_active_edit() || self.color_picker.is_some()
         {
             event_loop.set_control_flow(ControlFlow::Wait);
-        } else if self.dirty {
+        } else if self.dirty && self.job.is_none() {
             // An open edit can postpone autosave. Do not spin on its expired
             // deadline while waiting for the user to finish that edit.
             let next = (self.last_autosave + Duration::from_secs(60))
@@ -6140,6 +6162,25 @@ mod integration_tests {
         ));
         assert!(!assign_loaded_texture(&mut project, texture, 400, 8));
         assert_eq!(project, before);
+    }
+
+    #[test]
+    fn cancelled_export_stays_busy_until_its_worker_finishes() {
+        let mut app = deterministic_app();
+        let (tx, rx) = mpsc::channel();
+        app.job = Some(Job {
+            receiver: rx,
+            cancel: Arc::new(AtomicBool::new(true)),
+            label: IMAGE_EXPORT_JOB.into(),
+        });
+        tx.send(JobMessage::Progress("50%".into())).unwrap();
+        app.poll_jobs();
+        assert!(app.job.is_some());
+        assert_eq!(app.status, "Остановка рендера…");
+        tx.send(JobMessage::Error("Рендер кадра отменён".into())).unwrap();
+        app.poll_jobs();
+        assert!(app.job.is_none());
+        assert_eq!(app.status, "Рендер отменён.");
     }
 
     #[test]

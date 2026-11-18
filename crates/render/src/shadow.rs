@@ -4,6 +4,87 @@ use glam::{Mat4, Vec3};
 use poseforge_core::{Light, LightKind, Node};
 use std::collections::BTreeMap;
 
+/// Shadow depth is independent of the camera, lamp tint and fog parameters.
+/// Keep one submitted atlas. Caster deformations and cutout texture edits invalidate it.
+#[derive(Default)]
+pub(super) struct MapCache {
+    key: Option<u64>,
+    materials: Vec<poseforge_core::Material>,
+    pub submitted: bool,
+}
+
+impl MapCache {
+    pub fn reusable(
+        &mut self,
+        scene: &poseforge_core::Project,
+        assets: &super::SceneAssets<'_>,
+        casters: &[&Node],
+        globals: &BTreeMap<u64, Mat4>,
+        matrices: &[Mat4],
+        resolution: u32,
+        wire_color: Option<[f32; 4]>,
+        layer_mask: impl Fn(u64) -> Option<f32>,
+    ) -> bool {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let matrix = |m: &Mat4| m.to_cols_array().map(f32::to_bits);
+        resolution.hash(&mut h);
+        wire_color.map(|c| c.map(f32::to_bits)).hash(&mut h);
+        matrices.len().hash(&mut h);
+        for m in matrices {
+            matrix(m).hash(&mut h);
+        }
+        for texture in &scene.textures {
+            (
+                texture.id,
+                texture.width,
+                texture.height,
+                texture.rgba8.revision(),
+            )
+                .hash(&mut h);
+        }
+        for &node in casters {
+            let Some(mesh) = assets.mesh(node) else {
+                continue;
+            };
+            node.id.hash(&mut h);
+            super::GeometryKey::of(mesh).hash(&mut h);
+            mesh.material.hash(&mut h);
+            layer_mask(node.id).map(f32::to_bits).hash(&mut h);
+            globals.get(&node.id).map(matrix).hash(&mut h);
+            node.morph_weights.len().hash(&mut h);
+            for (target, weight) in mesh.morph_targets.iter().zip(&node.morph_weights) {
+                (
+                    target.positions.revision(),
+                    target.normals.revision(),
+                    weight.to_bits(),
+                )
+                    .hash(&mut h);
+            }
+            if let Some(skin) = &node.skin {
+                skin.joints.len().hash(&mut h);
+                for (joint, bind) in skin.joints.iter().zip(&skin.inverse_bind_matrices) {
+                    globals.get(joint).map(matrix).hash(&mut h);
+                    matrix(bind).hash(&mut h);
+                }
+            } else {
+                0usize.hash(&mut h);
+            }
+        }
+        let key = h.finish();
+        let materials_changed = self.materials != scene.materials;
+        if self.submitted && self.key == Some(key) && !materials_changed {
+            return true;
+        }
+        if materials_changed {
+            self.materials.clone_from(&scene.materials);
+        }
+        self.key = Some(key);
+        self.submitted = false;
+        false
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Bounds {
     pub min: Vec3,

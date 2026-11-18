@@ -27,6 +27,7 @@ mod shaders;
 mod material_texture;
 mod ray_preview;
 mod readback;
+mod volume_pass;
 use mipmap::MipSemantic;
 const TEXTURE_SEMANTICS: [MipSemantic; 5] = [
     MipSemantic::ColorSrgb,
@@ -623,6 +624,8 @@ struct FrameTargets {
     hdr: wgpu::TextureView,
     hdr_texture: wgpu::Texture,
     refraction_texture: wgpu::Texture,
+    volume_view: wgpu::TextureView,
+    volume_bind: wgpu::BindGroup,
     refraction_bind: wgpu::BindGroup,
     grid_bind: wgpu::BindGroup,
     depth_single: wgpu::TextureView,
@@ -781,6 +784,9 @@ pub struct FrameStats {
     pub scene_draws: usize,
     pub shadow_draws: usize,
     pub depth_draws: usize,
+    /// Volume integration draws and their linear pixel spacing (zero when disabled).
+    pub volume_tiles: u32,
+    pub volume_stride: u32,
     pub depth_prepass: bool,
     pub refraction_copy: bool,
 }
@@ -840,10 +846,14 @@ pub struct Renderer {
     shadow_pass_layout: wgpu::BindGroupLayout,
     shadow_passes: Vec<ShadowPass>,
     shadow_stats: ShadowStats,
+    shadow_cache: shadow::MapCache,
     shadow_layout: wgpu::BindGroupLayout,
     shadow_sampler: wgpu::Sampler,
     shadow_map: ShadowMap,
     post_pipeline: wgpu::RenderPipeline,
+    volume_pipeline: wgpu::RenderPipeline,
+    volume_layout: wgpu::BindGroupLayout,
+    volume_progress: Option<Box<volume_pass::Progress>>,
     post_layout: wgpu::BindGroupLayout,
     post_uniform: wgpu::Buffer,
     ui_pipeline: wgpu::RenderPipeline,
@@ -894,6 +904,10 @@ impl Renderer {
     pub fn clear_fx_cache(&mut self) {self.fx_gas.clear();}
     /// Share cancellation with FX preparation and GPU frame readback.
     pub fn set_fx_cancel(&mut self,cancel:Arc<std::sync::atomic::AtomicBool>) {self.fx_cancel=cancel;}
+    /// Report completed volume tiles on the export worker, before image encoding.
+    pub fn set_volume_progress(&mut self, progress: impl FnMut(u32, u32) + Send + Sync + 'static) {
+        self.volume_progress = Some(Box::new(progress));
+    }
     pub fn uses_raster_preview(&self) -> bool { self.raster_preview }
     pub fn frame_stats(&self) -> FrameStats {
         self.frame_stats
@@ -1281,14 +1295,28 @@ impl Renderer {
         });
         startup_checkpoint(&device,&adapter_name,"шейдер постобработки и FX").await?;
         eprintln!("GPU: создание конвейеров рендера");
-        let post_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("HDR display transform"),
-            bind_group_layouts: &[&post_layout, &shadow_layout],
+        let volume_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("integrated media for display"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0, visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2, multisampled: false,
+                },
+                count: None,
+            }],
+        });
+        let integrate_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("volume integration"), bind_group_layouts: &[&post_layout, &shadow_layout],
             push_constant_ranges: &[],
         });
-        let post_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("HDR tone mapping after transparency and MSAA resolve"),
-            layout: Some(&post_pipeline_layout),
+        let display_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("HDR display transform"), bind_group_layouts: &[&post_layout, &shadow_layout, &volume_layout],
+            push_constant_ranges: &[],
+        });
+        let make_post_pipeline = |layout, entry, format, label| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
+            layout: Some(layout),
             vertex: wgpu::VertexState {
                 module: &post_shader,
                 entry_point: Some("vs_main"),
@@ -1297,7 +1325,7 @@ impl Renderer {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &post_shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some(entry),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
@@ -1311,6 +1339,8 @@ impl Renderer {
             multiview: None,
             cache: pipeline_cache.as_ref(),
         });
+        let volume_pipeline = make_post_pipeline(&integrate_layout, "fs_volume", SCENE_FORMAT, "integrate participating media");
+        let post_pipeline = make_post_pipeline(&display_layout, "fs_main", format, "display transform with camera effects");
         eprintln!("GPU: конвейер постобработки — готово");
         let scene_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
@@ -1735,10 +1765,14 @@ impl Renderer {
             shadow_pass_layout,
             shadow_passes: Vec::new(),
             shadow_stats: ShadowStats::default(),
+            shadow_cache: shadow::MapCache::default(),
             shadow_layout,
             shadow_sampler,
             shadow_map,
             post_pipeline,
+            volume_pipeline,
+            volume_layout,
+            volume_progress: None,
             post_layout,
             post_uniform,
             ui_image: white.clone(),
@@ -2018,6 +2052,16 @@ impl Renderer {
             morph_revisions: Vec::new(),
         }
     }
+    fn wire_base_color(&self, export: bool) -> Option<[f32; 4]> {
+        if export || self.editor_shading != 0 { return None; }
+        let [r, g, b, _] = self.editor_appearance.background;
+        Some(if r + g + b > 0.6 {
+            [0.025, 0.045, 0.08, 1.]
+        } else {
+            [0.35, 0.5, 0.7, 1.]
+        })
+    }
+
     fn sync_scene(
         &mut self,
         project: &Project,
@@ -2034,7 +2078,7 @@ impl Renderer {
         self.fx_masks.sync_gas(&self.queue,&self.fx_gas);
         if self
             .world
-            .sync(&self.device, &self.queue, ray_project, globals, export, !self.raster_preview && (export || self.editor_shading >= 2), self.interactive_preview)?
+            .sync(&self.device, &self.queue, ray_project, globals, export, !self.raster_preview && (export || self.editor_shading >= 2), self.interactive_preview, &self.fx_cancel)?
         {
             self.shadow_passes.clear();
             self.shadow_map.bind = Self::make_world_bind(
@@ -2153,10 +2197,7 @@ impl Renderer {
         };
         let angle = settings.background_angle.to_radians();
         let editor_shading = self.editor_shading;
-        let editor_background = self.editor_appearance.background;
-        let wire_color = if editor_background[0] + editor_background[1] + editor_background[2] > 0.6 {
-            [0.025, 0.045, 0.08, 1.]
-        } else { [0.35, 0.5, 0.7, 1.] };
+        let wire_color = self.wire_base_color(export);
         let make_uniform = |model: Mat4, material: &Material, grid: bool| {
             let cutoff = material.alpha_shader_mode();
             DrawUniform {
@@ -2164,7 +2205,7 @@ impl Renderer {
                 normal_model: model.inverse().transpose().to_cols_array_2d(),
                 view_proj: view.view_projection().to_cols_array_2d(),
                 eye: view.eye.extend(1.).to_array(),
-                base_color: if !export && !grid && editor_shading == 0 { wire_color } else { material.base_color },
+                base_color: if grid { material.base_color } else { wire_color.unwrap_or(material.base_color) },
                 params: [
                     material.metallic,
                     material.roughness,
@@ -2510,6 +2551,7 @@ impl Renderer {
         )?;
         self.gpu_timer.end(&mut encoder, timer_slot);
         self.queue.submit(Some(encoder.finish()));
+        self.shadow_cache.submitted = true;
         self.gpu_timer.submitted(timer_slot);
         frame.present();
         self.atlas.trim();
@@ -2594,6 +2636,7 @@ impl Renderer {
         if self.shadow_map.resolution != resolution
             || self.shadow_map.depth.len() != allocated_layers as usize
         {
+            self.shadow_cache.submitted = false;
             self.shadow_map = Self::make_shadow_map(
                 &self.device,
                 &self.shadow_layout,
@@ -2623,6 +2666,16 @@ impl Renderer {
         ];
         self.queue
             .write_buffer(&self.shadow_uniform, 0, bytemuck::bytes_of(&uniform));
+        if layers == 0 {
+            self.shadow_cache = shadow::MapCache::default();
+            return;
+        }
+        let wire_color = self.wire_base_color(export);
+        if self.shadow_cache.reusable(project, assets, visible, globals, &matrices, resolution, wire_color,
+            |id| self.material_parts.layer_mask(id))
+        {
+            return;
+        }
         // Each encoded pass references a distinct uniform allocation. Rewriting
         // one shared buffer between encode calls would make every pass use the
         // last matrix once the command buffer reaches the GPU.
@@ -2804,8 +2857,8 @@ impl Renderer {
             };
             let refraction_texture = single(
                 SCENE_FORMAT,
-                wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                "refraction snapshot",
+                wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                "refraction snapshot, then integrated media",
             );
             let refract_view = refraction_texture.create_view(&Default::default());
             let depth_single = single(
@@ -2906,6 +2959,11 @@ impl Renderer {
                     wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::Sampler(&self.fx_masks.sampler) },
                 ],
             });
+            // Refraction and grid have finished using this snapshot before volumes are drawn.
+            let volume_bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("integrated volume"), layout: &self.volume_layout,
+                entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&refract_view) }],
+            });
             self.targets = Some(FrameTargets {
                 width,
                 height,
@@ -2915,6 +2973,8 @@ impl Renderer {
                 hdr,
                 hdr_texture,
                 refraction_texture,
+                volume_view: refract_view,
+                volume_bind,
                 refraction_bind,
                 grid_bind,
                 depth_single,
@@ -2937,7 +2997,20 @@ impl Renderer {
         let volume_lights = pack_volume_lights(project, export);
         let (mut fx_volumes,mut fx_count)=fx::pack_scene(project,globals,export,self.effect_time,&self.fx_state,&self.fx_gas);
         fx::append_destruction_dust(project,globals,export,self.effect_time,&self.destruction_times,&mut fx_volumes,&mut fx_count);
-        if !volume_lights.iter().any(|v| v[3] > 0.) && !self.world.has_emissive_volume() { atmosphere.density = 0.; }
+        let volume_light_count = volume_lights.iter().filter(|v| v[3] > 0.).count();
+        let emissive_volume = self.world.has_emissive_volume();
+        if volume_light_count == 0 && !emissive_volume {
+            atmosphere.density = 0.;
+        }
+        let volumes_enabled = atmosphere.density > 0. || fx_count > 0;
+        let moving_volume = !export && self.interactive_preview;
+        let volume_stride = if !volumes_enabled { 0 } else if moving_volume { 2 } else { 1 };
+        let (fx_steps, fx_shadows) = if fx_count == 0 {
+            (0, 0.)
+        } else {
+            (fx::ray_steps(project, export, self.interactive_preview, self.effect_time),
+             fx::shadow_quality(project, moving_volume))
+        };
         let (mut lights, mut light_count) = pack_lights(project, export)?;
         fx::append_scene_lights(project,globals,export,self.effect_time,&mut lights,&mut light_count,&self.fx_state,&self.fx_gas);
         let mode = match settings.background_mode {
@@ -2997,14 +3070,14 @@ impl Renderer {
                     atmosphere.color[0],
                     atmosphere.color[1],
                     atmosphere.color[2],
-                    0.,
+                    f32::from(emissive_volume),
                 ],
                 volume_lights,
                 light_meta: [
                     light_count as f32,
-                    if export { 64. } else { 48. },
+                    if export { 64. } else if moving_volume { 24. } else { 48. },
                     if view.orthographic.is_some() { 1. } else { 0. },
-                    0.,
+                    volume_stride as f32,
                 ],
                 dof: [
                     view.depth_of_field.focus_distance,
@@ -3019,7 +3092,7 @@ impl Renderer {
                 ],
                 camera_grade: view.effects.uniforms().0,
                 camera_lens: view.effects.uniforms().1,
-                fx_meta: [fx_count as f32, fx::ray_steps(project,export,self.interactive_preview,self.effect_time) as f32,fx::shadow_quality(project,!export && self.interactive_preview),
+                fx_meta: [fx_count as f32, fx_steps as f32, fx_shadows,
                     (0..light_count).max_by(|&a,&b|lights[a].color_intensity[3].total_cmp(&lights[b].color_intensity[3])).unwrap_or(0) as f32],
                 fx: fx_volumes,
                 contour: [
@@ -3356,6 +3429,17 @@ impl Renderer {
             pass.set_index_buffer(self.floor.geometry.indices.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..self.floor.geometry.count, 0, 0..1);
         }
+        let targets = self.targets.as_ref().unwrap();
+        if volumes_enabled {
+            let rect = volume_pass::viewport_rect(view.viewport, [width, height], volume_stride);
+            let tile_edge = if fx_count > 0 || emissive_volume || volume_light_count > 2 { 128 } else { 256 };
+            self.frame_stats.volume_tiles = volume_pass::draw(
+                &self.device, &self.queue, encoder, &self.volume_pipeline, &targets.volume_view,
+                &post_bind, &self.shadow_map.bind, rect, tile_edge, export,
+                &self.fx_cancel, self.volume_progress.as_deref_mut(),
+            )?;
+            self.frame_stats.volume_stride = volume_stride;
+        }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("display transform"),
@@ -3374,6 +3458,7 @@ impl Renderer {
             pass.set_pipeline(&self.post_pipeline);
             pass.set_bind_group(0, &post_bind, &[]);
             pass.set_bind_group(1, &self.shadow_map.bind, &[]);
+            pass.set_bind_group(2, &targets.volume_bind, &[]);
             pass.draw(0..3, 0..1);
         }
         if rectangles.is_empty() && texts.is_empty() {
@@ -3548,6 +3633,9 @@ impl Renderer {
             transparent,
             export,
         )?;
+        if export {
+            return readback::save_image(path, &rgba, width, height, &self.fx_cancel);
+        }
         image::save_buffer(path, &rgba, width, height, image::ColorType::Rgba8)
             .map_err(|e| e.to_string())
     }
@@ -3588,6 +3676,7 @@ impl Renderer {
         transparent: bool,
         export: bool,
     ) -> Result<Vec<u8>, String> {
+        if export { volume_pass::check_cancel(&self.fx_cancel)?; }
         let max = self.device.limits().max_texture_dimension_2d;
         if width == 0 || height == 0 || width > max || height > max {
             return Err(format!("Размер изображения должен быть от 1 до {max}"));
@@ -3664,58 +3753,28 @@ impl Renderer {
             },
         );
         self.queue.submit(Some(encoder.finish()));
+        self.shadow_cache.submitted = true;
         let (tx, rx) = std::sync::mpsc::channel();
         output
             .slice(..)
             .map_async(wgpu::MapMode::Read, move |result| {
                 let _ = tx.send(result);
             });
-        if let Err(error) = readback::wait_for_mapping(&rx, &self.fx_cancel, readback::TIMEOUT, || {
+        if let Err(error) = readback::wait_for_gpu(&rx, &self.fx_cancel, readback::TIMEOUT, || {
             self.device.poll(wgpu::Maintain::Poll);
         }) {
+            self.shadow_cache.submitted = false;
             output.unmap();
             return Err(error);
         }
         let mapped = output.slice(..).get_mapped_range();
-        let mut rgba = Vec::with_capacity((row_bytes * height) as usize);
-        for row in mapped.chunks(padded as usize) {
-            rgba.extend_from_slice(&row[..row_bytes as usize]);
-        }
+        let bgra = matches!(self.config.format,
+            wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb);
+        let rgba = readback::unpack_rgba(&mapped, row_bytes as usize, padded as usize,
+            bgra, transparent && export, export.then_some(self.fx_cancel.as_ref()));
         drop(mapped);
         output.unmap();
-        if matches!(
-            self.config.format,
-            wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
-        ) {
-            for p in rgba.chunks_mut(4) {
-                p.swap(0, 2);
-            }
-        }
-        // Alpha blending produces premultiplied RGB over a clear background; PNG stores straight alpha.
-        if transparent && export {
-            for p in rgba.chunks_mut(4) {
-                if p[3] > 0 && p[3] < 255 {
-                    let a = p[3] as f32 / 255.;
-                    for c in &mut p[..3] {
-                        let s = *c as f32 / 255.;
-                        let linear = if s <= 0.04045 {
-                            s / 12.92
-                        } else {
-                            ((s + 0.055) / 1.055).powf(2.4)
-                        };
-                        let l = (linear / a).clamp(0., 1.);
-                        *c = (255.
-                            * if l <= 0.0031308 {
-                                12.92 * l
-                            } else {
-                                1.055 * l.powf(1. / 2.4) - 0.055
-                            })
-                        .round() as u8;
-                    }
-                }
-            }
-        }
-        Ok(rgba)
+        rgba
     }
 }
 

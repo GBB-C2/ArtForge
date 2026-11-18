@@ -26,7 +26,7 @@ struct Display {
     volume: vec4<f32>, // extinction, height, maximum distance, anisotropy
     volume_color: vec4<f32>,
     volume_lights: array<vec4<f32>,8>, // independent tint RGB and enabled strength
-    light_meta: vec4<f32>, // count, steps, orthographic
+    light_meta: vec4<f32>, // count, fog steps, orthographic, volume pixel stride (0 = disabled)
     lights: array<Light,8>,
     dof:vec4<f32>,
     forward:vec4<f32>,
@@ -38,6 +38,8 @@ struct Display {
     fx_meta:vec4<f32>,
     fx:array<FxVolume,8>,
 };
+// Written once before display and lens sampling. RGB is in-scattered radiance, A is transmittance.
+@group(2) @binding(0) var integrated_volume: texture_2d<f32>;
 @group(0) @binding(0) var hdr_scene: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> display: Display;
 @group(0) @binding(2) var scene_depth: texture_2d<f32>;
@@ -99,52 +101,116 @@ fn unproject(uv:vec2<f32>,depth:f32)->vec3<f32> {
     let h=display.inverse_view_proj*vec4(uv.x*2.-1.,1.-uv.y*2.,depth,1.);
     return h.xyz/h.w;
 }
+fn scattering_phase(g:f32, cosine:f32)->f32 {
+    let d=max(1.+g*g-2.*g*cosine,0.001);
+    return (1.-g*g)/(12.5663706*d*sqrt(d));
+}
+
+// Exact column density for the constant medium below y=0 and the exponential
+// height profile above it. Swapping endpoints also handles downward camera rays.
+fn column_density(a:f32,b:f32,distance:f32)->f32 {
+    let h=display.volume.y;
+    let lo = min(a, b) / h;
+    let hi = max(a, b) / h;
+    var mean=1.;
+    if hi>0. {
+        if hi-lo<0.0005 {
+            mean=exp(-max((hi+lo)*0.5,0.));
+        } else {
+            let top=max(lo,0.);
+            mean=(max(-lo,0.)+exp(-top)*(1.-exp(-(hi-top))))/(hi-lo);
+        }
+    }
+    return max(mean,0.)*distance*display.volume.x;
+}
+
 fn fog(scene:vec4<f32>,pixel:vec2<f32>)->vec4<f32> {
     if display.volume.x<=0. {return scene;}
     let uv=(pixel-display.viewport.xy)/display.viewport.zw;
     if any(uv<vec2(0.)) || any(uv>vec2(1.)) {return scene;}
-    let near=unproject(uv,0.);
-    let origin=select(display.eye.xyz,near,display.light_meta.z>0.5);
+    let origin=select(display.eye.xyz,unproject(uv,0.),display.light_meta.z>0.5);
     let end=unproject(uv,min(unpack_depth(textureLoad(scene_depth,vec2<i32>(pixel),0)),0.999999));
-    let delta=end-origin;let distance=min(length(delta),display.volume.z);
+    let delta = end - origin;
+    let distance = min(length(delta), display.volume.z);
     if distance<0.0001 {return scene;}
     let ray=normalize(delta);
-    let steps=u32(clamp(display.light_meta.y,16.,64.));
-    let step=distance/f32(steps);
-    // Deterministic per-pixel stratification avoids temporal shimmer and banding.
-    let jitter=fract(52.9829189*fract(dot(floor(pixel),vec2(0.06711056,0.00583715))));
-    var transmission=1.;var scatter=vec3(0.);
     let g=display.volume.w;
+    let emitters=select(0u,world_emission_count(),display.volume_color.w>0.5);
+    var constant_light=vec3(0.);
+    var local_mask=0u;
+    for(var i=0u;i<u32(display.light_meta.x);i+=1u) {
+        let volume = display.volume_lights[i];
+        let light = display.lights[i];
+        if volume.a<=0. || light.color_intensity.a<=0. {continue;}
+        if light.position_kind.w<0.5 && (shadow.params.x<=0. || shadow.lights[i].params.y<0.5) {
+            let phase=scattering_phase(g,dot(-light.direction_range.xyz,ray));
+            constant_light+=light.color_intensity.rgb*volume.rgb*volume.a*light.color_intensity.a*phase;
+        } else {
+            local_mask|=1u<<i;
+        }
+    }
+    if local_mask==0u && emitters==0u {
+        let t=exp(-column_density(origin.y,origin.y+ray.y*distance,distance));
+        return vec4(scene.rgb*t+(1.-t)*constant_light*display.volume_color.rgb,1.-(1.-scene.a)*t);
+    }
+    let steps=u32(clamp(display.light_meta.y,16.,64.));
+    let linear_step=distance/f32(steps);
+    let jitter=fract(52.9829189*fract(dot(floor(pixel),vec2(0.06711056,0.00583715))));
+    let moving=display.light_meta.w>1.;
+    var transmission = 1.;
+    var scatter = vec3(0.);
     for(var j=0u;j<steps;j+=1u) {
         if transmission<0.001 {break;}
-        let world=origin+ray*(f32(j)+jitter)*step;
-        let density=display.volume.x*exp(-max(world.y,0.)/max(display.volume.y,0.01));
+        var step=linear_step;
+        var sample_distance=(f32(j)+jitter)*linear_step;
+        if moving {
+            // Short nearby segments resolve local lights even when a background
+            // ray extends for hundreds of units. Limit chromatic noise during motion.
+            let scale=linear_step/f32(steps);
+            step=f32(2u*j+1u)*scale;
+            sample_distance=f32(j*j)*scale+(0.5+(jitter-0.5)*0.2)*step;
+        }
+        let world_pos=origin+ray*sample_distance;
+        let density=display.volume.x*exp(-max(world_pos.y,0.)/display.volume.y);
         let extinction=exp(-density*step);
-        var illumination=vec3(0.);
-        for(var i=0u;i<u32(display.light_meta.x);i+=1u) {
-            let volume=display.volume_lights[i];
-            if volume.a<=0. {continue;}
-            let light=display.lights[i];var l=-light.direction_range.xyz;var attenuation=1.;
+        var illumination=constant_light;
+        var remaining=local_mask;
+        while remaining!=0u {
+            let i=firstTrailingBit(remaining);
+            remaining&=remaining-1u;
+            let light = display.lights[i];
+            let volume = display.volume_lights[i];
+            var l = -light.direction_range.xyz;
+            var attenuation = 1.;
             if light.position_kind.w>0.5 {
-                let to_light=light.position_kind.xyz-world;let distance2=max(dot(to_light,to_light),0.01);
+                let to_light=light.position_kind.xyz-world_pos;
+                let distance2=max(dot(to_light,to_light),0.01);
+                let range2=light.direction_range.w*light.direction_range.w;
+                if range2>0. && distance2>=range2 {continue;}
                 l=to_light*inverseSqrt(distance2);
-                // Finite emitter size regularizes close samples near area lights.
                 let emitter=select(0.01,max(light.cone.z*light.cone.w*0.25,0.01),light.position_kind.w>2.5);
                 attenuation=1./max(distance2,emitter);
-                if light.direction_range.w>0. {let fade=max(1.-pow(sqrt(distance2)/light.direction_range.w,4.),0.);attenuation*=fade*fade;}
-                if light.position_kind.w>2.5 {attenuation*=max(dot(light.direction_range.xyz,-l),0.)*light.cone.z*light.cone.w;}
-                else if light.position_kind.w>1.5 {let cone=clamp((dot(-l,light.direction_range.xyz)-light.cone.y)/max(light.cone.x-light.cone.y,0.00001),0.,1.);attenuation*=cone*cone;}
+                if range2 > 0. {
+                    let r = distance2 / range2;
+                    let fade = 1. - r * r;
+                    attenuation *= fade * fade;
+                }
+                if light.position_kind.w > 2.5 {
+                    attenuation *= max(dot(light.direction_range.xyz, -l), 0.) * light.cone.z * light.cone.w;
+                } else if light.position_kind.w > 1.5 {
+                    let cone=clamp((dot(-l,light.direction_range.xyz)-light.cone.y)/max(light.cone.x-light.cone.y,0.00001),0.,1.);
+                    attenuation*=cone*cone;
+                }
+                if attenuation<=0. {continue;}
             }
-            let phase=(1.-g*g)/(12.5663706*pow(max(1.+g*g-2.*g*dot(l,ray),0.001),1.5));
-            illumination+=light.color_intensity.rgb*volume.rgb*volume.a*light.color_intensity.a*attenuation*phase*visibility(i,world);
+            let phase=scattering_phase(g,dot(l,ray));
+            illumination += light.color_intensity.rgb * volume.rgb * volume.a * light.color_intensity.a
+                * attenuation * phase * visibility(i, world_pos);
         }
-        // One stratified emitter per march step, independent of scene complexity.
-        let count=world_emission_count();
-        if count>0u {
-            let index=(j+u32(jitter*f32(count)))%count;
-            let sample=mesh_emission(index,world,vec3(0.),true);
-            let phase=(1.-g*g)/(12.5663706*pow(max(1.+g*g-2.*g*dot(sample.direction,ray),0.001),1.5));
-            illumination+=sample.radiance*phase*f32(count);
+        if emitters>0u {
+            let index=(j+u32(jitter*f32(emitters)))%emitters;
+            let sample=mesh_emission(index,world_pos,vec3(0.),true);
+            illumination+=sample.radiance*scattering_phase(g,dot(sample.direction,ray))*f32(emitters);
         }
         scatter+=transmission*(1.-extinction)*illumination*display.volume_color.rgb;
         transmission*=extinction;
@@ -235,11 +301,62 @@ fn selected_outline(p:vec2<f32>)->f32 {
     return 0.;
 }
 
+// A moving preview can shade one ray per 2x2 pixels. Pick the same depth texel
+// at both stages, including at odd-sized edges and in an offset editor viewport.
+fn volume_pixel(cell:vec2<i32>,stride:i32)->vec2<f32> {
+    let dimensions=vec2<i32>(textureDimensions(scene_depth));
+    let first=clamp(vec2<i32>(ceil(display.viewport.xy-0.5)),vec2(0),dimensions-1);
+    let last=clamp(vec2<i32>(ceil(display.viewport.xy+display.viewport.zw-0.5))-1,first,dimensions-1);
+    return vec2<f32>(clamp(cell*stride+stride/2,first,last))+0.5;
+}
+
+@fragment fn fs_volume(@builtin(position) position:vec4<f32>)->@location(0) vec4<f32> {
+    let pixel=volume_pixel(vec2<i32>(position.xy),i32(display.light_meta.w));
+    let v=volume_fx(fog(vec4(0.),pixel),pixel);
+    return vec4(min(v.rgb,vec3(65504.)),clamp(1.-v.a,0.,1.));
+}
+
+fn volume_at(pixel:vec2<f32>)->vec4<f32> {
+    let stride=i32(display.light_meta.w);
+    if stride==1 {return textureLoad(integrated_volume,vec2<i32>(pixel),0);}
+    let uv=(pixel-vec2(f32(stride/2)+0.5))/f32(stride);
+    let base = vec2<i32>(floor(uv));
+    let f = fract(uv);
+    let size=vec2<f32>(textureDimensions(scene_depth));
+    let low=vec2<i32>(floor(clamp(display.viewport.xy,vec2(0.),size)/f32(stride)));
+    let high=max(low,vec2<i32>(ceil(clamp(display.viewport.xy+display.viewport.zw,vec2(0.),size)/f32(stride)))-1);
+    let z=unpack_depth(textureLoad(scene_depth,vec2<i32>(pixel),0));
+    let tolerance=select(max(0.000001,(1.-z)*0.025),0.0002,display.light_meta.z>0.5);
+    var sum = vec4(0.);
+    var weights = 0.;
+    for(var i=0u;i<4u;i+=1u) {
+        let offset=vec2<i32>(i32(i&1u),i32(i>>1u));
+        let cell=clamp(base+offset,low,high);
+        let sample_z=unpack_depth(textureLoad(scene_depth,vec2<i32>(volume_pixel(cell,stride)),0));
+        let error=(z-sample_z)/tolerance;
+        let xy=select(vec2(1.)-f,f,offset!=vec2(0));
+        let weight=xy.x*xy.y/(1.+error*error);
+        sum+=textureLoad(integrated_volume,cell,0)*weight;
+        weights+=weight;
+    }
+    return sum/max(weights,1e-20);
+}
+
+fn scene_at(pixel:vec2<f32>)->vec4<f32> {
+    let scene=defocus(pixel);
+    if display.light_meta.w < 1. || any(pixel < display.viewport.xy)
+        || any(pixel >= display.viewport.xy + display.viewport.zw) {
+        return scene;
+    }
+    let v=volume_at(pixel);
+    return vec4(scene.rgb*v.a+v.rgb,1.-(1.-scene.a)*v.a);
+}
+
 @fragment fn fs_main(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
     // Resolve and all alpha blending have already happened in a linear HDR buffer.
     // Remove coverage before the nonlinear display curve and restore it afterwards:
     // this keeps MSAA edges and transparent PNG boundaries free from dark fringes.
-    var scene = volume_fx(fog(defocus(pixel.xy),pixel.xy),pixel.xy);
+    var scene = scene_at(pixel.xy);
     let effects = display.camera_lens.w > 0.5 && all(pixel.xy >= display.viewport.xy)
         && all(pixel.xy < display.viewport.xy + display.viewport.zw);
     if effects && display.camera_lens.z > 0. {
@@ -248,7 +365,7 @@ fn selected_outline(p:vec2<f32>)->f32 {
         let shift = radial * dot(radial, radial) * display.camera_lens.z * display.viewport.w / 1080.;
         let low = display.viewport.xy + vec2(0.5); let high = display.viewport.xy + display.viewport.zw - vec2(0.5);
         let rp = clamp(pixel.xy + shift, low, high); let bp = clamp(pixel.xy - shift, low, high);
-        let red = volume_fx(fog(defocus(rp),rp),rp); let blue = volume_fx(fog(defocus(bp),bp),bp);
+        let red = scene_at(rp); let blue = scene_at(bp);
         // Keep the original coverage so lens effects cannot create opaque PNG fringes.
         scene.r = red.r / max(red.a, 0.000001) * scene.a;
         scene.b = blue.b / max(blue.a, 0.000001) * scene.a;

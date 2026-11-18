@@ -1674,6 +1674,7 @@ dependencies = [
  "poseforge-core",
  "poseforge-io",
  "poseforge-simulation",
+ "tempfile",
  "wgpu",
  "winit",
 ]

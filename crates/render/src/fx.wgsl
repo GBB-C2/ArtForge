@@ -254,6 +254,7 @@ fn fx_illumination(volume:u32,world:vec3<f32>,ray:vec3<f32>)->vec3<f32> {
                 attenuation*=cone*cone;
             } else if light.position_kind.w>2.5 {attenuation*=max(dot(-l,light.direction_range.xyz),0.);}
         }
+        if attenuation<=0. || light.color_intensity.a<=0. {continue;}
         var phase=0.6+0.8*pow(clamp(0.5+0.5*dot(l,ray),0.,1.),2.);
         if fx.pyro.x>0.5 {let g=fx.pyro.y;let d=max(1.+g*g-2.*g*dot(l,ray),0.0001);phase=(1.-g*g)/(d*sqrt(d));}
         var occlusion=1.;if light.shape.w>0.5 {occlusion=visibility(i,world);}

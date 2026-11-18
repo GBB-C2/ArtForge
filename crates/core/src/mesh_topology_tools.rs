@@ -311,35 +311,42 @@ pub(crate) fn bridge_options(mesh:&mut Mesh,selection:&BTreeSet<(usize,usize)>,s
     }
     let g = MeshConnectivity::new(mesh);
     let edges = selected_edges(mesh, selection, &g)?;
-    if edges.iter().any(|e| g.edge_faces[e].len() > 1) {
-        return Err(invalid("Мост соединяет два открытых граничных контура"));
-    }
-    let mut degrees = BTreeMap::<usize,usize>::new();
-    for &(a,b) in &edges { *degrees.entry(a).or_default()+=1; *degrees.entry(b).or_default()+=1; }
-    if degrees.values().any(|&n|n!=2) || edges.iter().any(|e|g.edge_faces[e].is_empty()) {
+    let Some(rings) = edge_bridge_rings(mesh, &g, &edges)? else {
         return crate::modeling_workflow::bridge_open(mesh,&edges,segments,twist,smooth);
-    }
-    let directed: Vec<_> = edges
-        .iter()
-        .map(|&e| directed(mesh, &g, g.edge_faces[&e][0], e))
-        .collect();
-    let rings = loops(&directed)?;
-    if rings.len() != 2 {
-        return Err(invalid("Нужны два отдельные замкнутые контура"));
-    }
+    };
     let mut output = faces(mesh);
     crate::advanced_bridge::append(mesh, &rings, segments, twist, smooth, &mut output)?;
     finish(mesh, output, mesh.smooth_normals_enabled())
 }
 
-pub(crate) fn bridge_faces(mesh: &mut Mesh, selection: &BTreeSet<usize>, segments: u32) -> Result<(), CoreError> {
-    bridge_faces_options(mesh,selection,segments,0,0.)
-}
-pub(crate) fn bridge_faces_options(mesh:&mut Mesh,selection:&BTreeSet<usize>,segments:u32,twist:i32,smooth:f32)->Result<(),CoreError> {
-    if selection.len()<2 || selection.iter().any(|&f|f>=mesh.face_count()) || !(1..=32).contains(&segments) {
-        return Err(invalid("Выберите две области граней; сегменты моста: 1–32"));
+fn edge_bridge_rings(
+    mesh: &Mesh,
+    g: &MeshConnectivity,
+    edges: &BTreeSet<(usize, usize)>,
+) -> Result<Option<Vec<Vec<usize>>>, CoreError> {
+    if edges.iter().any(|e| g.edge_faces[e].len() > 1) {
+        return Err(invalid("Мост соединяет два открытых граничных контура"));
     }
-    let g=MeshConnectivity::new(mesh);
+    let mut degrees = BTreeMap::<usize, usize>::new();
+    for &(a, b) in edges {
+        *degrees.entry(a).or_default() += 1;
+        *degrees.entry(b).or_default() += 1;
+    }
+    if degrees.values().any(|&n| n != 2) || edges.iter().any(|e| g.edge_faces[e].is_empty()) {
+        return Ok(None);
+    }
+    let directed: Vec<_> = edges
+        .iter()
+        .map(|&e| directed(mesh, g, g.edge_faces[&e][0], e))
+        .collect();
+    let rings = loops(&directed)?;
+    if rings.len() != 2 {
+        return Err(invalid("Нужны два отдельные замкнутые контура"));
+    }
+    Ok(Some(rings))
+}
+
+fn face_bridge_rings(mesh:&Mesh, g:&MeshConnectivity, selection:&BTreeSet<usize>) -> Result<Vec<Vec<usize>>,CoreError> {
     let mut remaining=selection.clone(); let mut groups=Vec::new();
     while let Some(&seed)=remaining.first() {
         let mut group=BTreeSet::from([seed]); let mut pending=vec![seed]; remaining.remove(&seed);
@@ -375,6 +382,42 @@ pub(crate) fn bridge_faces_options(mesh:&mut Mesh,selection:&BTreeSet<usize>,seg
     if rings[0].iter().any(|v|rings[1].contains(v)) {
         return Err(invalid("Для моста нужны отдельные контуры без общих вершин"));
     }
+    Ok(rings)
+}
+
+/// Source seam vertex and target loop in increasing twist order. Index zero
+/// matches the zipper's unshifted correspondence, even for unequal contours.
+pub fn bridge_seam(
+    mesh: &Mesh,
+    selected_faces: &BTreeSet<usize>,
+    selection: &BTreeSet<(usize, usize)>,
+) -> Option<(usize, Vec<usize>)> {
+    let graph = MeshConnectivity::new(mesh);
+    let mut rings = if selected_faces.is_empty() {
+        let edges = selected_edges(mesh, selection, &graph).ok()?;
+        edge_bridge_rings(mesh, &graph, &edges).ok()??
+    } else {
+        if selected_faces.iter().any(|&f| f >= mesh.face_count()) {
+            return None;
+        }
+        face_bridge_rings(mesh, &graph, selected_faces).ok()?
+    };
+    let mut target = rings.pop()?;
+    let first = rings.pop()?;
+    let shift = crate::advanced_bridge::best_shift(mesh, &first, &target);
+    target.rotate_left(shift);
+    Some((first[0], target))
+}
+
+pub(crate) fn bridge_faces(mesh: &mut Mesh, selection: &BTreeSet<usize>, segments: u32) -> Result<(), CoreError> {
+    bridge_faces_options(mesh,selection,segments,0,0.)
+}
+pub(crate) fn bridge_faces_options(mesh:&mut Mesh,selection:&BTreeSet<usize>,segments:u32,twist:i32,smooth:f32)->Result<(),CoreError> {
+    if selection.len()<2 || selection.iter().any(|&f|f>=mesh.face_count()) || !(1..=32).contains(&segments) {
+        return Err(invalid("Выберите две области граней; сегменты моста: 1–32"));
+    }
+    let g=MeshConnectivity::new(mesh);
+    let rings=face_bridge_rings(mesh,&g,selection)?;
     let mut output:Vec<_>=faces(mesh).into_iter().enumerate().filter_map(|(f,face)|(!selection.contains(&f)).then_some(face)).collect();
     let mut materials:Vec<_>=(0..mesh.face_count()).filter(|f|!selection.contains(f)).map(|f|mesh.face_material(f)).collect();
     let material=mesh.face_material(*selection.first().unwrap()); let count=output.len();

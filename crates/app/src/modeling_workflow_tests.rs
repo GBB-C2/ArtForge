@@ -529,6 +529,7 @@ fn workflow_capture_ui() {
                 if let Ok(height) = std::env::var("ARTFORGE_UI_CAPTURE_HEIGHT") { a.height = height.parse().unwrap(); }
                 if let Ok(accent) = std::env::var("ARTFORGE_UI_CAPTURE_ACCENT") { a.preferences.accent = ui::Accent::from_name(&accent); }
                 if let Ok(transparency) = std::env::var("ARTFORGE_UI_CAPTURE_TRANSPARENCY") { a.preferences.tool_panel_transparency = transparency.parse().unwrap(); }
+                if tool==M::Bridge {select_bridge_caps(&mut a);}else{a.frame_all();}
                 a.action(Action::ModelingTool(tool));
                 if std::env::var_os("ARTFORGE_UI_CAPTURE_MERGE").is_some() && a.tool_merge_visible() {
                     a.action(Action::Author(A::ToolMerge));
@@ -670,16 +671,31 @@ fn workflow_knife_dropdown_keeps_its_floating_anchor_and_transaction() {
     assert_eq!(a.editor.undo_len(), 0);
 }
 
+pub(super) fn select_bridge_caps(a: &mut App) {
+    let mut second = a.editor.project.meshes[0].clone();
+    for v in &mut second.vertices {
+        v.position[0] += 4.;
+    }
+    let mesh = &mut a.editor.project.meshes[0];
+    let n = mesh.vertices.len() as u32;
+    mesh.vertices.extend(second.vertices.iter().copied());
+    mesh.topology.as_mut().unwrap().faces.extend(
+        second
+            .topology
+            .unwrap()
+            .faces
+            .iter()
+            .map(|f| f.iter().map(|v| v + n).collect::<Vec<_>>()),
+    );
+    mesh.rebuild_polygon_indices().unwrap();
+    a.frame_all();
+    a.authoring.faces = BTreeSet::from([0, 7]);
+}
+
 #[test]
 fn preview_bridge_fields_orbit_pan_zoom_and_cancel_preserve_single_transaction() {
     let mut a=app();
-    // Two separate cube caps form closed boundary loops for a bridge.
-    let first=a.editor.project.meshes[0].clone();let mut second=first.clone();
-    for v in &mut second.vertices {v.position[0]+=4.;}
-    let count=first.vertices.len() as u32;let mesh=&mut a.editor.project.meshes[0];
-    mesh.vertices.extend(second.vertices.iter().copied());
-    mesh.topology.as_mut().unwrap().faces.extend(second.topology.unwrap().faces.iter().map(|f|f.iter().map(|v|v+count).collect::<Vec<_>>()));
-    mesh.rebuild_polygon_indices().unwrap();a.frame_all();a.authoring.faces=BTreeSet::from([0,6]);
+    select_bridge_caps(&mut a);
     let original=a.editor.project.clone();let undo=a.editor.undo_len();
     a.action(Action::ModelingTool(M::Bridge));assert!(a.modeling_live.is_some(),"{}",a.status);
     a.apply_field_value(Action::Author(A::LiveField(0)),"3").unwrap();
@@ -913,6 +929,54 @@ fn section_editing_keeps_navigation_and_both_theme_controls_available() {
         a.mouse=point;let distance=a.distance;a.scroll(1.);assert_ne!(a.distance,distance);assert_eq!(a.editor.project,before);
         a.action(Action::Author(A::KnifeCancel));
     }}
+}
+
+#[test]
+fn both_cut_grips_edit_only_the_chosen_plane_with_one_undo() {
+    use ui::SectionHandle::{Gap, Position};
+    let mut a = app();
+    let original = a.editor.project.clone();
+    create_two_sections(&mut a);
+    a.action(Action::Author(A::SectionMode(true)));
+    a.action(Action::Author(A::SectionSelect(1)));
+    a.action(Action::Author(A::KnifeCloseGap));
+    for (handle, field, target) in [(Position, 10, -0.08), (Gap, 1, 0.12)] {
+        let initial = a.editor.project.clone();
+        let (axis, unit) = a.section_grip_basis(handle).unwrap();
+        for restore in [true, false] {
+            a.ui = a.build_ui();
+            let point =
+                a.ui.action_point(&Action::Author(A::SectionGrip(handle)))
+                    .unwrap();
+            a.mouse_move(point);
+            a.mouse_down(MouseButton::Left);
+            assert!(matches!(a.drag, Some(Drag::SectionGrip(_))));
+            a.mouse_move((glam::Vec2::from_array(point) + axis * (target / unit)).to_array());
+            assert!(
+                (a.section_value(field).unwrap() - target).abs() < 1e-4,
+                "{}",
+                a.status
+            );
+            assert_ne!(a.editor.project, initial);
+            if restore {
+                a.cancel_drag();
+                assert_eq!(a.editor.project, initial);
+            } else {
+                a.mouse_up(MouseButton::Left);
+            }
+            assert_eq!(a.editor.undo_len(), 0);
+        }
+        a.action(Action::Author(A::SectionSelect(0)));
+        assert_eq!(a.section_value(field), Some(0.));
+        a.action(Action::Author(A::SectionSelect(1)));
+        assert!((a.section_value(field).unwrap() - target).abs() < 1e-4);
+    }
+    let after = a.editor.project.clone();
+    a.action(Action::Author(A::KnifeAccept));
+    assert_eq!(a.editor.undo_len(), 1);
+    assert_eq!(a.editor.project, after);
+    a.action(Action::Undo);
+    assert_eq!(a.editor.project, original);
 }
 
 #[test]

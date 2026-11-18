@@ -125,6 +125,8 @@ impl App {
             }
         }
         op.direction = model.transform_vector3(normal.try_normalize().unwrap_or(Vec3::Y));
+        op.model=model;
+        self.refresh_grip_geometry(&mut op);
         let result = if op.kind == Kind::Cut && op.selection.edges.len() != 1 {
             Err("Выберите одно ребро для разреза".to_owned())
         } else {
@@ -170,7 +172,7 @@ impl App {
             || (ui::contains(self.modeling_area(), self.mouse)
                 && matches!(
                     self.ui.hit(self.mouse),
-                    Some(Action::Author(A::LiveDrag(_) | A::SectionSelect(_)))
+                    Some(Action::Author(A::LiveDrag(_) | A::ArraySpacing | A::SectionSelect(_) | A::SectionGrip(_)))
                 ));
         if !over_model {
             return false;

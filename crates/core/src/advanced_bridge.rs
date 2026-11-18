@@ -21,6 +21,25 @@ fn normal(mesh: &Mesh, ring: &[usize]) -> Vec3 {
         .sum::<Vec3>()
         .normalize_or_zero()
 }
+pub(crate) fn best_shift(mesh: &Mesh, first: &[usize], second: &[usize]) -> usize {
+    let (n, m) = (first.len(), second.len());
+    let p = |v: usize| Vec3::from_array(mesh.vertices[v].position);
+    let stride = m.div_ceil(256);
+    (0..m)
+        .step_by(stride)
+        .min_by(|&a, &b| {
+            let cost = |s: usize| {
+                (0..n)
+                    .step_by(n.div_ceil(128))
+                    .map(|i| {
+                        p(first[i]).distance_squared(p(second[(s + m - i * m / n) % m])) as f64
+                    })
+                    .sum::<f64>()
+            };
+            cost(a).total_cmp(&cost(b))
+        })
+        .unwrap()
+}
 pub(crate) fn append(
     mesh: &mut Mesh,
     rings: &[Vec<usize>],
@@ -53,21 +72,7 @@ pub(crate) fn append(
     }
     let first = &rings[0];
     let p = |v: usize| Vec3::from_array(mesh.vertices[v].position);
-    let stride = m.div_ceil(256);
-    let shift = (0..m)
-        .step_by(stride)
-        .min_by(|&a, &b| {
-            let cost = |s: usize| {
-                (0..n)
-                    .step_by(n.div_ceil(128))
-                    .map(|i| {
-                        p(first[i]).distance_squared(p(rings[1][(s + m - i * m / n) % m])) as f64
-                    })
-                    .sum::<f64>()
-            };
-            cost(a).total_cmp(&cost(b))
-        })
-        .unwrap();
+    let shift = best_shift(mesh, first, &rings[1]);
     let shift = (shift as i64 + twist as i64).rem_euclid(m as i64) as usize;
     let last: Vec<_> = (0..m).map(|i| rings[1][(shift + m - i) % m]).collect();
     let center = |r: &[usize]| r.iter().map(|&v| p(v)).sum::<Vec3>() / r.len() as f32;

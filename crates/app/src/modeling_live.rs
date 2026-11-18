@@ -5,6 +5,10 @@ use crate::ui::{AuthorAction as A, MeshSelection as S};
 use poseforge_core::{Mesh, MeshEdit};
 #[path = "modeling_live/handles.rs"]
 mod handles;
+#[path = "modeling_live/grip_geometry.rs"]
+mod grip_geometry;
+use grip_geometry::{SurfaceFrame, Seam};
+use glam::Vec2;
 #[path = "modeling_live/selection.rs"]
 mod selection;
 #[derive(Clone, Copy, PartialEq)]
@@ -38,6 +42,10 @@ pub(super) struct LiveOperation {
     merge_map: Option<poseforge_core::MeshMergeMap>,
     values: [f32; 4],
     defaults: [f32; 4],
+    model: Mat4,
+    surface: Option<SurfaceFrame>,
+    seam: Option<Seam>,
+    array_axis: Vec3,
     anchor: Vec3,
     direction: Vec3,
     scale: f32,
@@ -84,7 +92,7 @@ impl LiveOperation {
             (Kind::Array, 0) => ("Копии, включая исходную", 2., 128., 1.),
             (Kind::Array, 1..=3) => (["Смещение X, м", "Смещение Y, м", "Смещение Z, м"][i-1], -10000., 10000., self.scale * 0.002),
             (Kind::Bridge,0)=>("Сегменты",1.,32.,1.),
-            (Kind::Bridge,1)=>("Скручивание, шаги",-32.,32.,1.),
+            (Kind::Bridge,1)=>{let limit=self.seam.as_ref().map_or(32,|s|s.targets.len().max(32)) as f32; ("Скручивание, шаги",-limit,limit,1.)},
             (Kind::Bridge,2)=>("Плавность, %",0.,100.,1.),
             (Kind::Vertex | Kind::VertexInset, 0) => ("Срез угла, %", 0., 45., 0.25),
             (Kind::Edge, 0) => ("Ширина, м", 0., 1000., self.scale * 0.002),
@@ -174,7 +182,14 @@ impl LiveOperation {
     }
 }
 #[derive(Clone)]
+enum GripMotion {
+    Linear,
+    Spacing(Vec3),
+    Seam { rim: std::sync::Arc<[Vec2]>, bias: Vec2 },
+}
+#[derive(Clone)]
 pub(super) struct ParameterDrag {
+    motion: GripMotion,
     start: [f32; 4],
     pointer: [f32; 2],
     value: f32,
@@ -187,6 +202,15 @@ pub(super) struct ParameterDrag {
     requested: [f32; 4],
     viewport: bool,
     range: SliderRange,
+}
+impl ParameterDrag {
+    fn action(&self) -> A {
+        if matches!(self.motion, GripMotion::Spacing(_)) {
+            A::ArraySpacing
+        } else {
+            A::LiveDrag(self.field as u8)
+        }
+    }
 }
 impl App {
     pub(super) fn set_tool_merge_distance(&mut self, value: f32) -> Result<(), String> {
@@ -249,6 +273,9 @@ impl App {
             } else {
                 op.has_preview = true; op.error = None;
             }
+            let mut op=self.modeling_live.take().unwrap();
+            self.refresh_grip_geometry(&mut op);
+            self.modeling_live=Some(op);
             self.sync_live_selection(); self.invalidate_geometry();
         }
         if inset { self.authoring.workflow.inset_mode = mode; } else { self.authoring.workflow.bevel_mode = mode; }
@@ -292,6 +319,7 @@ impl App {
                 }
                 return true;
             }
+            A::ArraySpacing => { self.begin_live_drag(1,None,true); return true; }
             A::LiveDrag(i) => {
                 self.begin_live_parameter(i as usize, None);
                 return true;
@@ -430,6 +458,8 @@ impl App {
             face_mode:if kind == Kind::Inset { self.authoring.workflow.inset_mode } else { self.authoring.workflow.bevel_mode },
             values,
             defaults: values,
+            model, surface: None, seam: None,
+            array_axis: Vec3::new(values[1],values[2],values[3]).try_normalize().unwrap_or(Vec3::X),
             anchor,
             direction,
             scale,
@@ -437,6 +467,7 @@ impl App {
             has_preview: false,
             expanded: true,
         };
+        self.refresh_grip_geometry(&mut op);
         self.editor.begin_edit(op.label());
         let result = op.preview(&mut self.editor, values);
         op.has_preview = result.is_ok();
@@ -472,7 +503,10 @@ impl App {
                 op.values = values;
                 op.error = None;
                 op.has_preview = true;
-                if op.kind == Kind::Array { self.authoring.workflow.values[2..6].copy_from_slice(&values); }
+                if op.kind == Kind::Array {
+                    if let Some(axis)=op.offset().try_normalize(){op.array_axis=axis;}
+                    self.authoring.workflow.values[2..6].copy_from_slice(&values);
+                }
                 self.sync_live_selection();
                 self.invalidate_geometry();
                 Ok(())
@@ -641,7 +675,7 @@ impl App {
         if self.modeling_live.is_none() {
             return false;
         }
-        if matches!(a,Action::Author(A::LiveDrag(_) | A::LiveField(_) | A::ExtrudeMode(_) | A::FaceToolMode(_) | A::ToolMerge | A::ToolMergeDistance) | Action::Slide(..) | Action::ResetNumber(_)) {
+        if matches!(a,Action::Author(A::LiveDrag(_) | A::ArraySpacing | A::LiveField(_) | A::ExtrudeMode(_) | A::FaceToolMode(_) | A::ToolMerge | A::ToolMergeDistance) | Action::Slide(..) | Action::ResetNumber(_)) {
             self.finish_live_selection();
         }
         match a {
@@ -655,7 +689,7 @@ impl App {
             Action::ScrollPanel(0) | Action::ToggleRightPanel => false,
             Action::Author(
                 v @ (A::LiveField(_)
-                | A::LiveDrag(_)
+                | A::LiveDrag(_) | A::ArraySpacing
                 | A::LiveAccept
                 | A::LiveCancel
                 | A::LiveToggle
@@ -691,24 +725,34 @@ impl App {
         }
     }
     fn begin_live_parameter(&mut self, i: usize, track: Option<[f32; 4]>) {
+        self.begin_live_drag(i,track,false);
+    }
+    fn begin_live_drag(&mut self, i: usize, track: Option<[f32; 4]>, spacing: bool) {
         let Some(op) = &self.modeling_live else {
             return;
         };
-        if i >= op.fields() {
+        if i >= op.fields() || (spacing && op.kind != Kind::Array) {
             return;
         }
+        let mut motion = GripMotion::Linear;
         let (mut direction, mut step) = self.live_parameter_basis(op, i);
-        if track.is_none() && i == 0 && matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Edge | Kind::Face | Kind::Inset) {
-            if let Some(center) = self.project_point(
-                op.anchor
-                    + if matches!(op.kind,Kind::Face|Kind::Inset) {
-                        op.direction * op.values[1]
-                    } else {
-                        Vec3::ZERO
-                    },
-            ) {
-                let radial = glam::Vec2::from_array(self.mouse) - glam::Vec2::from_array(center);
-                direction = radial.try_normalize().unwrap_or(glam::Vec2::X).to_array();
+        let mut start_value = op.values[i];
+        if spacing {
+            let (axis, unit) = self.spacing_basis(op);
+            direction = axis.to_array();
+            step = unit;
+            start_value = op.offset().length();
+            motion = GripMotion::Spacing(op.array_axis);
+        } else if track.is_none() && op.kind == Kind::Bridge && i == 1 {
+            if let Some(rim) = self
+                .projected_rim(op)
+                .filter(|rim| grip_geometry::rim_draggable(rim))
+            {
+                let at = (op.values[i] as isize).rem_euclid(rim.len() as isize) as usize;
+                motion = GripMotion::Seam {
+                    bias: rim[at] - Vec2::from_array(self.mouse),
+                    rim: rim.into(),
+                };
             }
         }
         let range = self.live_field_range(op, i);
@@ -718,13 +762,14 @@ impl App {
             direction = [1., 0.];
         }
         self.drag = Some(Drag::LiveParameter(ParameterDrag {
+            motion,
             start: op.values,
             pointer: self.mouse,
-            value: op.values[i],
+            value: start_value,
             field: i,
             fine: self.modifiers.shift_key(),
             snapped: self.modifiers.control_key(),
-            snap_origin: op.values[i],
+            snap_origin: start_value,
             step,
             direction,
             requested: op.values,
@@ -736,6 +781,7 @@ impl App {
     }
     pub(super) fn update_live_parameter(&mut self, mut d: ParameterDrag, p: [f32; 2]) {
         if p.iter().any(|v| !v.is_finite()) {
+            self.drag = Some(Drag::LiveParameter(d));
             return;
         }
         let Some(op) = &self.modeling_live else {
@@ -747,13 +793,36 @@ impl App {
             d.fine = fine;
             d.snapped = snapped;
             d.pointer = p;
-            d.value = op.values[d.field];
+            d.value = if matches!(d.motion, GripMotion::Spacing(_)) {
+                op.offset().length()
+            } else {
+                op.values[d.field]
+            };
             d.snap_origin = d.value;
         }
-        let motion = (p[0] - d.pointer[0]) * d.direction[0] + (p[1] - d.pointer[1]) * d.direction[1];
-        d.value += motion * d.step * if fine { 0.1 } else { 1. };
+        let old = Vec2::from_array(d.pointer);
+        let next = Vec2::from_array(p);
+        let delta = match &d.motion {
+            GripMotion::Seam { rim, bias } => {
+                let n = rim.len() as f32;
+                let diff = grip_geometry::rim_coordinate(next + *bias, rim)
+                    - grip_geometry::rim_coordinate(old + *bias, rim);
+                (diff + n * 0.5).rem_euclid(n) - n * 0.5
+            }
+            _ => (next - old).dot(Vec2::from_array(d.direction)) * d.step,
+        };
+        d.value += delta * if fine { 0.1 } else { 1. };
         d.pointer = p;
-        let (_, min, max, _) = op.spec(d.field);
+        let (_, mut min, mut max, _) = op.spec(d.field);
+        if let GripMotion::Spacing(dir) = d.motion {
+            min = 0.;
+            max = 10000. / dir.abs().max_element();
+        }
+        if d.viewport && op.kind == Kind::Bridge && d.field == 1 && (d.value > max || d.value < min) {
+            if let Some(seam) = &op.seam {
+                d.value %= seam.targets.len() as f32;
+            }
+        }
         // Keep reversing at a hard limit responsive after a long captured drag.
         d.value = d.value.clamp(min, max);
         let mut values = op.values;
@@ -761,8 +830,10 @@ impl App {
         if op.integer(d.field) {
             value = value.round();
         } else if snapped {
-            let step = if matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Cut | Kind::Slide)
-                || (op.kind == Kind::Edge && d.field == 2)
+            let step = if matches!(
+                op.kind,
+                Kind::Vertex | Kind::VertexInset | Kind::Cut | Kind::Slide
+            ) || matches!((op.kind, d.field), (Kind::Edge, 2) | (Kind::Face, 3))
             {
                 5.
             } else {
@@ -770,7 +841,12 @@ impl App {
             };
             value = d.snap_origin + ((value - d.snap_origin) / step).round() * step;
         }
-        values[d.field] = value.clamp(min, max);
+        let value = value.clamp(min, max);
+        if let GripMotion::Spacing(dir) = d.motion {
+            values = op.with_spacing(dir, value);
+        } else {
+            values[d.field] = value;
+        }
         // Vertical motion, sub-step segment changes, and repeated invalid
         // values must not clone/rebuild an unchanged mesh on every event.
         if values != d.requested {
@@ -800,7 +876,7 @@ impl App {
                 || matches!(
                     self.ui.hit(self.mouse),
                     Some(Action::Author(
-                        A::LiveDrag(_)
+                        A::LiveDrag(_) | A::ArraySpacing
                             | A::LiveField(_)
                             | A::ToolMergeDistance
                             | A::LiveBackdrop
@@ -814,6 +890,10 @@ impl App {
     }
     fn live_parameter_basis(&self, op: &LiveOperation, i: usize) -> ([f32; 2], f32) {
         if op.kind == Kind::Array { return self.array_parameter_basis(op,i); }
+        if let Some((dir,step))=self.surface_basis(op,i){return(dir.to_array(),step);}
+        if op.kind==Kind::Bridge && i==1 {
+            if let Some((dir,step))=self.seam_basis(op){return(dir.to_array(),step);}
+        }
         let fallback = ([1., 0.], op.spec(i).3);
         if op.kind == Kind::Cut {
             if let (Some(a), Some(b)) = (
@@ -851,28 +931,22 @@ impl App {
         use winit::window::CursorIcon as C;
         let direction = if let Some(Drag::LiveParameter(d)) = &self.drag {
             d.direction
+        } else if let Some(Drag::SectionGrip(d)) = &self.drag {
+            d.axis.to_array()
         } else if self.drag.is_none() && !self.has_modal() {
             match self.ui.hit(self.mouse)? {
                 Action::Author(A::LiveDrag(i)) => {
                     let op = self.modeling_live.as_ref()?;
-                    if i as usize >= op.fields() { return None; }
-                    if i == 0 && matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Edge | Kind::Face | Kind::Inset) {
-                        let center = self.project_point(
-                            op.anchor
-                                + if matches!(op.kind,Kind::Face|Kind::Inset) {
-                                    op.direction * op.values[1]
-                                } else {
-                                    Vec3::ZERO
-                                },
-                        )?;
-                        (glam::Vec2::from_array(self.mouse) - glam::Vec2::from_array(center))
-                            .try_normalize()
-                            .unwrap_or(glam::Vec2::X)
-                            .to_array()
-                    } else {
-                        self.live_parameter_basis(op, i as usize).0
+                    if i as usize >= op.fields() {
+                        return None;
                     }
+                    self.live_parameter_basis(op, i as usize).0
                 }
+                Action::Author(A::ArraySpacing) => self
+                    .spacing_basis(self.modeling_live.as_ref()?)
+                    .0
+                    .to_array(),
+                Action::Author(A::SectionGrip(gap)) => self.section_grip_basis(gap)?.0.to_array(),
                 _ => return None,
             }
         } else {
@@ -915,7 +989,7 @@ impl App {
     }
     fn live_field_range(&self, op: &LiveOperation, field: usize) -> SliderRange {
         if let Some(Drag::LiveParameter(drag)) = &self.drag {
-            if drag.field == field { return drag.range; }
+            if drag.field == field && !matches!(drag.motion,GripMotion::Spacing(_)) { return drag.range; }
         }
         let (min, max) = op.slider_bounds(field);
         let step = if op.integer(field) { 1. } else { op.spec(field).3 };
@@ -923,7 +997,7 @@ impl App {
     }
     pub(super) fn live_slider_ui_range(&self) -> Option<(Action, SliderRange)> {
         match &self.drag {
-            Some(Drag::LiveParameter(drag)) => Some((Action::Author(A::LiveField(drag.field as u8)), drag.range)),
+            Some(Drag::LiveParameter(drag)) if !matches!(drag.motion,GripMotion::Spacing(_)) => Some((Action::Author(A::LiveField(drag.field as u8)), drag.range)),
             _ => None,
         }
     }
@@ -977,11 +1051,14 @@ impl App {
 }
 
 #[cfg(test)]
+#[path = "modeling_live/grip_tests.rs"]
+mod grip_tests;
+#[cfg(test)]
 mod tests {
     use super::*;
     use poseforge_core::{Node, PrimitiveKind, PrimitiveSettings, Project};
 
-    fn app(command: A) -> App {
+    pub(super) fn app(command: A) -> App {
         let mut node = Node::new(1, "Model");
         node.mesh = Some(2);
         let mut a = App::new(None);
@@ -1013,7 +1090,7 @@ mod tests {
         a.ui = a.build_ui();
         a
     }
-    fn press(a: &mut App, action: A) -> [f32; 4] {
+    pub(super) fn press(a: &mut App, action: A) -> [f32; 4] {
         for offset in 0..40 {
             a.inspector_scroll = (offset as f32 * 40.).min(a.inspector_max_scroll());
             a.ui = a.build_ui();
@@ -1197,7 +1274,7 @@ mod tests {
     }
 
     #[test]
-    fn ring_picks_only_its_arc_and_wheel_segments_share_the_drag_transaction() {
+    fn caliper_owns_its_strokes_and_wheel_segments_share_the_drag_transaction() {
         let mut a = app(A::EdgeBevel);
         let center = a
             .project_point(a.modeling_live.as_ref().unwrap().anchor)
@@ -1348,35 +1425,56 @@ mod tests {
     }
     #[test]
     fn array_handles_share_fields_and_cancel_rebuilds_the_frozen_source() {
-        for dpi in [1.,2.] {
-            let mut a=app(A::Extrude);a.cancel_modeling_live();a.scale=dpi;
-            let source=a.editor.project.clone();
-            a.preferences.right_panel=false;
-            a.authoring.workflow.values[3]=0.4;
+        for dpi in [1., 2.] {
+            let mut a = app(A::Extrude);
+            a.cancel_modeling_live();
+            a.scale = dpi;
+            let source = a.editor.project.clone();
+            a.preferences.right_panel = false;
+            let offset = Vec3::new(-0.4, 0.2, 0.3);
+            a.authoring.workflow.values[3..6].copy_from_slice(&offset.to_array());
             a.action(Action::ModelingTool(ui::ModelingTool::Array));
-            for field in 0..4 {
-                a.ui=a.build_ui();
-                let point=a.ui.action_point(&Action::Author(A::LiveDrag(field))).unwrap_or_else(||panic!("Missing array handle {field}"));
-                a.mouse=point;
-                let old=a.modeling_live.as_ref().unwrap().values;
-                let (axis,step)=a.live_parameter_basis(a.modeling_live.as_ref().unwrap(),field as usize);
-                a.mouse_down(MouseButton::Left);
-                assert!(matches!(a.drag,Some(Drag::LiveParameter(_))));
-                a.mouse_move([point[0]+axis[0]*20.,point[1]+axis[1]*20.]);
-                assert!((a.modeling_live.as_ref().unwrap().values[field as usize]-old[field as usize]-20.*step).abs()<0.01);
-                let op=a.modeling_live.as_ref().unwrap();
-                let mut expected=Editor::new(source.clone());expected.begin_edit("Expected");
-                expected.preview_mesh(1,&op.original,op.edit(op.values)).unwrap();
-                assert_eq!(expected.project.meshes,a.editor.project.meshes);
-                assert_eq!(a.editor.undo_len(),0);
+            for action in [A::ArraySpacing, A::LiveDrag(0)] {
+                let op = a.modeling_live.as_ref().unwrap();
+                let old = op.values;
+                let (axis, step, distance) = if action == A::ArraySpacing {
+                    let (dir, unit) = a.spacing_basis(op);
+                    (dir, unit, 18.)
+                } else {
+                    let (dir, unit) = a.live_parameter_basis(op, 0);
+                    (Vec2::from_array(dir), unit, 1.5 / unit + 0.1)
+                };
+                press(&mut a, action);
+                assert!(matches!(a.drag, Some(Drag::LiveParameter(_))));
+                let next = Vec2::from_array(a.mouse) + axis * distance;
+                a.mouse_move(next.to_array());
+                let op = a.modeling_live.as_ref().unwrap();
+                if action == A::ArraySpacing {
+                    assert!(
+                        (op.offset() - offset.normalize() * (offset.length() + step * distance))
+                            .length()
+                            < 1e-4
+                    );
+                    assert_eq!(op.values[0], old[0]);
+                } else {
+                    assert_eq!(op.values[0], old[0] + 2.);
+                    assert_eq!(op.offset(), offset);
+                }
+                let mut expected = Editor::new(source.clone());
+                expected.begin_edit("Expected");
+                expected
+                    .preview_mesh(1, &op.original, op.edit(op.values))
+                    .unwrap();
+                assert_eq!(expected.project.meshes, a.editor.project.meshes);
+                assert_eq!(a.editor.undo_len(), 0);
                 a.cancel_drag();
-                assert_eq!(a.modeling_live.as_ref().unwrap().values,old);
+                assert_eq!(a.modeling_live.as_ref().unwrap().values, old);
             }
             a.action(Action::Front);
             assert!(a.modeling_live.is_some());
             a.action(Action::Author(A::LiveCancel));
-            assert_eq!(a.editor.project,source);
-            assert_eq!(a.authoring.faces,BTreeSet::from([0]));
+            assert_eq!(a.editor.project, source);
+            assert_eq!(a.authoring.faces, BTreeSet::from([0]));
         }
     }
 }

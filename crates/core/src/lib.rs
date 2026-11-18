@@ -93,7 +93,7 @@ pub use connectivity::MeshConnectivity;
 mod triangulate;
 pub use triangulate::MAX_FACE_CORNERS;
 mod mesh_topology_tools;
-pub use mesh_topology_tools::{inspect_topology, select_edge_path, TopologyReport};
+pub use mesh_topology_tools::{bridge_seam, inspect_topology, select_edge_path, TopologyReport};
 mod edge_bevel;
 mod face_bevel;
 mod face_inset;

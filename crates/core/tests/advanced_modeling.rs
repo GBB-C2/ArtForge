@@ -238,6 +238,76 @@ fn bevel_after_touching_array_keeps_instances_independent() {
     assert_eq!(result.face_count(), one.face_count() * 2);
 }
 #[test]
+fn seam_ring_matches_the_actual_bridge_edge_for_unequal_contours() {
+    let (n, m) = (4usize, 7usize);
+    let points = [(n, 0.), (m, 3.)]
+        .into_iter()
+        .flat_map(|(count, z)| {
+            (0..count).map(move |i| {
+                let a = i as f32 * std::f32::consts::TAU / count as f32;
+                [a.cos(), a.sin(), z]
+            })
+        })
+        .collect();
+    let original = custom(
+        points,
+        vec![
+            (0..n as u32).rev().collect(),
+            (n as u32..(n + m) as u32).collect(),
+        ],
+    );
+    let mesh = &original.project.meshes[0];
+    let edges = MeshConnectivity::new(mesh).edges;
+    for faces in [BTreeSet::new(), BTreeSet::from([0, 1])] {
+        let edges = if faces.is_empty() {
+            edges.clone()
+        } else {
+            BTreeSet::new()
+        };
+        let (start, targets) = bridge_seam(mesh, &faces, &edges).unwrap();
+        assert_eq!(targets.len(), m);
+        for twist in [-8i32, -1, 0, 1, 7, 8] {
+            let mut e = custom(
+                mesh.vertices.iter().map(|v| v.position).collect(),
+                vec![
+                    (0..n as u32).rev().collect(),
+                    (n as u32..(n + m) as u32).collect(),
+                ],
+            );
+            e.edit_mesh(
+                1,
+                MeshEdit::BridgeAdvanced {
+                    faces: faces.clone(),
+                    edges: edges.clone(),
+                    segments: 1,
+                    twist,
+                    smooth: 0.,
+                },
+            )
+            .unwrap_or_else(|e| panic!("faces {faces:?}, twist {twist}: {e}"));
+            let result = &e.project.meshes[0];
+            let target = targets[twist.rem_euclid(m as i32) as usize];
+            let first = result
+                .face_vertices(if faces.is_empty() { 2 } else { 0 })
+                .unwrap();
+            assert!(first
+                .iter()
+                .enumerate()
+                .any(|(i, &v)| result.vertices[v as usize].position
+                    == mesh.vertices[start].position
+                    && result.vertices[first[(i + 1) % first.len()] as usize].position
+                        == mesh.vertices[target].position));
+        }
+    }
+    assert!(bridge_seam(
+        mesh,
+        &BTreeSet::new(),
+        &BTreeSet::from([(0, 1), (n, n + 1)])
+    )
+    .is_none());
+}
+
+#[test]
 fn unequal_bridge_has_manifold_join_and_supports_twist_smoothing() {
     for (n, m) in [(3, 4), (4, 7), (5, 8)] {
         for segments in [1, 3] {

@@ -328,7 +328,7 @@ impl App {
             | A::WeldDistance
             | A::Bridge
             | A::BridgeFaces
-            | A::SectionMode(_) | A::SectionSelect(_) | A::SectionDelete
+            | A::SectionMode(_) | A::SectionSelect(_) | A::SectionDelete | A::SectionGrip(_)
             | A::ToolField(_) | A::ToolArray | A::ToolMerge | A::ToolMergeDistance | A::ToolApply | A::ToolCancel | A::SubdivideCount | A::ExtrudeMode(_) | A::ToolPanelDrag | A::ToolPanelToggle | A::ToolPanelScroll
             | A::BridgeSegments
             | A::Dissolve
@@ -336,7 +336,7 @@ impl App {
             | A::SelectDefects
             | A::EdgeBevel
             | A::LiveField(_)
-            | A::LiveDrag(_)
+            | A::LiveDrag(_) | A::ArraySpacing
             | A::LiveAccept
             | A::LiveCancel
             | A::LiveBackdrop

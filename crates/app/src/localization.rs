@@ -20,6 +20,15 @@ impl Language {
     }
 }
 const LABELS:&[(&str,&str)]=&[
+    ("Зазор","Gap"),
+    ("Шов","Seam"),
+    ("Шаг","Spacing"),
+    ("Срез угла","Corner cut"),
+    ("Копии","Copies"),
+    ("Профиль","Profile"),
+    ("Сдвиг","Slide"),
+    ("Отступ","Inset"),
+    ("Тяните ручку на модели · Shift — точно · Esc — вернуть значение","Drag the handle on the model · Shift for precision · Esc to restore the value"),
     ("Обработка граней","Face treatment"),
     ("Плавающая панель инструментов","Floating tool panel"),
     ("Выберите компоненты для предпросмотра","Select components to preview"),

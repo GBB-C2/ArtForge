@@ -6,6 +6,7 @@ use poseforge_core::{EdgePoint, MeshEdit};
 mod smart_knife;
 #[path = "editable_sections.rs"]
 mod editable_sections;
+pub(super) use editable_sections::SectionGripDrag;
 
 pub(super) struct KnifeState {
     node: u64,
@@ -78,6 +79,7 @@ impl App {
     }
     pub(super) fn cancel_knife(&mut self) {
         if let Some(k) = self.authoring.knife.take() {
+            if matches!(self.drag,Some(Drag::SectionGrip(_))) { self.drag=None; self.drag_button=None; }
             self.release_drag_pointer();
             self.editor.cancel_edit();
             k.selection.restore(&mut self.authoring);
@@ -91,6 +93,7 @@ impl App {
     }
     fn accept_knife(&mut self) {
         if let Some(k) = self.authoring.knife.take() {
+            if matches!(self.drag,Some(Drag::SectionGrip(_))) { self.drag=None; self.drag_button=None; }
             self.release_drag_pointer();
             if k.cuts == 0 {
                 self.editor.cancel_edit();
@@ -122,7 +125,7 @@ impl App {
             a if Self::preview_navigation_action(a) => false,
             Action::Author(A::SnapToggle|A::SnapMode(_)|A::SnapGridStep(_))
                 | Action::DropdownOpen(ui::DropdownKind::SnapMode)|Action::DropdownDismiss=>false,
-            Action::Author(A::SectionMode(_) | A::SectionSelect(_) | A::SectionDelete | A::ToolField(_) | A::LoopPosition | A::ToolPanelDrag | A::ToolPanelToggle | A::ToolPanelScroll | A::LiveBackdrop)=>false,
+            Action::Author(A::SectionMode(_) | A::SectionSelect(_) | A::SectionDelete | A::SectionGrip(_) | A::ToolField(_) | A::LoopPosition | A::ToolPanelDrag | A::ToolPanelToggle | A::ToolPanelScroll | A::LiveBackdrop)=>false,
             Action::Slide(field,_,_) | Action::ResetNumber(field) if Self::workflow_preference_field(field)=>false,
             Action::Author(A::KnifeAccept | A::KnifeCancel | A::KnifeSnap | A::KnifeCloseGap | A::KnifeAngle(_))
             | Action::DropdownOpen(ui::DropdownKind::KnifeAngle)
@@ -213,6 +216,7 @@ impl App {
         self.invalidate_geometry();self.update_dirty();Ok(())
     }
     pub(super) fn knife_scroll(&mut self,delta:f32)->bool {
+        if matches!(self.drag,Some(Drag::SectionGrip(_))) {return true;}
         if !self.authoring.knife.as_ref().is_some_and(|k|k.loop_mode) || !self.modifiers.control_key()
             || !self.canvas_input_at(self.mouse) || self.drag.is_some() || self.has_modal() {return false;}
         if let Some(k)=self.authoring.knife.as_ref().filter(|k|k.section_edit) {

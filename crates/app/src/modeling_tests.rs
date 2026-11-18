@@ -394,7 +394,7 @@ fn parameter_grips_stay_reachable_and_cancel_after_fine_drag_in_small_and_uv_vie
                         .filter(|h| matches!(h.action, Action::Author(A::LiveDrag(_))))
                         .cloned()
                         .collect();
-                assert_eq!(grips.len(), 1, "{width} x {height}, UV {uv}");
+                assert_eq!(grips.len(), 2, "{width} x {height}, UV {uv}");
                 for h in &grips {
                     let r = h.rect;
                     assert!(r[2] >= 16. && r[3] >= 16.);

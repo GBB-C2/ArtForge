@@ -114,6 +114,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tiny-skia",
  "windows",
  "winit",
 ]

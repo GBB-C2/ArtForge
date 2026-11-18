@@ -1,6 +1,9 @@
 //! Small application-owned vector symbols. They share the UI color tokens and
 //! logical coordinate system, and never depend on platform icon fonts or emoji.
-use crate::ui::Ui;
+mod model_art;
+mod model_paint;
+
+use crate::ui::{Palette, Ui};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
@@ -8,7 +11,7 @@ pub enum Icon {
     Connected, InvertSelection, EdgeLoop, EdgeRing,
     Extrude, ExtrudeIndividual, FillHoles, Triangulate, Separate, Inset, Bevel, LoopCut, Knife, SlideEdge,
     Merge, Weld, Bridge, Dissolve, Flatten, Straighten, EqualSpace, Relax,
-    ModelSphere, ModelCircle, Inflate, Twist, ModelArray, Subdivide, InspectMesh, SmoothNormals, FlatNormals, DeleteFaces,
+    ModelSphere, ModelCircle, Inflate, Twist, ModelArray, Subdivide, Simplify, InspectMesh, SmoothNormals, FlatNormals, DeleteFaces,
     Mirror, Boolean, Cable,
     Physics,
     Object,
@@ -141,6 +144,16 @@ impl Icon {
     /// Draw inside the supplied logical rectangle. The square is centered, and
     /// coverage is cropped to these bounds before joining the caller's UI.
     pub fn draw(self, ui: &mut Ui, rect: [f32; 4], color: [f32; 4]) {
+        self.draw_with_palette(ui, rect, color, None);
+    }
+
+    pub(crate) fn draw_with_palette(
+        self,
+        ui: &mut Ui,
+        rect: [f32; 4],
+        color: [f32; 4],
+        palette: Option<Palette>,
+    ) {
         if rect.iter().any(|v| !v.is_finite())
             || color.iter().any(|v| !v.is_finite())
             || !ui.scale.is_finite()
@@ -159,6 +172,9 @@ impl Icon {
             rect[1] + (rect[3] - size) * 0.5,
         ];
         let point = |p: [f32; 2]| [origin[0] + p[0] * unit, origin[1] + p[1] * unit];
+        let draw_model = |ui: &mut Ui, artwork| {
+            model_paint::draw(ui, self, artwork, origin, size, color, palette)
+        };
         let mut geometry = Geometry::default();
         match self {
             Self::Modifiers => {
@@ -238,57 +254,16 @@ impl Icon {
                     for x in [8., 12., 16.] { geometry.path(&[[x, 3.], [x, 21.]]); }
                 } else { geometry.path(&[[12., 2.], [12., 22.]]); }
             }
-            Self::FillHoles => {geometry.closed(&[[3.,4.],[21.,4.],[21.,20.],[3.,20.]]);geometry.path(&[[8.,12.],[16.,12.]]);geometry.path(&[[12.,8.],[12.,16.]]);}
+            Self::FillHoles => return draw_model(ui, model_art::FILL),
             Self::Triangulate => {geometry.closed(&[[3.,4.],[21.,4.],[21.,20.],[3.,20.]]);geometry.path(&[[3.,4.],[21.,20.]]);}
             Self::Separate => {geometry.closed(&[[2.,11.],[10.,11.],[10.,21.],[2.,21.]]);geometry.closed(&[[14.,3.],[22.,3.],[22.,13.],[14.,13.]]);geometry.path(&[[10.,8.],[14.,4.],[14.,8.]]);}
             Self::ExtrudeIndividual => {for x in [3.,14.] {geometry.closed(&[[x,12.],[x+7.,12.],[x+7.,21.],[x,21.]]);geometry.path(&[[x+3.5,10.],[x+3.5,2.]]);geometry.path(&[[x+1.,5.],[x+3.5,2.],[x+6.,5.]]);}}
-            Self::Extrude => {
-                geometry.path(&[[4., 16.], [4., 21.], [16., 21.], [20., 17.], [20., 12.]]);
-                geometry.path(&[[16., 16.], [16., 21.]]);
-                geometry.path(&[[12., 9.], [12., 2.]]);
-                geometry.path(&[[9., 5.], [12., 2.], [15., 5.]]);
-                geometry.closed(&[[4., 12.], [8., 8.], [20., 8.], [16., 12.]]);
-                geometry.closed(&[[4., 12.], [16., 12.], [16., 16.], [4., 16.]]);
-            }
-            Self::Inset => {
-                geometry.path(&[[3., 4.], [8., 8.]]);
-                geometry.path(&[[21., 4.], [16., 8.]]);
-                geometry.path(&[[21., 20.], [16., 16.]]);
-                geometry.path(&[[3., 20.], [8., 16.]]);
-                geometry.closed(&[[3., 4.], [21., 4.], [21., 20.], [3., 20.]]);
-                geometry.closed(&[[8., 8.], [16., 8.], [16., 16.], [8., 16.]]);
-            }
-            Self::Bevel => {
-                geometry.path(&[[3., 9.], [14., 9.], [20., 3.]]);
-                geometry.path(&[[14., 9.], [14., 20.]]);
-                geometry.path(&[[5., 7.], [16., 7.], [18., 5.]]);
-                geometry.closed(&[[3., 9.], [9., 3.], [20., 3.], [20., 20.], [3., 20.]]);
-            }
-            Self::LoopCut => {
-                geometry.path(&[[16., 7.], [16., 21.]]);
-                geometry.path(&[[3., 14.], [16., 14.], [21., 10.]]);
-                geometry.closed(&[[3., 7.], [16., 7.], [21., 3.], [8., 3.]]);
-                geometry.closed(&[[3., 7.], [3., 21.], [16., 21.], [21., 17.], [21., 3.]]);
-                geometry.dot([3., 14.], 1.1);
-                geometry.dot([16., 14.], 1.1);
-                geometry.dot([21., 10.], 1.1);
-            }
-            Self::Knife => {
-                geometry.path(&[[7., 11.], [13., 17.]]);
-                geometry.path(&[[17., 5.], [19., 7.]]);
-                geometry.path(&[[3., 21.], [9., 18.]]);
-                geometry.closed(&[[3., 21.], [7., 11.], [16., 2.], [22., 8.], [13., 17.]]);
-            }
-            Self::SlideEdge => {
-                geometry.path(&[[3., 4.], [3., 20.]]);
-                geometry.path(&[[21., 4.], [21., 20.]]);
-                geometry.path(&[[12., 4.], [12., 20.]]);
-                geometry.path(&[[5., 12.], [19., 12.]]);
-                geometry.path(&[[8., 9.], [5., 12.], [8., 15.]]);
-                geometry.path(&[[16., 9.], [19., 12.], [16., 15.]]);
-                geometry.dot([12., 4.], 1.4);
-                geometry.dot([12., 20.], 1.4);
-            }
+            Self::Extrude => return draw_model(ui, model_art::EXTRUDE),
+            Self::Inset => return draw_model(ui, model_art::INSET),
+            Self::Bevel => return draw_model(ui, model_art::BEVEL),
+            Self::LoopCut => return draw_model(ui, model_art::CUT),
+            Self::Knife => return draw_model(ui, model_art::KNIFE),
+            Self::SlideEdge => return draw_model(ui, model_art::SURFACE_SLIDE),
             Self::Merge => {
                 geometry.path(&[[5., 5.], [9., 9.]]);
                 geometry.path(&[[19., 5.], [15., 9.]]);
@@ -315,35 +290,9 @@ impl Icon {
                 geometry.dot([3., 19.], 1.6);
                 geometry.dot([21., 19.], 1.6);
             }
-            Self::Bridge => {
-                geometry.path(&[[3., 4.], [3., 20.]]);
-                geometry.path(&[[21., 4.], [21., 20.]]);
-                geometry.path(&[[3., 6.], [8., 8.], [16., 8.], [21., 6.]]);
-                geometry.path(&[[3., 12.], [21., 12.]]);
-                geometry.path(&[[3., 18.], [8., 16.], [16., 16.], [21., 18.]]);
-                geometry.path(&[[8., 8.], [8., 16.]]);
-                geometry.path(&[[16., 8.], [16., 16.]]);
-            }
-            Self::Dissolve => {
-                geometry.path(&[[12., 4.], [12., 7.]]);
-                geometry.path(&[[12., 10.], [12., 14.]]);
-                geometry.path(&[[12., 17.], [12., 20.]]);
-                geometry.path(&[[6., 12.], [9., 12.]]);
-                geometry.path(&[[15., 12.], [18., 12.]]);
-                geometry.closed(&[[3., 4.], [21., 4.], [21., 20.], [3., 20.]]);
-            }
-            Self::Flatten => {
-                geometry.path(&[[2., 20.], [22., 20.]]);
-                geometry.path(&[[5., 8.], [5., 17.]]);
-                geometry.path(&[[3., 15.], [5., 17.], [7., 15.]]);
-                geometry.path(&[[12., 11.], [12., 17.]]);
-                geometry.path(&[[10., 15.], [12., 17.], [14., 15.]]);
-                geometry.path(&[[19., 7.], [19., 17.]]);
-                geometry.path(&[[17., 15.], [19., 17.], [21., 15.]]);
-                geometry.dot([5., 5.], 1.7);
-                geometry.dot([12., 8.], 1.7);
-                geometry.dot([19., 4.], 1.7);
-            }
+            Self::Bridge => return draw_model(ui, model_art::BRIDGE),
+            Self::Dissolve => return draw_model(ui, model_art::DISSOLVE),
+            Self::Flatten => return draw_model(ui, model_art::ALIGN),
             Self::Straighten => {
                 geometry.path(&[[3., 7.], [8., 3.], [15., 9.], [21., 4.]]);
                 geometry.path(&[[3., 19.], [21., 19.]]);
@@ -410,26 +359,13 @@ impl Icon {
                 geometry.arc([12., 20.], [7., 2.5], 0., 360.);
                 geometry.arc([12., 12.], [9., 5.], 280., 390.);
             }
-            Self::Mirror=>{geometry.path(&[[12.,2.],[12.,22.]]);geometry.closed(&[[3.,6.],[9.,10.],[9.,18.],[3.,18.]]);geometry.closed(&[[21.,6.],[15.,10.],[15.,18.],[21.,18.]]);},
-            Self::Boolean=>{geometry.closed(&[[3.,3.],[14.,3.],[14.,14.],[3.,14.]]);geometry.closed(&[[10.,10.],[21.,10.],[21.,21.],[10.,21.]]);},
-            Self::Cable=>{geometry.path(&[[3.,4.],[3.,15.],[5.,19.],[9.,21.],[13.,19.],[15.,15.],[15.,8.],[17.,5.],[21.,4.]]);geometry.closed(&[[1.,2.],[5.,2.],[5.,6.],[1.,6.]]);geometry.closed(&[[19.,2.],[23.,2.],[23.,6.],[19.,6.]]);},
-            Self::ModelArray => {
-                for (x,y) in [(3.,3.),(13.,3.),(3.,13.),(13.,13.)] {geometry.closed(&[[x,y],[x+7.,y],[x+7.,y+7.],[x,y+7.]]);}
-            }
-            Self::Subdivide => {
-                geometry.path(&[[9., 3.], [9., 21.]]);
-                geometry.path(&[[15., 3.], [15., 21.]]);
-                geometry.path(&[[3., 9.], [21., 9.]]);
-                geometry.path(&[[3., 15.], [21., 15.]]);
-                geometry.closed(&[[3., 3.], [21., 3.], [21., 21.], [3., 21.]]);
-            }
-            Self::InspectMesh => {
-                geometry.path(&[[9., 3.], [9., 11.]]);
-                geometry.path(&[[3., 9.], [11., 9.]]);
-                geometry.path(&[[18., 18.], [22., 22.]]);
-                geometry.closed(&[[3., 3.], [16., 3.], [16., 16.], [3., 16.]]);
-                geometry.circle([15., 15.], 5.);
-            }
+            Self::Mirror => return draw_model(ui, model_art::MIRROR),
+            Self::Boolean => return draw_model(ui, model_art::BOOLEAN),
+            Self::Cable => return draw_model(ui, model_art::CABLE),
+            Self::ModelArray => return draw_model(ui, model_art::ARRAY),
+            Self::Subdivide => return draw_model(ui, model_art::SUBDIVIDE),
+            Self::Simplify => return draw_model(ui, model_art::SIMPLIFY),
+            Self::InspectMesh => return draw_model(ui, model_art::DIAGNOSE),
             Self::SmoothNormals => {
                 geometry.arc([12., 18.], [9., 6.], 180., 360.);
                 geometry.arc([12., 18.], [4., 6.], 180., 360.);
@@ -444,13 +380,7 @@ impl Icon {
                 geometry.path(&[[18., 8.], [18., 2.]]);
                 geometry.path(&[[15., 5.], [18., 2.], [21., 5.]]);
             }
-            Self::DeleteFaces => {
-                geometry.path(&[[12., 3.], [12., 21.]]);
-                geometry.path(&[[3., 12.], [21., 12.]]);
-                geometry.path(&[[15., 15.], [19., 19.]]);
-                geometry.path(&[[19., 15.], [15., 19.]]);
-                geometry.closed(&[[3., 3.], [21., 3.], [21., 21.], [3., 21.]]);
-            }
+            Self::DeleteFaces => return draw_model(ui, model_art::DELETE),
             Self::Library => {
                 for x in [4., 10., 16.] { geometry.closed(&[[x, 4.], [x + 4., 4.], [x + 4., 20.], [x, 20.]]); }
                 geometry.path(&[[2., 21.], [22., 21.]]);
@@ -975,6 +905,10 @@ mod tests {
         Icon::Twist,
         Icon::ModelArray,
         Icon::Subdivide,
+        Icon::Simplify,
+        Icon::Mirror,
+        Icon::Boolean,
+        Icon::Cable,
         Icon::InspectMesh,
         Icon::SmoothNormals,
         Icon::FlatNormals,
@@ -1071,6 +1005,41 @@ mod tests {
                         assert!(y + h <= (rect[1] + rect[3]) * scale + 0.001);
                         assert_eq!(&primitive.color[..3], &theme.palette().text[..3]);
                     }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn modeling_icons_follow_theme_and_disabled_state() {
+        use crate::ui::{Accent, Action, ModelingTool};
+        let icons = [
+            Icon::Extrude, Icon::Inset, Icon::Bevel, Icon::SlideEdge, Icon::Flatten,
+            Icon::Mirror, Icon::Knife, Icon::LoopCut, Icon::Bridge, Icon::FillHoles,
+            Icon::Dissolve, Icon::DeleteFaces, Icon::ModelArray, Icon::Boolean, Icon::Cable,
+            Icon::Subdivide, Icon::Simplify, Icon::InspectMesh,
+        ];
+        let matches_rgb = |a: [f32; 4], b: [f32; 4]| {
+            (0..3).all(|i| (a[i] - b[i]).abs() < 0.002) && a[3] > 0.1
+        };
+        for theme in [Theme::Dark, Theme::Light] {
+            for accent in Accent::ALL {
+                let mut ui = Ui::with_theme(1., theme, [-1., -1.]);
+                ui.accent = accent;
+                let p = ui.palette();
+                for icon in icons {
+                    let action = Action::ModelingTool(ModelingTool::Bevel);
+                    let rect = [0., 0., 44., 44.];
+                    ui.modeling_icon_button(rect, action.clone(), icon, false, true);
+                    assert!(ui.rects.iter().any(|r| matches_rgb(r.color, p.text)), "{icon:?}");
+                    assert!(ui.rects.iter().any(|r| matches_rgb(r.color, p.accent)), "{icon:?}");
+                    assert_eq!(ui.hits.len(), 1);
+                    ui.rects.clear();
+                    ui.hits.clear();
+                    ui.modeling_icon_button(rect, action, icon, true, false);
+                    assert!(!ui.rects.is_empty() && ui.hits.is_empty());
+                    assert!(ui.rects.iter().all(|r| r.color[..3] == p.disabled[..3]));
+                    ui.rects.clear();
                 }
             }
         }

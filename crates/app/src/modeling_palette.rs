@@ -37,7 +37,7 @@ impl M {
             Self::Inspect => "Проверить топологию", Self::Mirror=>"Зеркало · Mirror", Self::Boolean=>"Булева операция", Self::Cable=>"Кабель",
         }
     }
-    pub(super) fn icon(self) -> Icon {
+    pub(super) fn icon(self, simplify: bool) -> Icon {
         match self {
             Self::Select(1) => Icon::SelectBox, Self::Select(2) => Icon::SelectLasso,
             Self::Select(_) => Icon::SelectPointer,
@@ -48,6 +48,7 @@ impl M {
             Self::LoopCut => Icon::LoopCut, Self::Knife => Icon::Knife, Self::Slide => Icon::SlideEdge,
             Self::Merge => Icon::Merge, Self::Weld => Icon::Weld, Self::Bridge | Self::BridgeFaces => Icon::Bridge,
             Self::Dissolve => Icon::Dissolve, Self::DeleteFaces => Icon::DeleteFaces,
+            Self::Subdivide if simplify => Icon::Simplify,
             Self::Subdivide => Icon::Subdivide, Self::Smooth => Icon::SmoothNormals, Self::Flat => Icon::FlatNormals,
             Self::Sphere => Icon::ModelSphere, Self::Circle => Icon::ModelCircle,
             Self::Inflate => Icon::Inflate, Self::Twist => Icon::Twist,
@@ -307,7 +308,7 @@ impl App {
         let columns = self.modeling_columns();
         for (i, tool) in TOOLS.into_iter().enumerate() {
             let rect = [x + (i % columns) as f32 * TOOL_PITCH, 206. + (i / columns) as f32 * TOOL_PITCH, TOOL_SIZE, TOOL_SIZE];
-            u.modeling_icon_button(rect, Action::ModelingTool(tool), tool.icon(), self.authoring.modeling_tool == Some(tool),
+            u.modeling_icon_button(rect, Action::ModelingTool(tool), tool.icon(self.authoring.workflow.simplify), self.authoring.modeling_tool == Some(tool),
                 self.job.is_none() && !self.editor.playing && !self.editor.has_staged());
         }
     }
@@ -442,6 +443,23 @@ impl App {
                 } else if !tool.live() {
                     u.fitted_label([x, y, w, 18.], "Shift — изменить выделение", 10., p.muted);
                 }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod icon_tests {
+    use super::*;
+
+    #[test]
+    fn modeling_icons_follow_the_density_mode() {
+        for tool in TOOLS {
+            if tool == M::Subdivide {
+                assert_eq!(tool.icon(false), Icon::Subdivide);
+                assert_eq!(tool.icon(true), Icon::Simplify);
+            } else {
+                assert_eq!(tool.icon(false), tool.icon(true));
             }
         }
     }

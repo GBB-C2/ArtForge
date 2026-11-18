@@ -25,7 +25,7 @@ pub(super) fn pack_scene(project:&Project,globals:&BTreeMap<u64,Mat4>,export:boo
 }
 fn pack_internal(project:&Project,globals:&BTreeMap<u64,Mat4>,export:bool,time:f64,state:Option<&super::fx_interactions::State>,gas:Option<&super::fx_gas::State>)->([GpuFx;MAX_FX],usize) {
     let mut packed=[GpuFx::zeroed();MAX_FX];let mut count=0;
-    let visible=project.visible_node_ids(export);
+    let visible = std::cell::LazyCell::new(|| project.visible_node_ids(export));
     for node in &project.nodes {
         let Some(fx)=node.fx.filter(|s|s.enabled && s.density>0. && s.visible_at(time) && s.validate().is_ok()) else{continue;};
         if !visible.contains(&node.id) {continue;}
@@ -55,7 +55,7 @@ fn pack_internal(project:&Project,globals:&BTreeMap<u64,Mat4>,export:bool,time:f
 /// It never creates document objects or overwrites authored effects.
 pub(super) fn append_destruction_dust(project:&Project,globals:&BTreeMap<u64,Mat4>,export:bool,time:f64,
     preview_times:&BTreeMap<u64,f64>,packed:&mut[GpuFx;MAX_FX],count:&mut usize) {
-    let visible=project.visible_node_ids(export);
+    let visible = std::cell::LazyCell::new(|| project.visible_node_ids(export));
     for node in &project.nodes {
         if *count>=MAX_FX {break;}
         let Some(d)=node.destruction.filter(|d|d.dust_enabled && d.visible && d.dust_density>0. && d.validate().is_ok()) else {continue;};
@@ -88,7 +88,7 @@ pub(super) fn append_scene_lights(project:&Project,globals:&BTreeMap<u64,Mat4>,e
 }
 fn append_lights_internal(project:&Project,globals:&BTreeMap<u64,Mat4>,export:bool,time:f64,
     packed:&mut[GpuLight;MAX_LIGHTS],count:&mut usize,state:Option<&super::fx_interactions::State>,gas:Option<&super::fx_gas::State>) {
-    let visible=project.visible_node_ids(export);
+    let visible = std::cell::LazyCell::new(|| project.visible_node_ids(export));
     for node in &project.nodes {
         if *count>=MAX_LIGHTS {break;}
         let Some(fx)=node.fx.filter(|f|f.enabled && f.visible_at(time) && f.illuminate && f.kind==FxKind::Fire

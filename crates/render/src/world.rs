@@ -501,6 +501,7 @@ impl World {
         export: bool,
         enable_rays: bool,
         interactive: bool,
+        cancel: &AtomicBool,
     ) -> Result<bool, String> {
         let mut changed = false;
         if let Some(map) = &project.environment_map {
@@ -701,8 +702,8 @@ impl World {
             if self.geometry_key != Some(key) {
                 let geometry = if export {
                     self.preview.cancel();
-                    let (nodes,triangles) = build_geometry(project, globals, export)?;
-                    let emission = super::emissive::prepare(&triangles,&AtomicBool::new(false))?;
+                    let (nodes,triangles) = build_geometry_cancellable(project, globals, export, cancel)?;
+                    let emission = super::emissive::prepare(&triangles, cancel)?;
                     Some((nodes,triangles,emission))
                 } else {
                     self.preview.update(key, project, globals)?
@@ -899,6 +900,7 @@ fn layer_chains(project: &Project) -> Vec<(u64, Vec<usize>)> {
     }).collect()
 }
 
+#[cfg(test)]
 pub(super) fn build_geometry(
     project: &Project,
     globals: &BTreeMap<u64, Mat4>,

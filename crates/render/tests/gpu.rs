@@ -12,6 +12,9 @@ mod fx;
 #[path = "gpu/artistic.rs"]
 mod artistic;
 
+#[path = "gpu/volumetrics.rs"]
+mod volumetrics;
+
 #[test]
 #[ignore = "requires a Vulkan, DX12, Metal or OpenGL adapter"]
 fn npr_bands_textures_alpha_lights_and_pbr_toggle() {

@@ -445,6 +445,11 @@ pub enum PrimitiveAction {
     Open,
     Backdrop,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SectionHandle {
+    Position,
+    Gap,
+}
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AuthorAction {
     DensityMode(bool), SimplifyRatio, Mirror, MirrorAxis(u8), MirrorField(u8), MirrorMerge,
@@ -453,7 +458,7 @@ pub enum AuthorAction {
     ModifierPreview,
     KnifeSnap,
     KnifeCloseGap, KnifeAngle(u8),
-    SectionMode(bool), SectionSelect(usize), SectionDelete,
+    SectionMode(bool), SectionSelect(usize), SectionDelete, SectionGrip(SectionHandle),
     BridgeTwist, BridgeSmooth, FillHoles, Triangulate, Separate, ExtrudeIndividual,
     RepairMode(u8), SelectIssue, RepairIssue,
     BridgeFaces,
@@ -477,6 +482,7 @@ pub enum AuthorAction {
     EdgeBevel,
     LiveField(u8),
     LiveDrag(u8),
+    ArraySpacing,
     LiveAccept,
     LiveCancel,
     LiveBackdrop,
@@ -1311,7 +1317,7 @@ impl Action {
             Self::Normal(NormalAction::Display(_)) => Some("Показать геометрические нормали граней: направление лицевой стороны"),
             Self::Normal(NormalAction::AutoLength) => Some("Подобрать длину линий по размеру объекта в сцене"),
             Self::Normal(NormalAction::XRay) => Some("Показывать направления нормалей через поверхности"),
-            Self::Author(AuthorAction::LiveDrag(_)) => Some("Тяните стрелку вдоль оси или кольцо от центра; точное значение — в панели операции"),
+            Self::Author(AuthorAction::LiveDrag(_) | AuthorAction::SectionGrip(_) | AuthorAction::ArraySpacing) => Some("Тяните ручку на модели · Shift — точно · Esc — вернуть значение"),
             Self::Author(AuthorAction::LiveToggle) => Some("Развернуть или свернуть параметры операции"),
             Self::Author(AuthorAction::ToolMerge) => Some("Объединить точки в пределах заданного расстояния"),
             Self::Author(AuthorAction::ToolMergeDistance) => Some("Максимальное расстояние между объединяемыми точками, в метрах"),
@@ -2871,9 +2877,12 @@ fn character_advance(c: char, font_size: f32) -> f32 {
     };
     em * font_size
 }
+pub(crate) fn caption_width(text: &str, font_size: f32) -> f32 {
+    text.chars().map(|c| character_advance(c, font_size)).sum()
+}
 pub(crate) fn fit_button_label(text: &str, max_width: f32, font_size: f32) -> String {
     let advance = |c: char| character_advance(c, font_size);
-    if text.chars().map(advance).sum::<f32>() <= max_width {
+    if caption_width(text, font_size) <= max_width {
         return text.to_owned();
     }
     if max_width < font_size {

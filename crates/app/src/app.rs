@@ -200,6 +200,8 @@ mod morph_controls;
 mod video_preview;
 #[path = "mesh_tools_controls.rs"]
 mod mesh_tools_controls;
+#[path = "viewport_grips.rs"]
+mod viewport_grips;
 #[path = "modeling_controls.rs"]
 mod modeling_controls;
 #[path = "modeling_quick.rs"]
@@ -343,6 +345,7 @@ enum Drag {
     UvPan(uv_editor::UvPan),
     ComponentSelection(component_selection::ComponentSelection),
     LiveParameter(modeling_live::ParameterDrag),
+    SectionGrip(advanced_tools::SectionGripDrag),
     Weights(weight_paint::WeightStroke),
     Group(scene_tools::GroupDrag),
     Panel(scene_tools::PanelDrag),
@@ -1464,6 +1467,7 @@ impl App {
             if let Drag::ComponentSelection(ref selection) = drag {
                 selection.original.restore(&mut self.authoring);
             }
+            if let Drag::SectionGrip(ref grip) = drag { self.restore_section_grip(grip); }
             if let Drag::LiveParameter(ref parameter) = drag {
                 self.restore_live_parameter(parameter);
             }
@@ -1486,7 +1490,7 @@ impl App {
             } else if let Drag::Slider(ref slider) = drag {
                 if !Self::workflow_preference_field(&slider.action) {self.editor.cancel_edit();}
                 self.restore_slider_preferences(slider);
-            } else if !matches!(drag, Drag::Construction(_) | Drag::ToolPanel {..} | Drag::ToolPanelScroll {..} | Drag::ComponentSelection(_) | Drag::LiveParameter(_)
+            } else if !matches!(drag, Drag::Construction(_) | Drag::ToolPanel {..} | Drag::ToolPanelScroll {..} | Drag::ComponentSelection(_) | Drag::LiveParameter(_) | Drag::SectionGrip(_)
                 | Drag::Scrollbar {..} | Drag::Orbit {..} | Drag::Pan {..} | Drag::ViewWidget {..} | Drag::CameraEffectScroll {..} | Drag::ObjectScroll {..}) {
                 self.editor.cancel_edit();
                 self.restore_animation_drag(&drag);
@@ -4167,6 +4171,7 @@ impl App {
             Some(Drag::Mesh(drag)) => self.update_mesh_drag(drag, p),
             Some(Drag::ComponentSelection(drag)) => self.update_component_selection(drag, p),
             Some(Drag::LiveParameter(drag)) => self.update_live_parameter(drag, p),
+            Some(Drag::SectionGrip(drag)) => self.update_section_grip(drag,p),
             Some(Drag::Color(drag)) => self.update_color_drag(drag, p),
             Some(Drag::Slider(drag)) => self.update_slider(drag, p),
             Some(Drag::Keys(drag)) => self.update_key_drag(drag, p),
@@ -4299,7 +4304,7 @@ impl App {
             }
             Some(Drag::Curve(drag)) => self.finish_curve_drag(drag),
             Some(Drag::ComponentSelection(drag)) => self.finish_component_selection(drag),
-            Some(Drag::LiveParameter(_)) => {}
+            Some(Drag::LiveParameter(_) | Drag::SectionGrip(_)) => {}
             Some(Drag::Panel(_)) => self.persist_preferences(),
             Some(Drag::Material(drag)) => self.finish_material_drag(drag),
             Some(Drag::Scene(drag)) => self.finish_scene_drag(drag),

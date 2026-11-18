@@ -2,6 +2,9 @@
 use super::*;
 use crate::ui::AuthorAction as A;
 use poseforge_core::PlaneCut;
+#[path = "section_grips.rs"]
+mod grips;
+pub(in crate::app) use grips::SectionGripDrag;
 
 #[derive(Clone)]
 pub(in crate::app) struct Panel {
@@ -120,6 +123,7 @@ impl App {
     }
     pub(super) fn section_action(&mut self, a: A) -> bool {
         match a {
+            A::SectionGrip(handle)=>self.begin_section_grip(handle),
             A::SectionMode(edit) => {
                 if let Some(k) = self.authoring.knife.as_mut().filter(|k| k.loop_mode) {
                     k.section_edit = edit;
@@ -221,17 +225,30 @@ impl App {
             _ => (-3600., 3600.),
         };
         let value = surfaces::number(text, min, max)?;
-        let old = self.authoring.knife.as_ref().unwrap().sections[selected].values[field];
-        self.authoring.knife.as_mut().unwrap().sections[selected].values[field] = value;
-        if let Err(e) = self.preview_knife_geometry() {
-            self.authoring.knife.as_mut().unwrap().sections[selected].values[field] = old;
-            return Err(e);
-        }
-        if i == 1 {
-            self.authoring.workflow.values[1] = value;
-        }
+        self.set_section_value(selected,field,value)?;
         Ok(true)
     }
+    fn set_section_value(&mut self, selected: usize, field: usize, value: f32) -> Result<(), String> {
+        let panel = self
+            .authoring
+            .knife
+            .as_mut()
+            .and_then(|k| k.sections.get_mut(selected))
+            .ok_or("Разрез закрыт")?;
+        let old = panel.values[field];
+        if old != value {
+            panel.values[field] = value;
+            if let Err(e) = self.preview_knife_geometry() {
+                self.authoring.knife.as_mut().unwrap().sections[selected].values[field] = old;
+                return Err(e);
+            }
+        }
+        if field == 3 {
+            self.authoring.workflow.values[1] = value;
+        }
+        Ok(())
+    }
+
     pub(super) fn section_toggle_cap(&mut self) {
         let k = self.authoring.knife.as_mut().unwrap();
         if let Some(i) = k.section_selected {
@@ -530,6 +547,9 @@ impl App {
                 Action::Author(A::SectionSelect(i)),
                 active,
             );
+        }
+        if let Some(panel)=k.section_selected.and_then(|i|k.sections.get(i)){
+            self.draw_section_grips(u,model,panel);
         }
     }
 }

@@ -1,260 +1,348 @@
-//! On-model tool gizmos. Rendering and picking share the same clipped strokes.
+//! The drawn glyph and its drag use the same projected measurement.
 use super::*;
-use crate::gizmo;
-use glam::Vec2;
+use crate::app::viewport_grips::{segment, Glyph, Grip, GripArea};
 
-type Segment = ([f32; 2], [f32; 2]);
-const PICK: f32 = 8.;
-
-fn padded(r: [f32; 4], amount: f32) -> [f32; 4] {
-    [
-        r[0] - amount,
-        r[1] - amount,
-        r[2] + amount * 2.,
-        r[3] + amount * 2.,
-    ]
+fn meters(v: f32) -> String {
+    format!("{} м", ui::number_caption(v as f64))
 }
-
-fn clip(strokes: &[Segment], area: [f32; 4], obstacles: &[[f32; 4]]) -> Vec<Segment> {
-    let mut result = Vec::new();
-    for &(a, b) in strokes {
-        let (a, b) = (Vec2::from_array(a), Vec2::from_array(b));
-        let Some(range) = gizmo::clip_range(a, b, padded(area, -PICK - 1.)) else {
-            continue;
-        };
-        let mut ranges = vec![range];
-        for &r in obstacles {
-            if let Some((cut_lo, cut_hi)) = gizmo::clip_range(a, b, padded(r, PICK + 2.)) {
-                ranges = ranges
-                    .into_iter()
-                    .flat_map(|(lo, hi)| {
-                        [(lo, hi.min(cut_lo)), (lo.max(cut_hi), hi)]
-                            .into_iter()
-                            .filter(|(lo, hi)| hi - lo > 1e-5)
-                    })
-                    .collect();
-            }
-        }
-        result.extend(
-            ranges
-                .into_iter()
-                .filter(|(lo, hi)| hi - lo > 1e-5)
-                .map(|(lo, hi)| (a.lerp(b, lo).to_array(), a.lerp(b, hi).to_array())),
-        );
-    }
-    result
-}
-
-fn arrow(strokes: &mut Vec<Segment>, center: Vec2, axis: Vec2, sign: f32, length: f32) {
-    let side = Vec2::new(-axis.y, axis.x);
-    let tip = center + axis * (length * sign);
-    let base = tip - axis * (13. * sign);
-    strokes.push(((center + axis * (9. * sign)).to_array(), base.to_array()));
-    // A closed triangular head is recognizable at any screen orientation.
-    let left = base + side * 5.;
-    let right = base - side * 5.;
-    strokes.extend([
-        (left.to_array(), tip.to_array()),
-        (tip.to_array(), right.to_array()),
-        (right.to_array(), left.to_array()),
-    ]);
+fn percent(v: f32) -> String {
+    format!("{}%", ui::number_caption(v as f64))
 }
 
 impl App {
-    fn array_center(&self, op: &LiveOperation) -> Option<Vec2> {
-        // Anchor controls to the source; distant copies must not take the
-        // translation and count handles outside the viewport.
-        self.project_point(op.anchor).map(Vec2::from_array)
+    pub(super) fn spacing_basis(&self, op: &LiveOperation) -> (Vec2, f32) {
+        let tip = op.anchor + op.model.transform_vector3(op.offset());
+        self.grip_axis(
+            tip,
+            op.model.transform_vector3(op.array_axis),
+            op.scale * 0.12,
+            (Vec2::X, op.scale * 0.002),
+        )
     }
-    pub(super) fn array_parameter_basis(&self, op: &LiveOperation, field: usize) -> ([f32;2], f32) {
-        if field == 0 { return ([1.,0.],0.1); }
-        let fallback = ([[-0.8,0.6],[0.,-1.],[0.8,0.6]][field-1],op.scale*0.002);
-        let Some(model) = self.editor.project.global_transforms().ok().and_then(|g|g.get(&op.node).copied()) else { return fallback; };
-        let world = op.anchor;
-        let axis = model.transform_vector3([Vec3::X,Vec3::Y,Vec3::Z][field-1]);
-        let sample = op.scale*0.05;
-        if let (Some(a),Some(b)) = (self.project_point(world-axis*sample),self.project_point(world+axis*sample)) {
-            let d = Vec2::from_array(b)-Vec2::from_array(a);
-            if d.length() >= 4. { return (d.normalize().to_array(),2.*sample/d.length()); }
-        }
-        fallback
-    }
-    fn draw_array_handles(&self, u: &mut Ui, op: &LiveOperation) {
-        let Some(center) = self.array_center(op).filter(|p|p.is_finite()) else { return; };
-        let area = self.modeling_area();
-        let mut navigation = self.view_widget_rect(); navigation[3] += 84.;
-        let mut obstacles = vec![navigation,self.shading_toolbar_rect()];
-        if let Some(panel) = self.tool_panel_rect() { obstacles.push(panel); }
-        for field in 0..4 {
-            let mut strokes = Vec::new();
-            let label_at;
-            if (1..=3).contains(&field) {
-                let axis = Vec2::from_array(self.array_parameter_basis(op,field).0);
-                arrow(&mut strokes,center,axis,1.,76.);
-                label_at = center+axis*88.;
-            } else {
-                let point = center+Vec2::new(-90.,-64.);
-                let radius = 14.;
-                let arc = |i:usize| { let angle = i as f32*std::f32::consts::TAU/48.; (point+Vec2::new(angle.cos(),angle.sin())*radius).to_array() };
-                strokes.extend((0..48).map(|i|(arc(i),arc(i+1))));
-                label_at = point;
+    pub(super) fn array_parameter_basis(
+        &self,
+        op: &LiveOperation,
+        field: usize,
+    ) -> ([f32; 2], f32) {
+        if field == 0 {
+            let offset = op.model.transform_vector3(op.offset());
+            let last = op.anchor + offset * (op.values[0] - 1.);
+            if let (Some(a), Some(b)) = (
+                self.grip_projection(last - offset),
+                self.grip_projection(last),
+            ) {
+                let delta = b - a;
+                if let Some(dir) = delta.try_normalize() {
+                    return (dir.to_array(), 1. / delta.length().max(14.));
+                }
             }
-            let strokes = clip(&strokes,area,&obstacles);
-            if strokes.is_empty() {continue;}
-            let action = Action::Author(A::LiveDrag(field as u8));
-            u.path_hit(action.clone(),strokes.clone(),PICK);
-            let active = matches!(&self.drag,Some(Drag::LiveParameter(d)) if d.field==field);
-            let hovered = self.drag.is_none() && !self.has_modal() && u.hit(self.mouse)==Some(action);
-            let color = if field==0 || active || hovered {u.palette().accent} else {gizmo::axis_color(self.preferences.theme,field-1)};
-            u.smooth_segments(&strokes,5.,[0.,0.,0.,0.45]);
-            u.smooth_segments(&strokes,if active||hovered {3.}else{2.2},color);
-            let r = [label_at.x-18.,label_at.y-8.,36.,18.];
-            if ui::contains(area,[r[0],r[1]]) && ui::contains(area,[r[0]+r[2],r[1]+r[3]])
-                && !obstacles.iter().any(|o| r[0]<o[0]+o[2] && r[0]+r[2]>o[0] && r[1]<o[1]+o[3] && r[1]+r[3]>o[1]) {
-                let label = if field==0 {format!("×{}",op.values[0] as u32)} else { ["X","Y","Z"][(field-1)%3].into() };
-                u.fitted_label(r,&label,11.,color);
-            }
-            if active || hovered { self.draw_live_handle_value(u,op,field,center,area,&obstacles); }
+            let (dir, unit) = self.spacing_basis(op);
+            return (dir.to_array(), 1. / (op.offset().length() / unit).max(14.));
         }
+        let world = op
+            .model
+            .transform_vector3([Vec3::X, Vec3::Y, Vec3::Z][field - 1]);
+        let (dir, step) = self.grip_axis(
+            op.anchor,
+            world,
+            op.scale * 0.12,
+            (Vec2::X, op.spec(field).3),
+        );
+        (dir.to_array(), step)
     }
-    pub(super) fn draw_live_handles(&self, u: &mut Ui, op: &LiveOperation) {
-        if op.selecting { return; }
-        if op.kind==Kind::Bridge {return;}
-        if op.kind==Kind::Array {self.draw_array_handles(u,op);return;}
-        let mut world = op.anchor;
-        if matches!(op.kind,Kind::Extrude|Kind::Individual|Kind::VertexExtrude) {
-            world += op.direction * op.values[0];
-        } else if op.kind == Kind::Cut {
-            world += op.direction * (op.values[0] / 100. - 0.5);
-        } else if matches!(op.kind,Kind::Face|Kind::Inset) {
-            world += op.direction * op.values[1];
-        }
-        let Some(center) = self
-            .project_point(world)
-            .map(Vec2::from_array)
-            .filter(|p| p.is_finite())
-        else {
+    pub(super) fn surface_basis(&self, op: &LiveOperation, i: usize) -> Option<(Vec2, f32)> {
+        let s = op.surface.as_ref()?;
+        let offset = op.direction * op.values[1];
+        let (origin, axis) = match (op.kind, i) {
+            (Kind::Inset, 0) => (s.corner + offset, s.miter),
+            (Kind::Edge | Kind::Face, 0) => (s.corner + s.next * 0.67, s.inward),
+            (Kind::Edge, 2) | (Kind::Face, 3) => {
+                let origin = s.corner + s.next * 0.27;
+                let (width, _) = self.grip_axis(origin, s.inward, op.scale * 0.12, (Vec2::X, 1.));
+                let bend = if op.kind == Kind::Face {
+                    op.direction - s.inward
+                } else {
+                    -(s.opposite + s.inward)
+                };
+                let (dir, _) = self.grip_axis(origin, bend, op.scale * 0.12, (width.perp(), 1.));
+                return Some((dir, 2.));
+            }
+            (Kind::Vertex | Kind::VertexInset, 0) => (s.corner, (s.previous + s.next) * 0.005),
+            _ => return None,
+        };
+        let vertex = matches!(op.kind, Kind::Vertex | Kind::VertexInset);
+        Some(self.grip_axis(
+            origin,
+            axis,
+            if vertex { 15. } else { op.scale * 0.12 },
+            (Vec2::X, op.spec(i).3),
+        ))
+    }
+    pub(super) fn seam_basis(&self, op: &LiveOperation) -> Option<(Vec2, f32)> {
+        let s = op.seam.as_ref()?;
+        let n = s.targets.len();
+        let i = (op.values[1] as isize).rem_euclid(n as isize) as usize;
+        let axis =
+            self.grip_projection(s.targets[(i + 1) % n])? - self.grip_projection(s.targets[i])?;
+        Some((
+            axis.try_normalize().unwrap_or(Vec2::X),
+            1. / axis.length().max(12.),
+        ))
+    }
+    fn surface_grips(&self, op: &LiveOperation, grips: &mut Vec<(Grip, Vec2)>) {
+        let Some(s) = &op.surface else {
             return;
         };
-        let area = self.modeling_area();
-        // Clip individual strokes even when the pivot just crossed the edge.
-        // A partially visible ring must remain usable, without relocating it
-        // to an invented screen position unrelated to the model.
-        let mut navigation = self.view_widget_rect();
-        navigation[3] += if self.camera_view.is_some() { 84. } else { 52. };
-        let mut obstacles = vec![navigation, self.shading_toolbar_rect()];
-        if let Some(panel)=self.tool_panel_rect() { obstacles.push(panel); }
-        let p = u.palette();
-        let fields = if matches!(op.kind,Kind::Face|Kind::Inset) { 2 } else { 1 };
-        for field in 0..fields {
-            let ring = field == 0 && matches!(op.kind, Kind::Vertex | Kind::VertexInset | Kind::Edge | Kind::Face | Kind::Inset);
-            let mut strokes = Vec::new();
-            if ring {
-                let point = |i: usize| {
-                    let angle = i as f32 * std::f32::consts::TAU / 96.;
-                    (center + Vec2::new(angle.cos(), angle.sin()) * 56.).to_array()
+        let field = |i| Vec2::from_array(self.live_parameter_basis(op, i).0);
+        let project = |p| self.grip_projection(p);
+        if matches!(op.kind, Kind::Inset | Kind::VertexInset) {
+            let vertex = op.kind == Kind::VertexInset;
+            let origin = s.corner
+                + if vertex {
+                    Vec3::ZERO
+                } else {
+                    op.direction * op.values[1]
                 };
-                strokes.extend((0..96).map(|i| (point(i), point(i + 1))));
+            let miter = if vertex {
+                (s.previous + s.next) * 0.005
             } else {
-                let axis = Vec2::from_array(self.live_parameter_basis(op, field).0);
-                let rail = matches!(op.kind, Kind::Cut | Kind::Slide);
-                arrow(&mut strokes, center, axis, 1., if rail { 68. } else { 92. });
-                if rail {
-                    arrow(&mut strokes, center, axis, -1., 68.);
-                }
-                let side = Vec2::new(-axis.y, axis.x);
-                let points = [
-                    center + axis * 5.,
-                    center + side * 5.,
-                    center - axis * 5.,
-                    center - side * 5.,
-                ];
-                strokes
-                    .extend((0..4).map(|i| (points[i].to_array(), points[(i + 1) % 4].to_array())));
-            }
-            let strokes = clip(&strokes, area, &obstacles);
-            if strokes.is_empty() {
-                continue;
-            }
-            let action = Action::Author(A::LiveDrag(field as u8));
-            u.path_hit(action.clone(), strokes.clone(), PICK);
-            let active = matches!(&self.drag, Some(Drag::LiveParameter(d)) if d.field == field);
-            let hovered =
-                self.drag.is_none() && !self.has_modal() && u.hit(self.mouse) == Some(action);
-            let mut color = p.accent;
-            if active || hovered {
-                for channel in &mut color[..3] {
-                    *channel = *channel * 0.85 + 0.15;
-                }
-            } else if self.drag.is_some() {
-                color[3] = 0.45;
-            }
-            // Shared clipped strokes keep the accent legible on bright models.
-            u.smooth_segments(
-                &strokes,
-                if active || hovered { 6. } else { 5. },
-                [0.015, 0.02, 0.03, 0.7],
+                s.miter
+            };
+            let Some(at) = project(origin + miter * op.values[0]) else {
+                return;
+            };
+            let Some(src) = project(origin) else {
+                return;
+            };
+            let dir = field(0);
+            let side = |v: Vec3, backup: Vec2| {
+                project(origin + v * 0.3)
+                    .and_then(|p| (p - src).try_normalize())
+                    .unwrap_or(backup)
+            };
+            let mut g = Grip::new(
+                at,
+                dir,
+                Glyph::Corner(side(s.previous, dir.perp()), side(s.next, dir)),
+                A::LiveDrag(0),
+                if vertex {
+                    "Срез угла"
+                } else {
+                    "Отступ"
+                },
+                if vertex {
+                    percent(op.values[0])
+                } else {
+                    meters(op.values[0])
+                },
             );
-            u.smooth_segments(&strokes, if active || hovered { 3. } else { 2.2 }, if ring { p.muted } else { color });
-            if ring {
-                let fraction = self.live_field_range(op, field).ratio(op.values[field] as f64);
-                let point = |angle: f32| (center + Vec2::new(angle.cos(), angle.sin()) * 56.).to_array();
-                let start = -std::f32::consts::FRAC_PI_2;
-                let end = start + std::f32::consts::TAU * fraction;
-                let steps = (fraction * 96.).ceil() as usize;
-                let arc: Vec<_> = (0..steps).map(|i| {
-                    (point(start + (end-start)*i as f32/steps as f32),
-                     point(start + (end-start)*(i+1) as f32/steps as f32))
-                }).collect();
-                u.smooth_segments(&clip(&arc, area, &obstacles), if active || hovered { 4. } else { 3. }, color);
-                let tip = Vec2::from_array(point(end));
-                let radial = (tip-center).normalize_or_zero();
-                let tick = [((tip-radial*4.).to_array(), (tip+radial*4.).to_array())];
-                u.smooth_segments(&clip(&tick, area, &obstacles), 3., color);
+            g.tether(src);
+            grips.push((g, src));
+        } else {
+            let vertex = op.kind == Kind::Vertex;
+            let origin = if vertex {
+                s.corner
+            } else {
+                s.corner + s.next * 0.67
+            };
+            let Some(src) = project(origin) else {
+                return;
+            };
+            let axis = field(0);
+            let side = if vertex { s.next * 0.01 } else { s.inward };
+            let other = if vertex {
+                s.previous * 0.01
+            } else {
+                s.opposite
+            };
+            let actual = project(origin + side * op.values[0]).unwrap_or(src);
+            let mut g = Grip::new(
+                actual + axis * 13.,
+                axis,
+                Glyph::Caliper,
+                A::LiveDrag(0),
+                if vertex {
+                    "Срез угла"
+                } else {
+                    "Ширина"
+                },
+                if vertex {
+                    percent(op.values[0])
+                } else {
+                    meters(op.values[0])
+                },
+            );
+            if let Some(opp) = project(origin + other * op.values[0]) {
+                g.guides.extend([
+                    segment(opp, src),
+                    segment(src, actual),
+                    segment(opp - axis.perp() * 4., opp + axis.perp() * 4.),
+                ]);
             }
-            if active && ring {
-                let guide = clip(&[(center.to_array(), self.mouse)], area, &obstacles);
-                u.smooth_segments(&guide, 1., [color[0], color[1], color[2], 0.35]);
-            }
-            if active || hovered {
-                self.draw_live_handle_value(u, op, field, center, area, &obstacles);
+            g.tether(actual);
+            grips.push((g, src));
+            if !vertex {
+                let i = if op.kind == Kind::Edge { 2 } else { 3 };
+                let origin = s.corner + s.next * 0.27;
+                if let Some(src) = project(origin) {
+                    let dir = field(i);
+                    let tip = src + dir * (24. + 0.5 * op.values[i]);
+                    let mut g = Grip::new(
+                        tip,
+                        dir,
+                        Glyph::Lens,
+                        A::LiveDrag(i as u8),
+                        "Профиль",
+                        percent(op.values[i]),
+                    );
+                    g.tether(src);
+                    grips.push((g, src));
+                }
             }
         }
     }
-
-    fn draw_live_handle_value(&self, u: &mut Ui, op: &LiveOperation, field: usize, center: Vec2,
-        area: [f32; 4], obstacles: &[[f32; 4]]) {
-        let width = 228_f32.min(area[2]-16.);
-        if width < 120. || area[3] < 64. { return; }
-        let height = 48.;
-        let positions = [[center.x+70.,center.y+24.], [center.x-width-70.,center.y+24.],
-            [center.x-width/2.,center.y+72.], [center.x-width/2.,center.y-120.]];
-        let rect = positions.into_iter().map(|[x,y]| [x.clamp(area[0]+8.,area[0]+area[2]-width-8.),
-            y.clamp(area[1]+8.,area[1]+area[3]-height-8.),width,height])
-            .find(|r| !obstacles.iter().any(|o| intersect_rect(*r,padded(*o,5.)).is_some()));
-        let Some([x,y,w,h]) = rect else { return; };
-        let p = u.palette();
-        let (label,_,_,_) = op.spec(field);
-        let (label,unit) = label.strip_suffix(", м").map(|s| (s," м"))
-            .or_else(|| label.strip_suffix(", %").map(|s| (s,"%"))).unwrap_or((label,""));
-        u.outlined_surface([x,y,w,h], [p.panel[0],p.panel[1],p.panel[2],0.94],p.border);
-        u.rect([x+1.,y+5.,2.,h-10.],p.accent);
-        u.fitted_label([x+10.,y+6.,w-20.,20.],
-            &format!("{label} · {}{unit}",ui::number_caption(op.values[field] as f64)),13.,p.text);
-        u.fitted_label([x+10.,y+28.,w-20.,15.],"Shift — точно · Ctrl — шаг",10.,p.muted);
+    fn array_grips(&self, op: &LiveOperation, base: Vec2, grips: &mut Vec<(Grip, Vec2)>) {
+        let (dir, _) = self.spacing_basis(op);
+        let offset = op.model.transform_vector3(op.offset());
+        let second = self
+            .grip_projection(op.anchor + offset)
+            .unwrap_or(base + dir * 64.);
+        let end = self
+            .grip_projection(op.anchor + offset * (op.values[0] - 1.))
+            .unwrap_or(second);
+        let lateral = dir.perp() * 15.;
+        let mut spacing = Grip::new(
+            second + lateral,
+            dir,
+            Glyph::Caliper,
+            A::ArraySpacing,
+            "Шаг",
+            meters(op.offset().length()),
+        );
+        spacing.guides.extend([
+            segment(base, base + lateral),
+            segment(base + lateral, second + lateral),
+            segment(second + lateral, second),
+        ]);
+        grips.push((spacing, base));
+        let count_axis = Vec2::from_array(self.array_parameter_basis(op, 0).0);
+        let mut count = Grip::new(
+            end + count_axis * 19. - lateral,
+            count_axis,
+            Glyph::Stack,
+            A::LiveDrag(0),
+            "Копии",
+            format!("{}", op.values[0] as u32 - 1),
+        );
+        count.tether(end);
+        grips.push((count, base));
+    }
+    fn bridge_grip(&self, op: &LiveOperation, grips: &mut Vec<(Grip, Vec2)>) {
+        let Some(s) = &op.seam else {
+            return;
+        };
+        let n = s.targets.len();
+        let i = (op.values[1] as isize).rem_euclid(n as isize) as usize;
+        let Some(at) = self.grip_projection(s.targets[i]) else {
+            return;
+        };
+        let dir = self.seam_basis(op).map_or(Vec2::X, |b| b.0);
+        let mut g = Grip::new(
+            at,
+            dir,
+            Glyph::Eye,
+            A::LiveDrag(1),
+            "Шов",
+            format!("{} / {}", i + 1, n),
+        );
+        if let Some(src) = self.grip_projection(s.source) {
+            g.tether(src);
+        }
+        if let Some(rim) = self.projected_rim(op) {
+            for j in 0..n {
+                let a = rim[j];
+                let b = rim[(j + 1) % n];
+                g.guides.push(segment(a, b));
+            }
+        }
+        grips.push((g, at));
+    }
+    pub(super) fn draw_live_handles(&self, u: &mut Ui, op: &LiveOperation) {
+        if op.selecting {
+            return;
+        }
+        let Some(base) = self.grip_projection(op.anchor) else {
+            return;
+        };
+        let mut grips = Vec::with_capacity(3);
+        match op.kind {
+            Kind::Array => self.array_grips(op, base, &mut grips),
+            Kind::Bridge => self.bridge_grip(op, &mut grips),
+            Kind::Face | Kind::Edge | Kind::Inset | Kind::Vertex | Kind::VertexInset => {
+                self.surface_grips(op, &mut grips)
+            }
+            _ => {}
+        }
+        let axial = match op.kind {
+            Kind::Extrude | Kind::VertexExtrude | Kind::Individual => {
+                Some((0, op.values[0], "Высота", Glyph::Bar))
+            }
+            Kind::Face | Kind::Inset => Some((1, op.values[1], "Высота", Glyph::Bar)),
+            Kind::Cut => Some((0, op.values[0] / 100. - 0.5, "Положение", Glyph::Arrow)),
+            Kind::Slide => Some((0, 0., "Сдвиг", Glyph::Arrow)),
+            _ => None,
+        };
+        if let Some((i, displacement, name, glyph)) = axial {
+            if let Some(tip) = self.grip_projection(op.anchor + op.direction * displacement) {
+                let axis = Vec2::from_array(self.live_parameter_basis(op, i).0);
+                let value = if matches!(op.kind, Kind::Cut | Kind::Slide) {
+                    percent(op.values[i])
+                } else {
+                    meters(op.values[i])
+                };
+                let mut g = Grip::new(
+                    tip + axis * 26.,
+                    axis,
+                    glyph,
+                    A::LiveDrag(i as u8),
+                    name,
+                    value,
+                );
+                g.guides.push(segment(base, tip));
+                g.tether(tip);
+                grips.push((g, base));
+            }
+        }
+        let mut area = GripArea::new(self);
+        // A dock may hide the chosen corner while the selected face itself remains in view.
+        // Keep a leader to that corner and expose the grip beside the visible selection.
+        grips.retain_mut(|(g, source)| area.place(g, *source) || area.place(g, base));
+        for (g, _) in grips {
+            let active = matches!(&self.drag,Some(Drag::LiveParameter(d)) if d.viewport && d.action()==g.action);
+            area.paint(u, &g, self.mouse, active);
+        }
     }
 
     pub(in crate::app) fn modeling_live_scroll(&mut self, delta: f32) -> bool {
         if !self.modeling_live_owns_scroll() {
             return false;
         }
-        let merge_distance=matches!(self.ui.hit(self.mouse),Some(Action::Author(A::ToolMergeDistance)))
-            || matches!(self.ui.hit(self.mouse),Some(Action::Slide(field,_,_)) if *field==Action::Author(A::ToolMergeDistance));
+        let merge_distance = matches!(
+            self.ui.hit(self.mouse),
+            Some(Action::Author(A::ToolMergeDistance))
+        ) || matches!(self.ui.hit(self.mouse),Some(Action::Slide(field,_,_)) if *field==Action::Author(A::ToolMergeDistance));
         if merge_distance {
-            if self.drag.is_none() && self.input.is_none() && !self.has_modal() && delta.is_finite() && delta!=0. {
-                let step=0.001*if self.modifiers.shift_key(){0.1}else{1.};
-                let value=(self.tool_merge_distance()+delta.signum()*delta.abs().round().max(1.)*step).clamp(0.,10000.);
-                let _=self.set_tool_merge_distance(value);
+            if self.drag.is_none()
+                && self.input.is_none()
+                && !self.has_modal()
+                && delta.is_finite()
+                && delta != 0.
+            {
+                let step = 0.001 * if self.modifiers.shift_key() { 0.1 } else { 1. };
+                let value = (self.tool_merge_distance()
+                    + delta.signum() * delta.abs().round().max(1.) * step)
+                    .clamp(0., 10000.);
+                let _ = self.set_tool_merge_distance(value);
             }
             return true;
         }
@@ -265,27 +353,73 @@ impl App {
             );
         if self.input.is_none() && !self.has_modal() && delta.is_finite() && delta != 0. {
             if let Some(op) = &self.modeling_live {
+                let spacing = matches!(&self.drag,Some(Drag::LiveParameter(d)) if d.action()==A::ArraySpacing)
+                    || (self.drag.is_none()
+                        && self.ui.hit(self.mouse) == Some(Action::Author(A::ArraySpacing)));
+                if spacing && op.kind == Kind::Array {
+                    let step = op.scale
+                        * if self.modifiers.control_key() {
+                            0.01
+                        } else {
+                            0.002
+                        };
+                    let precision = if self.modifiers.shift_key() { 0.1 } else { 1. };
+                    let values = op.with_spacing(
+                        op.array_axis,
+                        op.offset().length()
+                            + delta.signum() * delta.abs().round().max(1.) * step * precision,
+                    );
+                    if values != op.values && self.preview_live_values(values).is_ok() {
+                        if let Some(Drag::LiveParameter(d)) = &mut self.drag {
+                            d.value = Vec3::new(values[1], values[2], values[3]).length();
+                            d.snap_origin = d.value;
+                            d.requested = values;
+                        }
+                    }
+                    self.redraw();
+                    return true;
+                }
                 let hovered_field = match self.ui.hit(self.mouse) {
-                    Some(Action::Slide(action,_,_)) => match *action { Action::Author(A::LiveField(i)) => Some(i as usize), _ => None },
+                    Some(Action::Slide(action, _, _)) => match *action {
+                        Action::Author(A::LiveField(i)) => Some(i as usize),
+                        _ => None,
+                    },
                     Some(Action::Author(A::LiveField(i) | A::LiveDrag(i))) => Some(i as usize),
                     _ => None,
                 };
-                let field = if grip && op.kind == Kind::Edge { Some(1) } else { hovered_field };
+                let field = if grip && op.kind == Kind::Edge {
+                    Some(1)
+                } else {
+                    hovered_field
+                };
                 if let Some(field) = field.filter(|i| *i < op.fields()) {
                     let mut values = op.values;
-                    let (_,min,max,step) = op.spec(field);
+                    let (_, min, max, step) = op.spec(field);
                     let integer = op.integer(field);
-                    let step = if integer { 1. } else {
+                    let step = if integer {
+                        1.
+                    } else {
                         let step = if self.modifiers.control_key() {
-                            if op.spec(field).0.ends_with('%') { 5. } else { op.scale*0.01 }
-                        } else { step };
+                            if op.spec(field).0.ends_with('%') {
+                                5.
+                            } else {
+                                op.scale * 0.01
+                            }
+                        } else {
+                            step
+                        };
                         step * if self.modifiers.shift_key() { 0.1 } else { 1. }
                     };
-                    values[field] = (values[field] + delta.signum()*delta.abs().round().max(1.)*step).clamp(min,max);
+                    values[field] = (values[field]
+                        + delta.signum() * delta.abs().round().max(1.) * step)
+                        .clamp(min, max);
                     if values != op.values && self.preview_live_values(values).is_ok() {
                         if let Some(Drag::LiveParameter(d)) = &mut self.drag {
                             d.requested = values;
-                            if d.field == field { d.value = values[field]; d.snap_origin = d.value; }
+                            if d.field == field {
+                                d.value = values[field];
+                                d.snap_origin = d.value;
+                            }
                         }
                     }
                     self.redraw();

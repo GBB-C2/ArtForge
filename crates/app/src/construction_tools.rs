@@ -17,6 +17,8 @@ pub(super) struct Session {
     owner: u64,
     selected: Option<u64>,
     selection: BTreeSet<u64>,
+    previous_mode: EditorMode,
+    previous_authoring: Box<authoring_controls::AuthoringState>,
     targets: Vec<u64>,
     cleanup: bool,
     outputs: BTreeSet<u64>,
@@ -30,6 +32,11 @@ pub(super) struct Session {
     ready: bool,
     error: Option<String>,
     worker: Option<(Receiver<Result<BooleanPreview, String>>, Arc<AtomicBool>)>,
+}
+impl Session {
+    fn can_apply(&self) -> bool {
+        self.ready && self.worker.is_none() && self.error.is_none()
+    }
 }
 impl Drop for Session {
     fn drop(&mut self) {
@@ -217,6 +224,12 @@ impl App {
         {
             return;
         }
+        let kind = if cable { Kind::Cable } else { Kind::Boolean };
+        if self.construction.session.as_ref().is_some_and(|s| s.kind == kind) {
+            self.construction.collapsed = false;
+            self.show_modeling_properties();
+            return;
+        }
         self.cancel_construction();
         self.cancel_modeling_session();
         self.cancel_modeling_live();
@@ -304,13 +317,15 @@ impl App {
             "Булева операция"
         });
         self.construction.session = Some(Session {
-            kind: if cable { Kind::Cable } else { Kind::Boolean },
+            kind,
             source,
             pick_scene,
             owner_ancestors,
             owner,
             selected,
             selection,
+            previous_mode: self.editor.mode,
+            previous_authoring: Box::new(std::mem::take(&mut self.authoring)),
             targets,
             cleanup: true,
             outputs: BTreeSet::from([owner]),
@@ -336,10 +351,9 @@ impl App {
         self.construction.collapsed = false;
         self.primitive_panel = None;
         self.primitive_draw_kind = None;
-        self.authoring = Default::default();
         self.editor.mode = EditorMode::Scene;
-        self.set_properties_tab(7);
         self.refresh_construction();
+        self.show_modeling_properties();
     }
     pub(super) fn boolean_content_height(&self) -> f32 {
         let count = self
@@ -403,8 +417,8 @@ impl App {
             }
             C::Scroll => {
                 if let Some(r) = self.construction_rect() {
-                    let total = self.construction_content_height();
-                    let height = r[3] - 94. - self.construction_tabs_height();
+                    let total = self.construction_quick_height();
+                    let height = r[3] - 94.;
                     let maximum = (total - height).max(0.);
                     let thumb = (height * height / total).max(20.);
                     let value = self.construction.scroll.min(maximum);
@@ -611,6 +625,11 @@ impl App {
                             self.editor.selected = Some(s.owner);
                             self.scene_tools.selected = BTreeSet::from([s.owner]);
                             s.ready = true;
+                            self.status = match s.pick {
+                                Some(0) => "Кабель · укажите начало в сцене",
+                                Some(1) => "Кабель · укажите конец в сцене",
+                                _ => "Кабель · перетащите концы или примените результат",
+                            }.into();
                             self.studio.physics.reset();
                             self.invalidate_geometry();
                         }
@@ -619,6 +638,9 @@ impl App {
                 }
                 Err(e) => s.error = Some(e.to_string()),
             }
+        }
+        if let Some(error) = &s.error {
+            self.status = error.clone();
         }
         self.construction.session = Some(s);
         self.redraw();
@@ -701,7 +723,7 @@ impl App {
             .construction
             .session
             .as_ref()
-            .is_none_or(|s| !s.ready || s.worker.is_some() || s.error.is_some())
+            .is_none_or(|s| !s.can_apply())
         {
             return;
         }
@@ -726,13 +748,16 @@ impl App {
         self.update_dirty();
     }
     pub(super) fn cancel_construction(&mut self) {
-        if let Some(s) = self.construction.session.take() {
+        if let Some(mut s) = self.construction.session.take() {
             self.cancel_drag();
             self.end_input();
             self.dropdown = None;
             self.editor.cancel_tool_edit();
             self.editor.selected = s.selected;
-            self.scene_tools.selected = s.selection.clone();
+            self.editor.mode = s.previous_mode;
+            self.authoring = std::mem::take(&mut *s.previous_authoring);
+            self.scene_tools.selected = std::mem::take(&mut s.selection);
+            self.status = if s.kind == Kind::Cable { "Кабель · отменено" } else { "Булева операция · отменена" }.into();
             self.studio.physics_running = false;
             self.studio.physics.reset();
             self.invalidate_geometry();
@@ -751,7 +776,7 @@ impl App {
         ) {
             return false;
         }
-        if let Action::Construction(_) = a {
+        if matches!(a, Action::Construction(_) | Action::ModelingTool(ui::ModelingTool::Cable | ui::ModelingTool::Boolean)) {
             return false;
         }
         if matches!(a, Action::Cancel | Action::Undo | Action::Redo) {
@@ -769,6 +794,8 @@ impl App {
             Action::ConfirmInput
                 | Action::SurfaceTab(_)
                 | Action::ToggleRightPanel
+                | Action::ScrollPanel(0)
+                | Action::ToggleSection(700 | 701 | super::modeling_palette::PROPERTIES_SECTION)
                 | Action::InterfaceTheme(_)
         ) {
             return false;
@@ -949,16 +976,12 @@ impl App {
         Ok(true)
     }
     pub(super) fn construction_rect(&self) -> Option<[f32; 4]> {
-        let s = self.construction.session.as_ref()?;
+        self.construction.session.as_ref()?;
         let area = self.modeling_area();
         if area[2] < 180. || area[3] < 100. {
             return None;
         }
-        let full = if s.kind == Kind::Cable {
-            604_f32
-        } else {
-            (self.construction_content_height() + 94.).min(640.)
-        };
+        let full = self.construction_quick_height() + 94.;
         let w = 300_f32.min(area[2]);
         let mut h = if self.construction.collapsed {
             40.
@@ -994,10 +1017,10 @@ impl App {
             if self.input.is_some() && !self.resolve_input() {
                 return true;
             }
-            let total = self.construction_content_height();
+            let total = self.construction_quick_height();
             self.construction.scroll = (self.construction.scroll - delta * 34.).clamp(
                 0.,
-                (total - (r[3] - 94. - self.construction_tabs_height())).max(0.),
+                (total - (r[3] - 94.)).max(0.),
             );
             self.redraw();
             true
@@ -1012,7 +1035,6 @@ impl App {
         let Some([x, y, w, h]) = self.construction_rect() else {
             return;
         };
-        let p = u.palette();
         if s.kind == Kind::Cable {
             let model = self
                 .editor
@@ -1021,6 +1043,7 @@ impl App {
                 .ok()
                 .and_then(|g| g.get(&s.owner).copied())
                 .unwrap_or(Mat4::IDENTITY);
+            let start = (u.rects.len(), u.texts.len(), u.hits.len());
             for (i, point) in [s.cable.start, s.cable.end].into_iter().enumerate() {
                 if let Some(point) =
                     self.project_point(model.transform_point3(Vec3::from_array(point)))
@@ -1034,6 +1057,7 @@ impl App {
                     );
                 }
             }
+            clip_scrolled(u, start, self.modeling_area(), 0.);
         }
         u.floating_surface(
             [x, y, w, h],
@@ -1045,7 +1069,16 @@ impl App {
             action: Action::Construction(C::Backdrop),
         });
         u.quiet_icon_button(
-            [x + 8., y + 4., w - 48., 30.],
+            [
+                x + 8.,
+                y + 4.,
+                w - if self.construction.collapsed {
+                    116.
+                } else {
+                    48.
+                },
+                30.,
+            ],
             if s.kind == Kind::Cable {
                 "Кабель"
             } else {
@@ -1059,127 +1092,45 @@ impl App {
                 Icon::Boolean
             },
         );
-        u.quiet_icon_button(
-            [x + w - 36., y + 4., 28., 28.],
-            "",
-            Action::Construction(C::Collapse),
-            false,
-            Icon::ChevronDown,
+        u.disclosure_button(
+            [x + w - 34., y + 3., 30., 30.],
+            Some(Action::Construction(C::Collapse)),
+            !self.construction.collapsed,
         );
         if self.construction.collapsed {
+            let apply = [x + w - 102., y + 3., 30., 30.];
+            if s.can_apply() {
+                u.quiet_icon_button(
+                    apply,
+                    "",
+                    Action::Construction(C::Apply),
+                    false,
+                    Icon::Check,
+                );
+            } else {
+                u.disabled_icon_button(apply, "", Icon::Check);
+            }
+            u.quiet_icon_button(
+                [x + w - 68., y + 3., 30., 30.],
+                "",
+                Action::Construction(C::Cancel),
+                false,
+                Icon::Close,
+            );
             return;
         }
-        let total = self.construction_content_height();
-        let tabs = self.construction_tabs_height();
-        if tabs > 0. {
-            let cell = (w - 36.) / 3.;
-            for (i, label) in ["Форма", "Концы", "Физика"].into_iter().enumerate() {
-                u.quiet_button(
-                    [x + 14. + i as f32 * (cell + 4.), y + 40., cell, 28.],
-                    label,
-                    Action::Construction(C::CableTab(i as u8)),
-                    self.construction.cable_tab == i as u8,
-                );
-            }
-        }
-        let body = [x + 14., y + 40. + tabs, w - 38., h - 94. - tabs];
+        let total = self.construction_quick_height();
+        let body = [x + 14., y + 40., w - 38., h - 94.];
         let maximum = (total - body[3]).max(0.);
-        let scroll = self.construction.scroll.min(maximum);
+        let scroll = self.construction.scroll.clamp(0., maximum);
         let start = (u.rects.len(), u.texts.len(), u.hits.len());
         u.set_cursor([self.mouse[0], self.mouse[1] + scroll]);
-        let left = body[0];
-        let width = body[2];
-        let mut row = body[1];
         if s.kind == Kind::Boolean {
-            let cell = (width - 6.) * 0.5;
-            for (i, label) in ["Объединение", "Вычитание", "Пересечение", "Разделить"]
-                .into_iter()
-                .enumerate()
-            {
-                u.quiet_button(
-                    [
-                        left + (i % 2) as f32 * (cell + 6.),
-                        row + (i / 2) as f32 * 32.,
-                        cell,
-                        28.,
-                    ],
-                    label,
-                    Action::Construction(C::Mode(i as u8)),
-                    s.mode == i as u8,
-                );
-            }
-            row += 68.;
-            u.quiet_button(
-                [left, row, width, 30.],
-                "Добавить резак в сцене",
-                Action::Construction(C::Pick(2)),
-                s.pick == Some(2),
-            );
-            row += 36.;
-            let first = ((body[1] + scroll - row) / 32.).floor().max(0.) as usize;
-            let end = (((body[1] + scroll + body[3] - row) / 32.).ceil().max(0.) as usize)
-                .min(s.targets.len());
-            let list_y = row;
-            for index in first.min(end)..end {
-                let id = s.targets[index];
-                let row = list_y + index as f32 * 32.;
-                let name = s.source.node(id).map_or("Недоступен", |n| n.name.as_str());
-                u.fitted_label([left + 6., row + 7., width - 38., 20.], name, 11., p.text);
-                u.quiet_icon_button(
-                    [left + width - 28., row, 28., 28.],
-                    "",
-                    Action::Construction(C::RemoveCutter(id)),
-                    false,
-                    Icon::Close,
-                );
-            }
-            row += s.targets.len() as f32 * 32.;
-            if !s.targets.is_empty() {
-                u.quiet_button(
-                    [left, row, width, 26.],
-                    "Очистить список резаков",
-                    Action::Construction(C::ClearCutters),
-                    false,
-                );
-                row += 32.;
-            }
-            for i in 10..=12 {
-                let (v, _, _, label) = self.construction_field(i).unwrap();
-                u.number_field(
-                    [left, row, width, 38.],
-                    label,
-                    v as f64,
-                    Action::Construction(C::Field(i)),
-                    SliderRange::new(-10., 10., 0.01),
-                );
-                row += 42.;
-            }
-            u.checkbox(
-                [left, row, width, 26.],
-                "Убирать плоские рёбра",
-                Action::Construction(C::BooleanCleanup),
-                s.cleanup,
-            );
-            row += 32.;
-            u.checkbox(
-                [left, row, width, 26.],
-                "Скрыть резаки",
-                Action::Construction(C::Hide),
-                s.hide,
-            );
-            row += 32.;
-            u.fitted_label(
-                [left, row, width, 20.],
-                if s.mode == 3 {
-                    "Обе части станут отдельными объектами"
-                } else {
-                    "Резаки объединяются перед пересечением"
-                },
-                10.,
-                p.muted,
-            );
+            self.draw_boolean_choices(u, body[0], body[1], body[2]);
         } else {
-            self.draw_cable_controls(u, left, row, width);
+            self.draw_cable_type(u, body[0], body[1], body[2]);
+            self.cable_number(u, body[0], body[1] + 36., body[2], 6);
+            self.cable_number(u, body[0], body[1] + 80., body[2], 8);
         }
         clip_scrolled(u, start, body, scroll);
         u.set_cursor(self.mouse);
@@ -1191,32 +1142,174 @@ impl App {
                 Action::Construction(C::Scroll),
             );
         }
-        if let Some(error) = &s.error {
-            u.fitted_label([x + 14., y + h - 51., w - 28., 17.], error, 10., p.muted);
-        } else if s.worker.is_some() {
-            u.fitted_label(
-                [x + 14., y + h - 51., w - 28., 17.],
-                "Расчёт… можно вращать вид",
-                10.,
-                p.muted,
-            );
+        self.draw_construction_footer(u, x + 14., y + h - 53., w - 28.);
+    }
+
+    fn construction_quick_height(&self) -> f32 {
+        if self
+            .construction
+            .session
+            .as_ref()
+            .is_some_and(|s| s.kind == Kind::Cable)
+        {
+            124.
+        } else {
+            104.
         }
-        let half = (w - 34.) / 2.;
-        if s.ready && s.worker.is_none() && s.error.is_none() {
+    }
+
+    fn draw_construction_footer(&self, u: &mut Ui, x: f32, y: f32, w: f32) {
+        let Some(s) = &self.construction.session else {
+            return;
+        };
+        let p = u.palette();
+        if let Some(error) = &s.error {
+            u.fitted_label([x, y, w, 17.], error, 10., p.muted);
+        } else if s.worker.is_some() {
+            u.fitted_label([x, y, w, 17.], "Расчёт… можно вращать вид", 10., p.muted);
+        }
+        let half = (w - 6.) / 2.;
+        if s.can_apply() {
             u.button(
-                [x + 14., y + h - 34., half, 28.],
+                [x, y + 19., half, 28.],
                 "Применить",
                 Action::Construction(C::Apply),
                 true,
             );
         } else {
-            u.disabled_button([x + 14., y + h - 34., half, 28.], "Применить");
+            u.disabled_button([x, y + 19., half, 28.], "Применить");
         }
         u.quiet_button(
-            [x + 20. + half, y + h - 34., half, 28.],
+            [x + 6. + half, y + 19., half, 28.],
             "Отмена · Esc",
             Action::Construction(C::Cancel),
             false,
         );
+    }
+
+    fn draw_boolean_choices(&self, u: &mut Ui, left: f32, mut row: f32, width: f32) {
+        let Some(s) = &self.construction.session else {
+            return;
+        };
+        let cell = (width - 6.) * 0.5;
+        for (i, label) in ["Объединение", "Вычитание", "Пересечение", "Разделить"]
+            .into_iter()
+            .enumerate()
+        {
+            u.quiet_button(
+                [
+                    left + (i % 2) as f32 * (cell + 6.),
+                    row + (i / 2) as f32 * 32.,
+                    cell,
+                    28.,
+                ],
+                label,
+                Action::Construction(C::Mode(i as u8)),
+                s.mode == i as u8,
+            );
+        }
+        row += 68.;
+        u.quiet_button(
+            [left, row, width, 30.],
+            "Добавить резак в сцене",
+            Action::Construction(C::Pick(2)),
+            s.pick == Some(2),
+        );
+    }
+
+    pub(super) fn draw_construction_properties(&self, u: &mut Ui, x: f32, y: f32, w: f32) {
+        let Some(s) = &self.construction.session else {
+            return;
+        };
+        let p = u.palette();
+        let tabs = self.construction_tabs_height();
+        if tabs > 0. {
+            let cell = (w - 8.) / 3.;
+            for (i, label) in ["Форма", "Концы", "Физика"].into_iter().enumerate() {
+                u.quiet_button(
+                    [x + i as f32 * (cell + 4.), y, cell, 28.],
+                    label,
+                    Action::Construction(C::CableTab(i as u8)),
+                    self.construction.cable_tab == i as u8,
+                );
+            }
+        }
+        let mut row = y + tabs;
+        if s.kind == Kind::Boolean {
+            self.draw_boolean_choices(u, x, row, w);
+            row += 104.;
+            let screen_y = self
+                .property_y(row)
+                .map(|y| y - properties::CONTENT_SHIFT - self.inspector_scroll);
+            let clip = self.properties_content_rect();
+            let (first, end) = screen_y.map_or((0, 0), |top| {
+                let first = ((clip[1] - top) / 32.).floor().max(0.) as usize;
+                let end = ((clip[1] + clip[3] - top) / 32.).ceil().max(0.) as usize;
+                (first.min(s.targets.len()), end.min(s.targets.len()))
+            });
+            let list_y = row;
+            for index in first.min(end)..end {
+                let id = s.targets[index];
+                let row = list_y + index as f32 * 32.;
+                let name = s.source.node(id).map_or("Недоступен", |n| n.name.as_str());
+                u.fitted_label([x + 6., row + 7., w - 38., 20.], name, 11., p.text);
+                u.quiet_icon_button(
+                    [x + w - 28., row, 28., 28.],
+                    "",
+                    Action::Construction(C::RemoveCutter(id)),
+                    false,
+                    Icon::Close,
+                );
+            }
+            row += s.targets.len() as f32 * 32.;
+            if !s.targets.is_empty() {
+                u.quiet_button(
+                    [x, row, w, 26.],
+                    "Очистить список резаков",
+                    Action::Construction(C::ClearCutters),
+                    false,
+                );
+                row += 32.;
+            }
+            for i in 10..=12 {
+                let (v, _, _, label) = self.construction_field(i).unwrap();
+                u.number_field(
+                    [x, row, w, 38.],
+                    label,
+                    v as f64,
+                    Action::Construction(C::Field(i)),
+                    SliderRange::new(-10., 10., 0.01),
+                );
+                row += 42.;
+            }
+            u.checkbox(
+                [x, row, w, 26.],
+                "Убирать плоские рёбра",
+                Action::Construction(C::BooleanCleanup),
+                s.cleanup,
+            );
+            row += 32.;
+            u.checkbox(
+                [x, row, w, 26.],
+                "Скрыть резаки",
+                Action::Construction(C::Hide),
+                s.hide,
+            );
+            row += 32.;
+            u.fitted_label(
+                [x, row, w, 20.],
+                match s.mode {
+                    0 => "Объединяет исходный объект и резаки",
+                    1 => "Вычитает объём резаков из исходного объекта",
+                    2 => "Оставляет общую часть с резаками",
+                    _ => "Обе части станут отдельными объектами",
+                },
+                10.,
+                p.muted,
+            );
+        } else {
+            self.draw_cable_controls(u, x, row, w);
+        }
+        self.draw_construction_footer(u, x, y + tabs + self.construction_content_height() + 6., w);
     }
 }

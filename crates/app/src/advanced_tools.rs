@@ -86,9 +86,20 @@ impl App {
             self.status = "Нож · отменено".into();
         }
     }
+    pub(super) fn knife_has_cuts(&self) -> bool {
+        self.authoring.knife.as_ref().is_some_and(|k| k.cuts > 0)
+    }
     fn accept_knife(&mut self) {
         if let Some(k) = self.authoring.knife.take() {
             self.release_drag_pointer();
+            if k.cuts == 0 {
+                self.editor.cancel_edit();
+                self.dismiss_modeling_tool_panel();
+                self.status = "Разрезов нет".into();
+                self.invalidate_geometry();
+                self.update_dirty();
+                return;
+            }
             let r = self.editor.commit_edit();
             if self.result(r).is_some() {
                 self.status = format!("{} · разрезов: {}", if k.loop_mode {"Разрез"}else{"Нож"}, k.cuts);
@@ -106,7 +117,7 @@ impl App {
             return false;
         }
         match action {
-            Action::ToggleSection(super::modeling_palette::TOOLS_SECTION) => false,
+            Action::ToggleSection(super::modeling_palette::TOOLS_SECTION | super::modeling_palette::PROPERTIES_SECTION) => false,
             Action::ScrollPanel(0) | Action::ToggleRightPanel => false,
             a if Self::preview_navigation_action(a) => false,
             Action::Author(A::SnapToggle|A::SnapMode(_)|A::SnapGridStep(_))

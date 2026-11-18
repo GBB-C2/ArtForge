@@ -2783,6 +2783,20 @@ impl Ui {
             action => action,
         })
     }
+    pub fn field_rect_at(&self, action: &Action, origin: [f32; 2]) -> Option<[f32; 4]> {
+        let distance = |r: [f32; 4]| {
+            let dx = origin[0] - origin[0].clamp(r[0], r[0] + r[2]);
+            let dy = origin[1] - origin[1].clamp(r[1], r[1] + r[3]);
+            dx * dx + dy * dy
+        };
+        self.hits
+            .iter()
+            .rev()
+            .filter(|h| &h.action == action && h.rect[3] >= 22.)
+            .map(|h| h.rect)
+            .min_by(|a, b| distance(*a).total_cmp(&distance(*b)))
+    }
+
     #[cfg(test)]
     pub fn action_point(&self, action: &Action) -> Option<[f32; 2]> {
         if let Some(path) = self.path_hits.iter().rev().find(|h| &h.action == action) {

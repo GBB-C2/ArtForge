@@ -136,7 +136,7 @@ impl App {
             _ => 36. + 8. * 44. + 66.,
         }
     }
-    fn cable_number(&self, u: &mut Ui, x: f32, y: f32, w: f32, i: u8) {
+    pub(super) fn cable_number(&self, u: &mut Ui, x: f32, y: f32, w: f32, i: u8) {
         if let Some((v, min, max, label)) = self.construction_field(i) {
             let step = match i {
                 7 | 13 | 15 | 18 | 30 => 1.,
@@ -157,6 +157,17 @@ impl App {
             );
         }
     }
+    pub(super) fn draw_cable_type(&self, u: &mut Ui, x: f32, y: f32, w: f32) {
+        let Some(s) = &self.construction.session else {
+            return;
+        };
+        self.draw_dropdown_button(
+            u,
+            [x, y, w, 30.],
+            ui::DropdownKind::CableType,
+            s.cable.kind.label(),
+        );
+    }
     pub(super) fn draw_cable_controls(&self, u: &mut Ui, x: f32, mut y: f32, w: f32) {
         let Some(s) = &self.construction.session else {
             return;
@@ -164,12 +175,7 @@ impl App {
         let p = u.palette();
         match self.construction.cable_tab {
             0 => {
-                self.draw_dropdown_button(
-                    u,
-                    [x, y, w, 30.],
-                    ui::DropdownKind::CableType,
-                    s.cable.kind.label(),
-                );
+                self.draw_cable_type(u,x,y,w);
                 y += 36.;
                 for i in shape_fields(s.cable.kind) {
                     self.cable_number(u, x, y, w, i);

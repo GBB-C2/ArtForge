@@ -331,7 +331,7 @@ impl App {
             self.status = e;
         }
     }
-    pub(in crate::app) fn draw_section_properties(&self, u: &mut Ui, x: f32, mut y: f32, w: f32) {
+    pub(in crate::app) fn draw_section_modes(&self, u: &mut Ui, x: f32, y: f32, w: f32) {
         let Some(k) = self.authoring.knife.as_ref() else {
             return;
         };
@@ -359,6 +359,13 @@ impl App {
                 },
             );
         }
+    }
+    pub(in crate::app) fn draw_section_properties(&self, u: &mut Ui, x: f32, mut y: f32, w: f32) {
+        let Some(k) = self.authoring.knife.as_ref() else {
+            return;
+        };
+        let p = u.palette();
+        self.draw_section_modes(u,x,y,w);
         y += 36.;
         u.fitted_label(
             [x, y, w, 18.],
@@ -441,18 +448,7 @@ impl App {
             );
             y += 34.;
         }
-        u.button(
-            [x, y, half, 30.],
-            "Применить",
-            Action::Author(A::KnifeAccept),
-            true,
-        );
-        u.quiet_button(
-            [x + half + 6., y, half, 30.],
-            "Отмена",
-            Action::Author(A::KnifeCancel),
-            false,
-        );
+        self.draw_modeling_confirmation(u, x, y, w);
     }
     pub(super) fn draw_section_planes(&self, u: &mut Ui) {
         let Some(k) = self

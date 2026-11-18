@@ -28,15 +28,44 @@ fn app() -> App {
     a.authoring.faces = BTreeSet::from([0]);
     a
 }
+impl App {
+    /// Find a reachable control in the scrollable Geometry inspector, even on short windows.
+    pub(super) fn dock_control_point(&mut self, action: &Action) -> [f32; 2] {
+        let area = self.properties_content_rect();
+        let max = self.inspector_max_scroll();
+        let step = (area[3] * 0.6).max(24.);
+        let steps = (max / step).ceil() as usize;
+        let offsets = [self.inspector_scroll, max]
+            .into_iter()
+            .chain((0..=steps).map(|n| (n as f32 * step).min(max)));
+        for offset in offsets {
+            self.inspector_scroll = offset;
+            self.ui = self.build_ui();
+            for hit in self
+                .ui
+                .hits
+                .iter()
+                .rev()
+                .filter(|h| &h.action == action && h.rect[3] >= 20.)
+            {
+                let p = [
+                    hit.rect[0] + hit.rect[2] * 0.5,
+                    hit.rect[1] + hit.rect[3] * 0.5,
+                ];
+                if ui::contains(area, p)
+                    && (self.ui.hit(p).as_ref() == Some(action)
+                        || self.ui.control_at(p).as_ref() == Some(action))
+                {
+                    return p;
+                }
+            }
+        }
+        panic!("Unreachable inspector control {action:?}");
+    }
+}
 fn point(a: &mut App, action: Action) -> [f32; 2] {
     a.ui = a.build_ui();
-    let h =
-        a.ui.hits
-            .iter()
-            .rev()
-            .find(|h| h.action == action)
-            .unwrap_or_else(|| panic!("Missing {action:?}"));
-    [h.rect[0] + h.rect[2] * 0.5, h.rect[1] + h.rect[3] * 0.5]
+    a.ui.action_point(&action).unwrap_or_else(|| a.dock_control_point(&action))
 }
 fn click(a: &mut App, action: Action) {
     let p = point(a, action);
@@ -111,20 +140,39 @@ fn bridge_waits_for_two_components_and_cut_cancel_does_not_restart() {
 }
 #[test]
 fn initially_invalid_inset_can_be_corrected_without_restarting_the_tool() {
-    let mut a=app();
-    a.authoring.faces=(0..6).collect();
-    let source=a.editor.project.clone();
+    let mut a = app();
+    a.authoring.faces = (0..6).collect();
+    let source = a.editor.project.clone();
     a.action(Action::ModelingTool(M::Inset));
     assert!(a.modeling_live.is_some());
-    assert_eq!(a.editor.project,source);
-    assert!(a.apply_field_value(Action::Author(A::LiveField(1)),"0.1").is_err());
-    a.action(Action::Author(A::FaceToolMode(1)));
-    assert_ne!(a.editor.project,source);
-    assert_eq!(a.editor.undo_len(),0);
-    a.action(Action::Author(A::LiveAccept));
-    assert_eq!(a.editor.undo_len(),1);
+    assert_eq!(a.editor.project, source);
+    assert!(a
+        .apply_field_value(Action::Author(A::LiveField(1)), "0.1")
+        .is_err());
+    let accept = Action::Author(A::LiveAccept);
+    for collapsed in [false, true] {
+        if collapsed {
+            click(&mut a, Action::Author(A::ToolPanelToggle));
+        }
+        a.ui = a.build_ui();
+        assert!(!a.modeling_can_apply());
+        assert!(a.ui.hits.iter().all(|h| h.action != accept));
+        let mut full = Ui::new(1.);
+        a.draw_modeling_dock_properties(&mut full, 0., 300.);
+        assert!(full.hits.iter().all(|h| h.action != accept));
+    }
+    let mode = a.dock_control_point(&Action::Author(A::FaceToolMode(1)));
+    a.mouse_move(mode);
+    a.click_ui_control();
+    assert_ne!(a.editor.project, source);
+    assert_eq!(a.editor.undo_len(), 0);
+    assert!(a.modeling_can_apply());
+    let apply = a.dock_control_point(&accept);
+    a.mouse_move(apply);
+    a.click_ui_control();
+    assert_eq!(a.editor.undo_len(), 1);
     a.action(Action::Undo);
-    assert_eq!(a.editor.project,source);
+    assert_eq!(a.editor.project, source);
 }
 #[test]
 fn inset_and_bevel_modes_keep_one_preview_and_independent_preferences() {
@@ -277,7 +325,7 @@ fn workflow_floating_panel_drag_collapse_and_cancel_keep_geometry_transaction() 
     }
 }
 #[test]
-fn floating_properties_scroll_reaches_all_array_fields_without_zoom_or_geometry_changes() {
+fn inspector_scroll_reaches_array_offsets_and_leaves_viewport_controls_in_place() {
     let mut a = app();
     a.height = 400.;
     let original = a.editor.project.clone();
@@ -285,33 +333,44 @@ fn floating_properties_scroll_reaches_all_array_fields_without_zoom_or_geometry_
     let before = a.editor.project.clone();
     let distance = a.distance;
     let rect = a.tool_panel_rect().unwrap();
-    assert!(a.tool_panel_scroll_max() > 0.);
+    let area = a.properties_content_rect();
+    let mut compact = Ui::new(1.);
+    a.draw_tool_panel(&mut compact);
+    assert!(compact
+        .action_point(&Action::Author(A::LiveField(0)))
+        .is_some());
+    assert!(compact
+        .action_point(&Action::Author(A::LiveField(3)))
+        .is_none());
     a.ui = a.build_ui();
-    a.mouse = [rect[0] + 40., rect[1] + 80.];
+    a.mouse = [area[0] + 7., area[1] + 25.];
     a.scroll(-100.);
-    assert_eq!(a.authoring.workflow.panel_scroll, a.tool_panel_scroll_max());
-    let field = point(&mut a, Action::Author(A::LiveField(3)));
-    assert!(matches!(a.ui.hit(field), Some(Action::Slide(action, _, _))
-        if *action == Action::Author(A::LiveField(3))));
-    // Numeric sliders enter exact input on a double click.
-    click(&mut a, Action::Author(A::LiveField(3)));
-    click(&mut a, Action::Author(A::LiveField(3)));
-    a.input.as_mut().unwrap().select_all();
-    a.input.as_mut().unwrap().insert("0.45");
+    assert_eq!(a.inspector_scroll, a.inspector_max_scroll());
+    assert_eq!(a.editor.project, before);
+    let field_action = Action::Author(A::LiveField(3));
+    let field = a.dock_control_point(&field_action);
+    assert!(
+        matches!(a.ui.hit(field), Some(Action::Slide(action, _, _)) if *action == field_action)
+    );
+    click(&mut a, field_action.clone());
+    click(&mut a, field_action);
+    let input = a.input.as_mut().unwrap();
+    input.select_all();
+    input.insert("0.45");
     a.action(Action::ConfirmInput);
     assert_eq!(a.authoring.workflow.values[5], 0.45);
     assert_eq!(a.distance, distance);
     assert_ne!(a.editor.project, before);
     assert_eq!(a.editor.undo_len(), 0);
-    a.mouse = point(&mut a, Action::Author(A::ToolPanelScroll));
+    a.mouse = point(&mut a, Action::ScrollPanel(0));
     a.mouse_down(MouseButton::Left);
-    assert!(matches!(a.drag, Some(Drag::ToolPanelScroll { .. })));
-    a.mouse_move([a.mouse[0], rect[1] + 38.]);
+    assert!(matches!(a.drag, Some(Drag::Scrollbar { .. })));
+    a.mouse_move([a.mouse[0], area[1] - 30.]);
     a.mouse_up(MouseButton::Left);
-    assert_eq!(a.authoring.workflow.panel_scroll, 0.);
-    assert!(a.build_ui().action_point(&Action::Author(A::LiveField(0))).is_some());
+    assert_eq!(a.inspector_scroll, 0.);
+    assert_eq!(a.tool_panel_rect().unwrap(), rect);
+    assert!(a.modeling_live.is_some());
     a.action(Action::ModelingTool(M::Move));
-    assert_eq!(a.authoring.workflow.panel_scroll, 0.);
     assert_eq!(a.editor.project, original);
 }
 #[test]
@@ -336,8 +395,8 @@ fn knife_panel_move_collapse_backdrop_and_scroll_keep_the_active_cut_session() {
         a.mouse_down(MouseButton::Left);
         a.mouse_up(MouseButton::Left);
         a.scroll(-100.);
-        assert!(a.authoring.workflow.panel_scroll > 0.);
-        a.mouse = point(&mut a, Action::Author(A::ToolPanelScroll));
+        assert_eq!(a.authoring.workflow.panel_scroll, a.tool_panel_scroll_max());
+        a.mouse = point(&mut a, Action::ScrollPanel(0));
         a.mouse_down(MouseButton::Left);
         a.mouse_move([a.mouse[0], rect[1] + 38.]);
         a.cancel_drag();
@@ -496,7 +555,7 @@ fn workflow_capture_ui() {
 }
 
 #[test]
-fn workflow_exact_entry_uses_only_the_floating_panel() {
+fn exact_entry_stays_in_the_panel_that_opened_it() {
     let mut a = app();
     a.action(Action::ModelingTool(M::Extrude));
     a.inspector_scroll = a.inspector_max_scroll();
@@ -507,14 +566,27 @@ fn workflow_exact_entry_uses_only_the_floating_panel() {
             .filter(|h| h.action == Action::Author(A::LiveField(0)))
             .map(|h| h.rect)
             .collect();
-    assert_eq!(fields.len(), 1);
-    assert!(ui::contains(a.tool_panel_rect().unwrap(), [fields[0][0], fields[0][1]]));
+    assert_eq!(fields.len(), 2);
+    for area in [a.tool_panel_rect().unwrap(), a.properties_content_rect()] {
+        assert_eq!(
+            fields
+                .iter()
+                .filter(|r| ui::contains(area, [r[0], r[1]]))
+                .count(),
+            1
+        );
+    }
     for r in fields {
         a.mouse = [r[0] + r[2] * 0.5, r[1] + r[3] * 0.5];
-        a.action(Action::Author(A::LiveField(0)));
-        assert_eq!(a.active_field_rect(), Some(r));
+        a.click_ui_control();
+        let edit = a.input.as_mut().unwrap();
+        edit.select_all();
+        edit.insert("0.234567");
         a.mouse = [0., 0.];
+        a.ui = a.build_ui();
         assert_eq!(a.active_field_rect(), Some(r));
+        let typed = a.ui.texts.iter().find(|t| t.text == "0.234567").unwrap();
+        assert!(ui::contains(r, [typed.x, typed.y]));
         a.action(Action::Cancel);
         assert!(a.modeling_live.is_some());
     }
@@ -736,7 +808,13 @@ fn polygon_bevel_has_signed_profile_segments_and_exact_undo() {
  }
  let inward=a.editor.project.clone();
  a.action(Action::Author(A::LiveField(3)));a.input.as_mut().unwrap().value="75".into();a.confirm_input();assert_ne!(a.editor.project,inward);
- a.ui=a.build_ui();for i in 0..4 {assert!(a.ui.hits.iter().any(|h|h.action==Action::Author(A::LiveField(i))));}
+ let mut quick = Ui::new(1.);
+ a.draw_tool_panel(&mut quick);
+ for i in 0..4 {
+     let action = Action::Author(A::LiveField(i));
+     a.dock_control_point(&action);
+     assert_eq!(quick.action_point(&action).is_some(), matches!(i, 0 | 2));
+ }
  a.action(Action::Author(A::LiveAccept));assert_eq!(a.editor.undo_len(),history+1);a.action(Action::Undo);assert_eq!(a.editor.project,original);
 }
 
@@ -823,7 +901,13 @@ fn section_editing_keeps_navigation_and_both_theme_controls_available() {
         click(&mut a,Action::Author(A::SectionMode(true)));
         let u=a.build_ui();
         assert!(u.rects.iter().any(|r|r.triangle.is_some()&&r.color[3]>0.&&r.color[3]<0.2));
-        for field in [1,10,11,12] {assert!(u.hits.iter().any(|h|h.action==Action::Author(A::ToolField(field))));}
+        let mut quick = Ui::new(a.scale);
+        a.draw_tool_panel(&mut quick);
+        for field in [1,10,11,12] {
+            let action = Action::Author(A::ToolField(field));
+            a.dock_control_point(&action);
+            assert_eq!(quick.action_point(&action).is_some(), field == 10);
+        }
         let before=a.editor.project.clone();let area=a.modeling_area();let point=[area[0]+area[2]*0.7,area[1]+area[3]*0.65];
         for button in [MouseButton::Right,MouseButton::Middle] {a.mouse=point;a.mouse_down(button);a.mouse_move([point[0]+20.,point[1]+10.]);a.mouse_up(button);assert!(a.authoring.knife.is_some());assert_eq!(a.editor.project,before);}
         a.mouse=point;let distance=a.distance;a.scroll(1.);assert_ne!(a.distance,distance);assert_eq!(a.editor.project,before);
@@ -928,17 +1012,65 @@ fn modeling_options_transform_fields_cancel_as_a_whole_tool() {
     }
 }
 #[test]
-fn modeling_options_every_tool_has_confirmation_controls_in_both_themes() {
-    for theme in [ui::Theme::Dark,ui::Theme::Light] {for dpi in [1.,2.] {
-        for tool in [M::Select(0),M::Select(1),M::Select(2),M::Move,M::Rotate,M::Scale,M::Merge,M::Dissolve,M::DeleteFaces,M::Subdivide,M::FillHoles,M::Triangulate,M::Separate,M::Smooth,M::Flat,M::Align,M::Relax,M::Sphere,M::Circle,M::Twist,M::Inspect] {
-            let mut a=app();a.preferences.theme=theme;a.scale=dpi;a.height=1300.;
-            let before=a.editor.project.clone();a.action(Action::ModelingTool(tool));
-            let u=a.build_ui();assert!(u.texts.iter().any(|t|t.text=="Применить"),"{tool:?}");
-            assert!(u.hits.iter().any(|h|h.action==Action::Author(A::ToolCancel)),"{tool:?}");
-            assert_eq!(a.editor.undo_len(),0,"{tool:?}");
-            a.action(Action::Author(A::ToolCancel));assert_eq!(a.editor.project,before,"{tool:?}");assert!(a.tool_panel_rect().is_none());
+fn all_mesh_tools_offer_consistent_confirmation_in_both_panels() {
+    for (theme, scale) in [
+        (ui::Theme::Dark, 1.),
+        (ui::Theme::Dark, 2.),
+        (ui::Theme::Light, 1.),
+        (ui::Theme::Light, 2.),
+    ] {
+        let mut palette = Ui::new(scale);
+        app().draw_modeling_palette(&mut palette, 0., 300.);
+        let tools: Vec<_> = palette
+            .hits
+            .iter()
+            .filter_map(|h| match h.action {
+                Action::ModelingTool(M::Boolean | M::Cable) => None,
+                Action::ModelingTool(tool) => Some(tool),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tools.len(), 30);
+        for tool in tools {
+            let mut a = app();
+            a.preferences.theme = theme;
+            a.scale = scale;
+            a.height = 1300.;
+            let before = a.editor.project.clone();
+            a.action(Action::ModelingTool(tool));
+            let (accept, cancel) = a.modeling_confirmation_actions();
+            let mut full = Ui::with_theme(scale, theme, [0., 0.]);
+            let mut quick = Ui::with_theme(scale, theme, [0., 0.]);
+            a.draw_modeling_dock_properties(&mut full, 0., 300.);
+            a.draw_tool_panel(&mut quick);
+            for panel in [&full, &quick] {
+                assert!(
+                    panel.texts.iter().any(|t| t.text == "Применить"),
+                    "{tool:?}"
+                );
+                assert_eq!(
+                    panel
+                        .hits
+                        .iter()
+                        .any(|h| h.action == Action::Author(accept)),
+                    a.modeling_can_apply(),
+                    "{tool:?}"
+                );
+                assert!(
+                    panel
+                        .hits
+                        .iter()
+                        .any(|h| h.action == Action::Author(cancel)),
+                    "{tool:?}"
+                );
+            }
+            a.editor.project.validate().unwrap();
+            assert_eq!(a.editor.undo_len(), 0, "{tool:?}");
+            a.action(Action::Author(cancel));
+            assert_eq!(a.editor.project, before, "{tool:?}");
+            assert!(a.modeling_properties_title().is_none() && a.tool_panel_rect().is_none());
         }
-    }}
+    }
 }
 #[test]
 fn modeling_options_pending_subdivide_and_shift_selection_preview_use_source() {
@@ -1023,7 +1155,7 @@ fn merge_distance_pointer_drag_reset_and_entry_keep_array_preview_pending() {
         a.mouse_up(MouseButton::Left);
         assert!(a.modeling_live.is_some());assert!(a.editor.has_active_edit());assert_eq!(a.editor.undo_len(),0);
         let zoom=a.distance;let old=a.tool_merge_distance();a.ui=a.build_ui();a.scroll(1.);
-        assert!(a.tool_merge_distance()>old);assert_eq!(a.distance,zoom);
+        assert_eq!(a.tool_merge_distance(),old);assert_eq!(a.distance,zoom);
         click(&mut a,Action::ResetNumber(Box::new(field.clone())));
         assert_eq!(a.tool_merge_distance(),super::modeling_workflow::DEFAULT_MERGE_DISTANCE);
         a.mouse=point(&mut a,field.clone());a.click_ui_control();a.input.as_mut().unwrap().select_all();a.input.as_mut().unwrap().insert("0.03");
@@ -1158,4 +1290,72 @@ fn offset_defaults_fit_small_faces_and_pending_exact_values_are_in_metres() {
         let preview=a.editor.project.clone();a.apply_field_value(Action::Author(A::LiveField(0)),"nan").unwrap_err();assert_eq!(a.editor.project,preview);
         a.action(Action::Author(A::LiveCancel));assert!(a.tool_panel_rect().is_none());assert_eq!(a.editor.undo_len(),0);
     }
+}
+
+#[test]
+fn reselecting_active_bevel_and_folding_inspector_keep_the_edited_preview() {
+    let mut a = app();
+    let original = a.editor.project.clone();
+    a.action(Action::ModelingTool(M::Bevel));
+    let width = Action::Author(A::LiveField(0));
+    a.apply_field_value(width.clone(), "0.27").unwrap();
+    let preview = a.editor.project.clone();
+    let header = Action::ToggleSection(modeling_palette::PROPERTIES_SECTION);
+    click(&mut a, header.clone());
+    click(&mut a, Action::ModelingTool(M::Bevel));
+    assert!(a
+        .preferences
+        .collapsed_sections
+        .contains(&modeling_palette::PROPERTIES_SECTION));
+    assert_eq!(a.editor.project, preview);
+    assert_eq!(a.editor.undo_len(), 0);
+    click(&mut a, header);
+    let p = a.dock_control_point(&width);
+    a.mouse_move(p);
+    a.click_ui_control();
+    assert_eq!(
+        a.input.as_ref().unwrap().value.parse::<f32>().unwrap(),
+        0.27
+    );
+    a.action(Action::Cancel);
+    click(&mut a, Action::Author(A::LiveAccept));
+    assert_eq!(a.editor.project, preview);
+    assert!(a.modeling_properties_title().is_none());
+    assert_eq!(a.editor.undo_len(), 1);
+    a.action(Action::Undo);
+    assert_eq!(a.editor.project, original);
+}
+
+#[test]
+fn bevel_tab_and_shift_tab_follow_the_fields_in_the_chosen_panel() {
+    let mut a = app();
+    a.height = 1450.;
+    a.action(Action::ModelingTool(M::Bevel));
+    let field = Action::Author(A::LiveField(0));
+    for compact in [false, true] {
+        let p = if compact {
+            point(&mut a, field.clone())
+        } else {
+            a.dock_control_point(&field)
+        };
+        let area = if compact {
+            a.tool_panel_rect().unwrap()
+        } else {
+            a.properties_content_rect()
+        };
+        assert!(ui::contains(area, p));
+        a.mouse_move(p);
+        a.click_ui_control();
+        for (reverse, next) in [(false, if compact { 2 } else { 1 }), (true, 0)] {
+            a.focus_next_field(reverse);
+            assert_eq!(
+                a.input.as_ref().unwrap().purpose,
+                Action::Author(A::LiveField(next))
+            );
+            let r = a.active_field_rect().unwrap();
+            assert!(ui::contains(area, [r[0] + r[2] * 0.5, r[1] + r[3] * 0.5]));
+        }
+        a.action(Action::Cancel);
+    }
+    assert_eq!(a.editor.undo_len(), 0);
 }

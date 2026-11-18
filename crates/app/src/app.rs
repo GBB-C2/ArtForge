@@ -202,6 +202,8 @@ mod video_preview;
 mod mesh_tools_controls;
 #[path = "modeling_controls.rs"]
 mod modeling_controls;
+#[path = "modeling_quick.rs"]
+mod modeling_quick;
 #[path = "modeling_palette.rs"]
 mod modeling_palette;
 #[cfg(test)]
@@ -1485,7 +1487,7 @@ impl App {
                 if !Self::workflow_preference_field(&slider.action) {self.editor.cancel_edit();}
                 self.restore_slider_preferences(slider);
             } else if !matches!(drag, Drag::Construction(_) | Drag::ToolPanel {..} | Drag::ToolPanelScroll {..} | Drag::ComponentSelection(_) | Drag::LiveParameter(_)
-                | Drag::Orbit {..} | Drag::Pan {..} | Drag::ViewWidget {..} | Drag::CameraEffectScroll {..} | Drag::ObjectScroll {..}) {
+                | Drag::Scrollbar {..} | Drag::Orbit {..} | Drag::Pan {..} | Drag::ViewWidget {..} | Drag::CameraEffectScroll {..} | Drag::ObjectScroll {..}) {
                 self.editor.cancel_edit();
                 self.restore_animation_drag(&drag);
                 if matches!(drag, Drag::Uv(_) | Drag::Mesh(_) | Drag::Weights(_) | Drag::Curve(_) | Drag::PrimitiveDraw(_)) {
@@ -2629,6 +2631,11 @@ impl App {
         if self.action_with_color_picker(&a) {
             return;
         }
+        if a == Action::Construction(ui::ConstructionAction::Cancel) && self.construction.session.is_some() {
+            self.cancel_construction();
+            self.redraw();
+            return;
+        }
         if matches!(a,Action::Author(ui::AuthorAction::ToolCancel | ui::AuthorAction::LiveCancel | ui::AuthorAction::KnifeCancel)) {
             self.end_input(); self.cancel_drag(); self.cancel_modeling_session(); self.cancel_modeling_live();
             self.dismiss_modeling_tool_panel(); self.redraw(); return;
@@ -2665,6 +2672,9 @@ impl App {
                 return;
             }
             if a == input.purpose {
+                if self.ui.field_rect_at(&a, self.mouse).is_some_and(|r| ui::contains(r, self.mouse)) {
+                    self.field_origin = self.mouse;
+                }
                 return;
             }
             let replaces_path = matches!(
@@ -2690,6 +2700,15 @@ impl App {
             if self.drag.is_some() { self.cancel_drag(); }
             self.reset_number((**field).clone());
             return;
+        }
+        if let Action::ModelingTool(tool) = &a {
+            if self.authoring.modeling_tool == Some(*tool)
+                && (self.modeling_live.is_some() || self.authoring.knife.is_some() || self.authoring.workflow.session.is_some()) {
+                self.authoring.workflow.collapsed = false;
+                self.show_modeling_properties();
+                self.redraw();
+                return;
+            }
         }
         if self.route_knife_action(&a) {
             self.redraw();
@@ -5220,13 +5239,7 @@ impl App {
         self.draw_swatch_menu(&mut u);
         self.draw_environment_library(&mut u);
         if let Some(input) = &mut self.input {
-            if let Some(rect) = u
-                .hits
-                .iter()
-                .rev()
-                .find(|hit| hit.action == input.purpose && hit.rect[3] >= 22.)
-                .map(|hit| hit.rect)
-            {
+            if let Some(rect) = u.field_rect_at(&input.purpose, self.field_origin) {
                 u.edit_field(rect, input, self.surface.input_error.is_some());
                 if let Some(window) = &self.window {
                     window.set_ime_cursor_area(

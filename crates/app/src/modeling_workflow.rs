@@ -426,7 +426,7 @@ impl App {
             self.authoring.modeling_tool.unwrap().title(),
             Action::Author(A::ToolPanelDrag),
             false,
-            self.authoring.modeling_tool.unwrap().icon(),
+            self.authoring.modeling_tool.unwrap().icon(self.authoring.workflow.simplify),
         );
         if !compact_actions {
             let maximum = self.tool_panel_scroll_max();
@@ -626,8 +626,15 @@ impl App {
             if s.mirror_merge {u.number_field([x,y,w,44.],"Расстояние, м",s.mirror_distance as f64,Action::Author(A::MirrorField(1)),SliderRange::new(0.,1.,0.001));y+=52.;}
         }else{
             let half=(w-6.)*0.5;
-            u.quiet_button([x,y,half,30.],"Подразделить",Action::Author(A::DensityMode(false)),!s.simplify);
-            u.quiet_button([x+half+6.,y,half,30.],"Упростить",Action::Author(A::DensityMode(true)),s.simplify);y+=38.;
+            u.quiet_icon_button(
+                [x, y, half, 30.], "Подразделить", Action::Author(A::DensityMode(false)),
+                !s.simplify, Icon::Subdivide,
+            );
+            u.quiet_icon_button(
+                [x + half + 6., y, half, 30.], "Упростить", Action::Author(A::DensityMode(true)),
+                s.simplify, Icon::Simplify,
+            );
+            y += 38.;
             self.draw_density_value(u,x,y,w);y+=52.;
         }
         u.fitted_label([x,y,w,20.],"Shift — изменить выделение",10.,p.muted);

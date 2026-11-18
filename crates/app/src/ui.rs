@@ -2229,8 +2229,13 @@ impl Ui {
         if enabled && active { self.outlined_surface(rect,p.selection,p.accent); }
         else if enabled && self.cursor.is_some_and(|cursor| contains(rect,cursor)) { self.surface(rect,p.hover); }
         let size = 28_f32.min(rect[2]-8.).min(rect[3]-8.);
-        icon.draw(self,[rect[0]+(rect[2]-size)*0.5,rect[1]+(rect[3]-size)*0.5,size,size],
-            if !enabled {p.disabled}else if active {p.accent}else{p.text});
+        let color = if !enabled { p.disabled } else if active { p.accent } else { p.text };
+        icon.draw_with_palette(
+            self,
+            [rect[0] + (rect[2] - size) * 0.5, rect[1] + (rect[3] - size) * 0.5, size, size],
+            color,
+            enabled.then_some(p),
+        );
         if enabled { self.hits.push(Hit {rect,action}); }
     }
 
@@ -2306,7 +2311,7 @@ impl Ui {
         let size = if compact { 14_f32 } else { 16_f32 }.min(r[3] - 4.);
         if text.is_empty() {
             let size = 16_f32.min(r[2] - 4.).min(r[3] - 4.);
-            icon.draw(
+            icon.draw_with_palette(
                 self,
                 [
                     r[0] + (r[2] - size) * 0.5,
@@ -2315,16 +2320,18 @@ impl Ui {
                     size,
                 ],
                 color,
+                enabled.then_some(p),
             );
             return;
         }
         let padding = if compact { 4. } else { 8. };
         let gap = if compact { 4. } else { 6. };
         let right_padding = if compact { 3. } else { 8. };
-        icon.draw(
+        icon.draw_with_palette(
             self,
             [r[0] + padding, r[1] + (r[3] - size) * 0.5, size, size],
             color,
+            enabled.then_some(p),
         );
         let width = (r[2] - padding - size - gap - right_padding).max(0.);
         if width <= 0. {

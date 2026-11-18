@@ -139,6 +139,28 @@ fn bridge_waits_for_two_components_and_cut_cancel_does_not_restart() {
     assert!(!a.editor.has_active_edit());
 }
 #[test]
+fn partially_visible_face_keeps_its_surface_grips_reachable_beside_the_dock() {
+    for height in [600., 900.] {
+        for (tool, fields) in [(M::Bevel, &[0u8, 1, 3][..]), (M::Inset, &[0u8, 1][..])] {
+            let mut a = app();
+            a.width = 900.;
+            a.height = height;
+            a.frame_all();
+            a.action(Action::ModelingTool(tool));
+            a.ui = a.build_ui();
+            for &field in fields {
+                let action = Action::Author(A::LiveDrag(field));
+                let p =
+                    a.ui.action_point(&action)
+                        .unwrap_or_else(|| panic!("{tool:?}, field {field}, 900×{height}"));
+                assert!(ui::contains(a.modeling_area(), p));
+                assert_eq!(a.ui.hit(p), Some(action));
+            }
+        }
+    }
+}
+
+#[test]
 fn initially_invalid_inset_can_be_corrected_without_restarting_the_tool() {
     let mut a = app();
     a.authoring.faces = (0..6).collect();

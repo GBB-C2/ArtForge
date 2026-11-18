@@ -314,7 +314,9 @@ impl App {
             }
         }
         let mut area = GripArea::new(self);
-        grips.retain_mut(|(g, source)| area.place(g, *source));
+        // A dock may hide the chosen corner while the selected face itself remains in view.
+        // Keep a leader to that corner and expose the grip beside the visible selection.
+        grips.retain_mut(|(g, source)| area.place(g, *source) || area.place(g, base));
         for (g, _) in grips {
             let active = matches!(&self.drag,Some(Drag::LiveParameter(d)) if d.viewport && d.action()==g.action);
             area.paint(u, &g, self.mouse, active);

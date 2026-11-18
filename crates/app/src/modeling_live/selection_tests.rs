@@ -290,6 +290,7 @@ fn shift_selection_does_not_cut_and_ctrl_closes_knife_or_cut_panel() {
         assert!(a.modeling_control_key(&Key::Named(NamedKey::Control), false));
         assert!(a.authoring.knife.is_none());
         assert!(a.tool_panel_rect().is_none());
+        assert_eq!(selection_count(&a), 2);
         assert_eq!(a.editor.undo_len(), 0);
     }
 }

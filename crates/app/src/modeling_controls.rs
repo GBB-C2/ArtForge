@@ -219,18 +219,75 @@ impl App {
             }
         }
     }
-    pub(super) fn draw_modeling_transform_properties(
-        &self, u: &mut Ui, x: f32, mut y: f32, w: f32, tool: ui::ModelingTool,
-    ) {
-        let p = u.palette();
+    pub(super) fn draw_modeling_axes(&self, u: &mut Ui, x: f32, y: f32, w: f32) {
         let axis_width = (w - 12.) / 4.;
         for (i, label) in ["X", "Y", "Z", "Все"].into_iter().enumerate() {
             u.quiet_button(
-                [x + i as f32 * (axis_width + 4.), y, axis_width, 28.], label,
+                [x + i as f32 * (axis_width + 4.), y, axis_width, 28.],
+                label,
                 Action::Author(A::Constrain(i as u8)),
                 self.authoring.constraint == if i < 3 { Some(i) } else { None },
             );
         }
+    }
+    fn draw_center_coordinate(
+        &self,
+        u: &mut Ui,
+        rect: [f32; 4],
+        center: Option<Vec3>,
+        axis: usize,
+    ) {
+        if let Some(center) = center {
+            let value = center[axis] as f64;
+            u.number_field(
+                rect,
+                ["Центр X", "Центр Y", "Центр Z"][axis],
+                value,
+                Action::Author(A::Coordinate(axis as u8)),
+                SliderRange::new(value - 5., value + 5., 0.01),
+            );
+        } else {
+            u.disabled_button(rect, "—");
+        }
+    }
+    pub(super) fn draw_transform_value(
+        &self,
+        u: &mut Ui,
+        rect: [f32; 4],
+        tool: ui::ModelingTool,
+        axis: usize,
+    ) {
+        let (label, value, action, range) = match tool {
+            ui::ModelingTool::Move => {
+                return self.draw_center_coordinate(u, rect, self.edit_center(), axis)
+            }
+            ui::ModelingTool::Rotate => (
+                ["Повернуть X, °", "Повернуть Y, °", "Повернуть Z, °"][axis],
+                0.,
+                A::RotateDegrees(axis as u8),
+                SliderRange::new(-180., 180., 1.),
+            ),
+            ui::ModelingTool::Scale => (
+                "Масштаб ×",
+                1.,
+                A::ScaleFactor(self.authoring.constraint.map_or(3, |i| i as u8)),
+                SliderRange::new(0.001, 4., 0.01),
+            ),
+            _ => return,
+        };
+        u.number_field(
+            rect,
+            label,
+            self.component_slider_value(action, value),
+            Action::Author(action),
+            range,
+        );
+    }
+    pub(super) fn draw_modeling_transform_properties(
+        &self, u: &mut Ui, x: f32, mut y: f32, w: f32, tool: ui::ModelingTool,
+    ) {
+        let p = u.palette();
+        self.draw_modeling_axes(u, x, y, w);
         y += 34.;
         if tool != ui::ModelingTool::Move {
             u.checkbox([x, y, w, 26.], "Центр: начало объекта", Action::Author(A::PivotOrigin), self.authoring.pivot_origin);
@@ -238,23 +295,12 @@ impl App {
         }
         if tool == ui::ModelingTool::Move {
             let center = self.edit_center();
-            for (axis, label) in ["Центр X", "Центр Y", "Центр Z"].into_iter().enumerate() {
-                let r = [x, y, w, 32.];
-                if let Some(center) = center {
-                    let v=center[axis] as f64;
-                    u.number_field(r,label,v,Action::Author(A::Coordinate(axis as u8)),SliderRange::new(v-5.,v+5.,0.01));
-                } else { u.disabled_button(r, "—"); }
+            for axis in 0..3 {
+                self.draw_center_coordinate(u, [x,y,w,32.], center, axis);
                 y += 34.;
             }
         } else {
-            let axis = self.authoring.constraint.unwrap_or(self.axis) as u8;
-            let (label, value, command) = if tool == ui::ModelingTool::Rotate {
-                (format!("Повернуть {}, °", ["X", "Y", "Z"][axis as usize]), "0", A::RotateDegrees(axis))
-            } else {
-                ("Масштаб ×".into(), "1", A::ScaleFactor(self.authoring.constraint.map_or(3, |i| i as u8)))
-            };
-            let value=self.component_slider_value(command,value.parse().unwrap());
-            u.number_field([x,y,w,32.],&label,value,Action::Author(command),if tool==ui::ModelingTool::Rotate{SliderRange::new(-180.,180.,1.)}else{SliderRange::new(0.001,4.,0.01)});
+            self.draw_transform_value(u, [x,y,w,32.], tool, self.authoring.constraint.unwrap_or(self.axis));
             y += 34.;
         }
         u.checkbox([x, y, w, 26.], "Мягкое выделение · O", Action::Author(A::Proportional), self.authoring.proportional);

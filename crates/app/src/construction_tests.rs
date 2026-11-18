@@ -31,13 +31,8 @@ fn app() -> App {
 }
 fn click(a: &mut App, action: Action) {
     a.ui = a.build_ui();
-    let r =
-        a.ui.hits
-            .iter()
-            .find(|h| h.action == action)
-            .unwrap_or_else(|| panic!("Missing {action:?}"))
-            .rect;
-    a.mouse_move([r[0] + r[2] * 0.5, r[1] + r[3] * 0.5]);
+    let p = a.ui.action_point(&action).unwrap_or_else(|| a.dock_control_point(&action));
+    a.mouse_move(p);
     a.mouse_down(MouseButton::Left);
     a.mouse_up(MouseButton::Left);
 }
@@ -57,7 +52,9 @@ fn construction_boolean_modes_preview_apply_cancel_and_undo() {
         let mut a = app();
         a.preferences.theme = theme;
         let before = a.editor.project.clone();
-        a.action(Action::Construction(C::Boolean));
+        a.action(Action::Author(A::SelectMode(ui::MeshSelection::Face)));
+        a.authoring.faces=BTreeSet::from([0,1]);
+        a.action(Action::ModelingTool(M::Boolean));
         await_boolean(&mut a);
         assert_ne!(a.editor.project, before);
         assert_eq!(a.editor.undo_len(), 0);
@@ -66,7 +63,15 @@ fn construction_boolean_modes_preview_apply_cancel_and_undo() {
             await_boolean(&mut a);
             a.editor.project.validate().unwrap();
         }
-        click(&mut a, Action::Construction(C::Cancel));
+        let preview = a.editor.project.clone();
+        a.action(Action::ModelingTool(M::Boolean));
+        assert_eq!(a.editor.project,preview);
+        let cancel = Action::Construction(C::Cancel);
+        let p = a.dock_control_point(&cancel);
+        a.mouse_move(p);
+        a.click_ui_control();
+        assert_eq!(a.authoring.editing,Some(1));
+        assert_eq!(a.authoring.faces,BTreeSet::from([0,1]));
         assert_eq!(a.editor.project, before);
         assert!(a.construction.session.is_none());
         a.action(Action::Construction(C::Boolean));
@@ -210,7 +215,7 @@ fn construction_cable_sliders_handles_and_scroll_keep_cancel_atomic() {
             } else {
                 0
             })));
-            a.ui = a.build_ui();
+            a.dock_control_point(&Action::Construction(C::Field(index)));
             let r=a.ui.hits.iter().find(|h|matches!(&h.action,Action::Slide(f,..) if **f==Action::Construction(C::Field(index)))).unwrap().rect;
             let p = [r[0] + r[2] * 0.4, r[1] + r[3] * 0.5];
             a.mouse_move(p);
@@ -249,18 +254,20 @@ fn construction_cable_sliders_handles_and_scroll_keep_cancel_atomic() {
         a.height = 540.;
         a.ui = a.build_ui();
         let r = a.construction_rect().unwrap();
-        a.mouse = [r[0] + r[2] * 0.5, r[1] + 60.];
-        a.construction_scroll(-100.);
-        a.ui = a.build_ui();
-        assert!(a.ui.action_point(&Action::Construction(C::Play)).is_some());
-        assert!(a.ui.action_point(&Action::Construction(C::Apply)).is_some());
-        assert!(a
-            .ui
-            .action_point(&Action::Construction(C::Cancel))
-            .is_some());
+        let play = a.dock_control_point(&Action::Construction(C::Play));
+        assert!(ui::contains(a.properties_content_rect(), play));
+        for action in [C::Apply, C::Cancel] {
+            let p = a.ui.action_point(&Action::Construction(action)).unwrap();
+            assert!(ui::contains(r, p));
+        }
         click(&mut a, Action::Construction(C::Collapse));
         a.ui = a.build_ui();
-        assert!(a.ui.action_point(&Action::Construction(C::Apply)).is_none());
+        let collapsed = a.construction_rect().unwrap();
+        assert!(collapsed[3] < r[3]);
+        let quick_apply = a.ui.action_point(&Action::Construction(C::Apply)).unwrap();
+        assert!(ui::contains(collapsed,quick_apply));
+        let dock_apply = a.dock_control_point(&Action::Construction(C::Apply));
+        assert!(!ui::contains(collapsed,dock_apply));
         click(&mut a, Action::Construction(C::Collapse));
         click(&mut a, Action::Construction(C::Apply));
         assert_eq!(a.editor.undo_len(), 1);
@@ -646,19 +653,15 @@ fn construction_cable_profile_controls_scroll_without_covering_footer() {
             for (tab, last) in [(0, C::CableCaps), (1, C::SwapEnds), (2, C::Play)] {
                 click(&mut a, Action::Construction(C::CableTab(tab)));
                 let r = a.construction_rect().unwrap();
-                a.mouse = [r[0] + 30., r[1] + 100.];
-                a.construction_scroll(-100.);
-                a.ui = a.build_ui();
-                for action in [
-                    Action::Construction(last),
-                    Action::Construction(C::Apply),
-                    Action::Construction(C::Cancel),
-                ] {
-                    let p = a
-                        .ui
-                        .action_point(&action)
-                        .unwrap_or_else(|| panic!("Missing {action:?}, type {kind}, tab {tab}"));
+                let last = Action::Construction(last);
+                let p = a.dock_control_point(&last);
+                assert_eq!(a.ui.hit(p), Some(last));
+                assert!(!ui::contains(r,p));
+                for command in [C::Apply, C::Cancel] {
+                    let action = Action::Construction(command);
+                    let p = a.ui.action_point(&action).unwrap();
                     assert_eq!(a.ui.hit(p), Some(action));
+                    assert!(ui::contains(r,p), "type {kind}, tab {tab}");
                 }
             }
         }
@@ -733,9 +736,10 @@ fn construction_boolean_keeps_large_selection_and_only_completes_the_last_slider
             .count()
             < 24
     );
-    let panel = a.construction_rect().unwrap();
-    a.mouse = [panel[0] + 32., panel[1] + 100.];
-    a.construction_scroll(-10000.);
+    let dock = a.properties_content_rect();
+    a.mouse = [dock[0] + 8., dock[1] + 30.];
+    a.scroll(-10000.);
+    assert_eq!(a.inspector_scroll, a.inspector_max_scroll());
     click(&mut a, Action::Construction(C::RemoveCutter(last)));
     await_boolean(&mut a);
     let restored = &a.editor.project;
@@ -753,4 +757,53 @@ fn construction_boolean_keeps_large_selection_and_only_completes_the_last_slider
     assert_eq!(a.editor.undo_len(), 1);
     a.action(Action::Undo);
     assert_eq!(a.editor.project, before);
+}
+
+#[test]
+fn construction_cancel_with_invalid_text_restores_mesh_edit_context_from_either_panel() {
+    for compact in [false, true] {
+        let mut a = app();
+        a.height = 1250.;
+        a.editor.selected = Some(1);
+        a.action(Action::Author(A::SelectMode(ui::MeshSelection::Face)));
+        a.authoring.faces = BTreeSet::from([0, 1]);
+        a.authoring.knife_angle = 3;
+        let source = a.editor.project.clone();
+        let selected = a.scene_tools.selected.clone();
+        a.action(Action::ModelingTool(M::Cable));
+        a.apply_field_value(Action::Construction(C::Field(6)), "0.11")
+            .unwrap();
+        let preview = a.editor.project.clone();
+        click(&mut a, Action::Construction(C::Cable));
+        a.action(Action::ModelingTool(M::Cable));
+        assert_eq!(a.editor.project, preview);
+        let field = Action::Construction(C::Field(6));
+        a.ui = a.build_ui();
+        let p = if compact {
+            a.ui.action_point(&field).unwrap()
+        } else {
+            a.dock_control_point(&field)
+        };
+        a.mouse_move(p);
+        a.click_ui_control();
+        let edit = a.input.as_mut().unwrap();
+        edit.select_all();
+        edit.insert("nan");
+        let cancel = Action::Construction(C::Cancel);
+        let p = if compact {
+            a.ui.action_point(&cancel).unwrap()
+        } else {
+            a.dock_control_point(&cancel)
+        };
+        a.mouse_move(p);
+        a.mouse_down(MouseButton::Left);
+        a.mouse_up(MouseButton::Left);
+        assert!(a.input.is_none() && a.construction_rect().is_none());
+        assert_eq!(a.editor.project, source);
+        assert_eq!(a.authoring.editing, Some(1));
+        assert_eq!(a.authoring.faces, BTreeSet::from([0, 1]));
+        assert_eq!(a.authoring.knife_angle, 3);
+        assert_eq!(a.scene_tools.selected, selected);
+        assert_eq!(a.editor.undo_len(), 0);
+    }
 }

@@ -487,6 +487,30 @@ impl App {
             }
         }
     }
+    pub(super) fn draw_deform_amount(
+        &self,
+        u: &mut Ui,
+        x: f32,
+        y: f32,
+        w: f32,
+        tool: ui::ModelingTool,
+    ) {
+        use ui::ModelingTool as M;
+        let (label, field, range) = match tool {
+            M::Sphere => ("Сила сферизации", 5, SliderRange::new(0., 1., 0.01)),
+            M::Circle => ("Сила окружности", 5, SliderRange::new(0., 1., 0.01)),
+            M::Inflate => ("По нормалям, м", 6, SliderRange::new(-10., 10., 0.01)),
+            M::Twist => ("Угол скручивания, °", 7, SliderRange::new(-360., 360., 1.)),
+            _ => return,
+        };
+        u.number_field(
+            [x, y, w, 44.],
+            label,
+            self.mesh_tool_value(field) as f64,
+            Action::Normal(N::Field(field)),
+            range,
+        );
+    }
     pub(super) fn draw_deform_properties(&self,u:&mut Ui,x:f32,mut y:f32,w:f32,tool:ui::ModelingTool) {
         use ui::ModelingTool as M;
         if matches!(tool,M::Circle|M::Twist) {
@@ -494,22 +518,14 @@ impl App {
                 u.quiet_button([x+axis as f32*(w+6.)/3.,y,(w-12.)/3.,28.],label,Action::Shape(S::Axis(axis as u8)),self.mesh_tools.shape_axis==axis);
             } y+=36.;
         }
-        let (label,field,range) = match tool {
-            M::Sphere => ("Сила сферизации",5,SliderRange::new(0.,1.,0.01)),
-            M::Circle => ("Сила окружности",5,SliderRange::new(0.,1.,0.01)),
-            M::Inflate => ("По нормалям, м",6,SliderRange::new(-10.,10.,0.01)),
-            M::Twist => ("Угол скручивания, °",7,SliderRange::new(-360.,360.,1.)),
-            _=>return,
-        };
-        u.number_field([x,y,w,44.],label,self.mesh_tool_value(field) as f64,Action::Normal(N::Field(field)),range); y+=52.;
+        self.draw_deform_amount(u,x,y,w,tool); y+=52.;
         let minimum = if matches!(tool,M::Sphere|M::Circle) {3}else{2};
         if self.edit_vertices().len()>=minimum {
             u.fitted_label([x,y,w,30.],"Предпросмотр формы",11.,u.palette().muted);
         } else { u.disabled_button([x,y,w,30.],"Выберите компоненты"); }
         u.fitted_label([x,y+38.,w,18.],"Локальные координаты",10.,u.palette().muted);
     }
-    pub(super) fn draw_relax_properties(&self, u: &mut Ui, x: f32, mut y: f32, w: f32) {
-        let enabled = self.edit_vertices().len() >= 2;
+    pub(super) fn draw_relax_strength(&self, u: &mut Ui, x: f32, y: f32, w: f32) {
         u.number_field(
             [x, y, w, 44.],
             "Сила релакса",
@@ -517,6 +533,10 @@ impl App {
             Action::Normal(N::Field(3)),
             SliderRange::new(0., 1., 0.01),
         );
+    }
+    pub(super) fn draw_relax_properties(&self, u: &mut Ui, x: f32, mut y: f32, w: f32) {
+        let enabled = self.edit_vertices().len() >= 2;
+        self.draw_relax_strength(u,x,y,w);
         y += 50.;
         u.number_field(
             [x, y, w, 44.],

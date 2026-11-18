@@ -439,45 +439,67 @@ impl App {
 
     pub(super) fn focus_next_field(&mut self, reverse: bool) {
         let current = self.input.as_ref().map(|input| input.purpose.clone());
+        let scope = self.active_field_rect().and_then(|r| {
+            let center = [r[0] + r[2] * 0.5, r[1] + r[3] * 0.5];
+            let overlay = self.tool_panel_rect().or_else(|| self.construction_rect());
+            if self.modeling_properties_title().is_none() {
+                return None;
+            }
+            [
+                overlay,
+                self.preferences
+                    .right_panel
+                    .then(|| self.properties_content_rect()),
+            ]
+            .into_iter()
+            .flatten()
+            .find(|&area| ui::contains(area, center))
+        });
         let mut fields = Vec::new();
         for hit in &self.ui.hits {
             if self.modeling_live.is_some()
                 && !matches!(
                     hit.action,
-                    Action::Author(crate::ui::AuthorAction::LiveField(_) | crate::ui::AuthorAction::ToolMergeDistance)
+                    Action::Author(
+                        crate::ui::AuthorAction::LiveField(_)
+                            | crate::ui::AuthorAction::ToolMergeDistance
+                    )
                 )
             {
                 continue;
             }
-            if hit.action.is_field() && hit.rect[3] >= 22. && !fields.contains(&hit.action) {
-                fields.push(hit.action.clone());
+            let center = [
+                hit.rect[0] + hit.rect[2] * 0.5,
+                hit.rect[1] + hit.rect[3] * 0.5,
+            ];
+            if hit.action.is_field()
+                && hit.rect[3] >= 22.
+                && scope.is_none_or(|area| ui::contains(area, center))
+                && !fields.iter().any(|(a, _)| a == &hit.action)
+            {
+                fields.push((hit.action.clone(), center));
             }
         }
         if fields.is_empty() || !self.resolve_input() {
             return;
         }
-        let index = current.and_then(|a| fields.iter().position(|v| *v == a));
+        let index = current.and_then(|a| fields.iter().position(|(v, _)| *v == a));
         let next = match (index, reverse) {
             (Some(i), false) => (i + 1) % fields.len(),
             (Some(i), true) => (i + fields.len() - 1) % fields.len(),
             (None, false) => 0,
             (None, true) => fields.len() - 1,
         };
-        self.action(fields[next].clone());
+        let (purpose, center) = &fields[next];
+        self.action(purpose.clone());
+        if self.input.as_ref().is_some_and(|i| &i.purpose == purpose) {
+            self.field_origin = *center;
+        }
     }
 
     pub(super) fn active_field_rect(&self) -> Option<[f32; 4]> {
         let action = &self.input.as_ref()?.purpose;
-        self.ui
-            .hits
-            .iter()
-            .rev()
-            .filter(|h| &h.action == action && h.rect[3] >= 22.)
-            .min_by(|a,b| {
-                let distance=|r:[f32;4]|{let p=self.field_origin;let x=p[0]-p[0].clamp(r[0],r[0]+r[2]);let y=p[1]-p[1].clamp(r[1],r[1]+r[3]);x*x+y*y};
-                distance(a.rect).total_cmp(&distance(b.rect))
-            })
-            .map(|h| h.rect)
+        self.ui.field_rect_at(action, self.field_origin)
     }
 
     pub(super) fn begin_slider(&mut self, action: Action, _range: SliderRange, _value: f64) {

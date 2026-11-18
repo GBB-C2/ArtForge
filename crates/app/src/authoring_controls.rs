@@ -1213,6 +1213,7 @@ impl App {
         let x = rx + 16.;
         let w = rw - 32.;
         self.draw_modeling_palette(u, x, w);
+        self.draw_modeling_dock_properties(u, x, w);
         self.draw_morph_panel(u,x,w);
     }
 }

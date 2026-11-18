@@ -91,6 +91,7 @@ impl LiveOperation {
             (Kind::Edge, 1) => ("Сегменты", 1., 32., 0.1),
             (Kind::Edge, 2) | (Kind::Face, 3) => ("Профиль, %", -100., 100., 0.5),
             (Kind::Face,2)=>("Сегменты",1.,32.,1.),
+            (Kind::Face | Kind::Inset, 1) => ("Высота, м", -1000., 1000., self.scale * 0.002),
             (Kind::Face | Kind::Inset, 0) => ("Отступ, м", 0., 1000., self.scale * 0.002),
             (Kind::Slide, 0) => ("Сдвиг, %", -99., 99., 0.25),
             (Kind::Cut, 0) => ("Положение, %", 1., 99., 0.25),
@@ -650,7 +651,7 @@ impl App {
             Action::ResetNumber(field) if matches!(**field,Action::Author(A::LiveField(_) | A::ToolMergeDistance))=>false,
             Action::Slide(field,_,_) if **field==Action::Author(A::ToolMergeDistance)=>false,
             Action::Author(A::ToolPanelDrag | A::ToolPanelToggle | A::ToolPanelScroll | A::ExtrudeMode(_) | A::FaceToolMode(_) | A::ToolMerge | A::ToolMergeDistance)=>false,
-            Action::ToggleSection(super::modeling_palette::TOOLS_SECTION) => false,
+            Action::ToggleSection(super::modeling_palette::TOOLS_SECTION | super::modeling_palette::PROPERTIES_SECTION) => false,
             Action::ScrollPanel(0) | Action::ToggleRightPanel => false,
             Action::Author(
                 v @ (A::LiveField(_)
@@ -927,22 +928,52 @@ impl App {
         }
     }
     pub(super) fn modeling_live_properties_height(&self) -> f32 {
-        self.modeling_live.as_ref().map_or(0., |op| op.fields() as f32 * 50. + 78.)
+        self.modeling_live.as_ref().map_or(0., |op| op.fields() as f32 * 50. + 60.)
     }
+    pub(super) fn live_issue(&self) -> Option<&str> {
+        self.modeling_live.as_ref()?.error.as_deref()
+    }
+
+    pub(super) fn quick_live_fields(&self) -> &'static [usize] {
+        match self.modeling_live.as_ref().map(|op| op.kind) {
+            Some(Kind::Face) => &[0, 2],
+            Some(Kind::Edge) => &[0, 1],
+            Some(_) => &[0],
+            None => &[],
+        }
+    }
+
+    pub(super) fn draw_live_field(&self, u: &mut Ui, rect: [f32; 4], field: usize) {
+        let Some(op) = &self.modeling_live else {
+            return;
+        };
+        u.number_field(
+            rect,
+            op.spec(field).0,
+            op.values[field] as f64,
+            Action::Author(A::LiveField(field as u8)),
+            self.live_field_range(op, field),
+        );
+    }
+
     pub(super) fn draw_modeling_live_properties(&self, u: &mut Ui, x: f32, mut y: f32, w: f32) {
-        let Some(op) = &self.modeling_live else { return; };
+        let Some(op) = &self.modeling_live else {
+            return;
+        };
         for i in 0..op.fields() {
-            let (label, _, _, _) = op.spec(i);
-            u.number_field([x, y, w, 44.], label, op.values[i] as f64,
-                Action::Author(A::LiveField(i as u8)),
-                self.live_field_range(op, i));
+            self.draw_live_field(u, [x, y, w, 44.], i);
             y += 50.;
         }
-        let half = (w - 6.) * 0.5;
-        u.button([x, y, half, 30.], "Применить", Action::Author(A::LiveAccept), true);
-        u.quiet_button([x + half + 6., y, half, 30.], "Отмена · Esc", Action::Author(A::LiveCancel), false);
-        u.fitted_label([x, y + 38., w, 22.], op.error.as_deref().unwrap_or("Перетаскивание: Shift — точно · Ctrl — шаг"), 10., u.palette().muted);
+        self.draw_modeling_confirmation(u, x, y, w);
+        u.fitted_label(
+            [x, y + 38., w, 22.],
+            self.modeling_feedback()
+                .unwrap_or("Перетаскивание: Shift — точно · Ctrl — шаг"),
+            10.,
+            u.palette().muted,
+        );
     }
+
 }
 
 #[cfg(test)]

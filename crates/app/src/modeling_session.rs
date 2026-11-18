@@ -308,7 +308,7 @@ impl App {
             Action::DropdownOpen(_)
             | Action::DropdownChoose(_)
             | Action::DropdownDismiss
-            | Action::ToggleSection(super::modeling_palette::TOOLS_SECTION)
+            | Action::ToggleSection(super::modeling_palette::TOOLS_SECTION | super::modeling_palette::PROPERTIES_SECTION)
             | Action::ScrollPanel(0)
             | Action::ToggleRightPanel => false,
             _ => {
@@ -333,35 +333,53 @@ impl App {
                 )
         )
     }
+    pub(super) fn modeling_feedback(&self) -> Option<&str> {
+        if self.modeling_live.is_some() {
+            return self.live_issue();
+        }
+        if self.authoring.knife.is_some() && !self.knife_has_cuts() {
+            return Some("Наметьте разрез на модели");
+        }
+        if self.job.is_some() {
+            return Some("Расчёт предпросмотра…");
+        }
+        if self.authoring.workflow.pending_preview.is_some() {
+            return Some("Выберите компоненты для предпросмотра");
+        }
+        self.authoring.workflow.session.as_ref()?.error.as_deref()
+    }
+
+    pub(super) fn modeling_confirmation_actions(&self) -> (A, A) {
+        if self.authoring.knife.is_some() {
+            (A::KnifeAccept, A::KnifeCancel)
+        } else if self.modeling_live.is_some() {
+            (A::LiveAccept, A::LiveCancel)
+        } else {
+            (A::ToolApply, A::ToolCancel)
+        }
+    }
+
+    pub(super) fn modeling_can_apply(&self) -> bool {
+        if self.authoring.knife.is_some() {
+            return true;
+        }
+        let active = self.modeling_live.is_some() || self.authoring.workflow.session.is_some();
+        active && self.modeling_feedback().is_none()
+    }
+
     pub(super) fn draw_modeling_confirmation(&self, u: &mut Ui, x: f32, y: f32, w: f32) {
         let half = (w - 6.) * 0.5;
-        let error = self
-            .authoring
-            .workflow
-            .session
-            .as_ref()
-            .and_then(|s| s.error.as_ref());
-        if error.is_some()
-            || self.job.is_some()
-            || self.authoring.workflow.pending_preview.is_some()
-        {
-            u.disabled_button([x, y, half, 30.], "Применить");
+        let (accept, cancel) = self.modeling_confirmation_actions();
+        if self.modeling_can_apply() {
+            u.button([x, y, half, 30.], "Применить", Action::Author(accept), true);
         } else {
-            u.button(
-                [x, y, half, 30.],
-                "Применить",
-                Action::Author(A::ToolApply),
-                true,
-            );
+            u.disabled_button([x, y, half, 30.], "Применить");
         }
         u.quiet_button(
             [x + half + 6., y, half, 30.],
             "Отмена",
-            Action::Author(A::ToolCancel),
+            Action::Author(cancel),
             false,
         );
-        if let Some(error) = error {
-            u.fitted_label([x, y - 26., w, 22.], error, 10., u.palette().muted);
-        }
     }
 }

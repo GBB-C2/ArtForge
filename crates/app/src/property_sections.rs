@@ -131,12 +131,15 @@ impl App {
                 ],
             ),
             6 | 11 => (600, vec![(171., "Физика объекта", 0.)]),
-            7 if self.authoring.editing.is_some() => (
-                modeling_palette::TOOLS_SECTION,
-                vec![(171., "Моделирование", 0.)],
-            ),
-            7 if self.has_morph_panel() => (700, vec![(171., "Геометрия", 0.), (self.morph_panel_start(), "Морфы", 24.)]),
-            7 => (700, vec![(171., "Геометрия", 0.)]),
+            7 => {
+                let editing = self.authoring.editing.is_some();
+                let mut groups = vec![(171., if editing { "Моделирование" } else { "Геометрия" }, 0.)];
+                if let Some(title) = self.modeling_properties_title() {
+                    groups.push((self.modeling_properties_start(), title, 0.));
+                }
+                if self.has_morph_panel() { groups.push((self.morph_panel_start(), "Морфы", 24.)); }
+                (if editing { modeling_palette::TOOLS_SECTION } else { 700 }, groups)
+            }
             8 => (1800, vec![(171., "Модификаторы", 0.)]),
             13 => (1700, vec![(171., "Разрушение", 0.)]),
             12 => (1600, vec![(171., "UV · выделение", 0.), (360., "Трансформация UV", 0.), (570., "Развёртка", 0.)]),
@@ -198,7 +201,9 @@ impl App {
             .filter(|(_, s)| s.0 < bottom)
             .map(|(i, &(start, title, skip))| {
                 let end = starts.get(i + 1).map_or(bottom, |s| s.0).min(bottom);
-                let id = if transform && i==1 {2100}
+                let id = if self.surface.tab == 7 && i > 0 {
+                    if title == "Морфы" { 701 } else { modeling_palette::PROPERTIES_SECTION }
+                } else if transform && i==1 {2100}
                     else if base==600 && starts.len()==3 {match i {1=>602,2=>601,_=>600}}
                     else if base==2400 {
                         // Optional timing controls must not change saved collapse state of other FX groups.

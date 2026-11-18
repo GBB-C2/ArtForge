@@ -245,9 +245,8 @@ impl App {
             self.draw_workflow_field(u, x, y, w, i, 36.);
             y += 38.;
         }
-        u.fitted_label([x,y,w,30.], if self.authoring.workflow.pending_preview.is_some() { "Выберите компоненты для предпросмотра" } else { "Нажмите инструмент для нового предпросмотра" }, 10.,u.palette().muted);
         u.fitted_label(
-            [x, y + 34., w, 18.],
+            [x, y, w, 18.],
             "Смещение на каждую копию",
             10.,
             u.palette().muted,
@@ -298,7 +297,7 @@ impl App {
         let mut h = if self.authoring.workflow.collapsed {
             38.
         } else {
-            (self.modeling_tool_properties_height() + 16.).min(area[3])
+            (self.quick_modeling_controls(None,0.,0.,0.) + 82.).min(area[3])
         };
         if !self.authoring.workflow.collapsed && area[2] < w + 164. {
             if let Some(anchor) = self.modeling_panel_anchor() {
@@ -366,7 +365,7 @@ impl App {
             return 0.;
         }
         self.tool_panel_rect().map_or(0., |r| {
-            (self.modeling_tool_properties_height() + 16. - r[3]).max(0.)
+            (self.quick_modeling_controls(None,0.,0.,0.) + 82. - r[3]).max(0.)
         })
     }
     pub(super) fn tool_panel_scroll(&mut self, delta: f32) -> bool {
@@ -393,7 +392,7 @@ impl App {
         let Some([x, y, w, h]) = self.tool_panel_rect() else { return; };
         let maximum = self.tool_panel_scroll_max();
         if maximum <= 0. { return; }
-        let track = [x + w - 18., y + 38., 12., h - 46.];
+        let track = [x + w - 18., y + 38., 12., (h - 82.).max(1.)];
         let thumb = (track[3] * track[3] / (track[3] + maximum)).max(28.).min(track[3]);
         let mut value = self.authoring.workflow.panel_scroll.clamp(0., maximum);
         let top = track[1] + (track[3] - thumb) * value / maximum;
@@ -421,7 +420,7 @@ impl App {
             rect: [x, y, w - 38., 36.],
             action: Action::Author(A::ToolPanelDrag),
         });
-        let compact_actions = self.authoring.workflow.collapsed;
+        let compact_actions = self.authoring.workflow.collapsed || h < 82.;
         u.quiet_icon_button(
             [x + 8., y + 4., w - if compact_actions { 116. } else { 48. }, 30.],
             self.authoring.modeling_tool.unwrap().title(),
@@ -429,19 +428,17 @@ impl App {
             false,
             self.authoring.modeling_tool.unwrap().icon(),
         );
-        if !self.authoring.workflow.collapsed {
+        if !compact_actions {
             let maximum = self.tool_panel_scroll_max();
             let scroll = self.authoring.workflow.panel_scroll.clamp(0., maximum);
-            let body = [x + 14., y + 38., w - if maximum > 0. { 38. } else { 28. }, h - 46.];
+            let body = [x + 14., y + 38., w - if maximum > 0. { 38. } else { 28. }, h - 82.];
             let start = (u.rects.len(), u.texts.len(), u.hits.len());
             u.set_cursor([self.mouse[0], self.mouse[1] + scroll]);
-            self.draw_modeling_tool_properties(u, body[0], body[1], body[2]);
-            if self.modeling_live.is_none() && self.authoring.knife.is_none() {
-                self.draw_modeling_confirmation(u,body[0],body[1]+self.modeling_tool_properties_height()-70.,body[2]);
-            }
+            self.quick_modeling_controls(Some(u),body[0],body[1],body[2]);
             clip_scrolled(u, start, body, scroll);
             u.set_cursor(self.mouse);
-            if maximum > 0. {
+            self.draw_modeling_confirmation(u, x + 14., y + h - 38., w - 28.);
+            if maximum > 0. && body[3] > 0. {
                 u.vertical_scrollbar(
                     [x + w - 18., body[1], 12., body[3]],
                     scroll / maximum,
@@ -451,21 +448,14 @@ impl App {
             }
         }
         if compact_actions {
-            let knife = self.authoring.knife.is_some();
-            u.quiet_icon_button(
-                [x + w - 102., y + 3., 30., 30.],
-                "",
-                Action::Author(if knife { A::KnifeAccept } else if self.modeling_live.is_some() { A::LiveAccept } else { A::ToolApply }),
-                false,
-                Icon::Check,
-            );
-            u.quiet_icon_button(
-                [x + w - 68., y + 3., 30., 30.],
-                "",
-                Action::Author(if knife { A::KnifeCancel } else if self.modeling_live.is_some() { A::LiveCancel } else { A::ToolCancel }),
-                false,
-                Icon::Close,
-            );
+            let (accept, cancel) = self.modeling_confirmation_actions();
+            let apply_rect = [x + w - 102., y + 3., 30., 30.];
+            if self.modeling_can_apply() {
+                u.quiet_icon_button(apply_rect,"",Action::Author(accept),false,Icon::Check);
+            } else {
+                u.disabled_icon_button(apply_rect,"",Icon::Check);
+            }
+            u.quiet_icon_button([x + w - 68., y + 3., 30., 30.],"",Action::Author(cancel),false,Icon::Close);
         }
         u.disclosure_button(
             [x + w - 34., y + 3., 30., 30.],
@@ -488,7 +478,7 @@ impl App {
             M::Dissolve => "Убирает компоненты, сохраняя поверхность",
             M::FillHoles => "Выберите один элемент у края отверстия",
             M::Array => "Копирует выделение с заданным шагом",
-            _ => "Свойства — в плавающей панели над сценой",
+            _ => "Все параметры — справа, во вкладке «Геометрия»",
         };
         let w = 310_f32.min(self.width - 24.);
         let x = (self.mouse[0] - w - 12.).max(12.);
@@ -596,10 +586,41 @@ impl App {
 }
 
 impl App {
+    pub(super) fn draw_mirror_axes(&self, u: &mut Ui, x: f32, y: f32, w: f32) {
+        let s = &self.authoring.workflow;
+        for (i, label) in ["X", "Y", "Z"].into_iter().enumerate() {
+            u.quiet_button(
+                [x + i as f32 * (w + 6.) / 3., y, (w - 12.) / 3., 30.],
+                label,
+                Action::Author(A::MirrorAxis(i as u8)),
+                s.mirror_axis == i as u8,
+            );
+        }
+    }
+    pub(super) fn draw_density_value(&self, u: &mut Ui, x: f32, y: f32, w: f32) {
+        let s = &self.authoring.workflow;
+        if s.simplify {
+            u.number_field(
+                [x, y, w, 44.],
+                "Оставить, %",
+                s.simplify_ratio as f64,
+                Action::Author(A::SimplifyRatio),
+                SliderRange::new(1., 100., 1.),
+            );
+        } else {
+            u.number_field(
+                [x, y, w, 44.],
+                "Делений на ребро",
+                s.subdivide_segments as f64,
+                Action::Author(A::SubdivideCount),
+                SliderRange::new(2., 32., 1.),
+            );
+        }
+    }
     pub(super) fn draw_density_mirror(&self,u:&mut Ui,x:f32,mut y:f32,w:f32,mirror:bool){
         let s=&self.authoring.workflow;let p=u.palette();
         if mirror {
-            for (i,label) in ["X","Y","Z"].into_iter().enumerate(){u.quiet_button([x+i as f32*(w+6.)/3.,y,(w-12.)/3.,30.],label,Action::Author(A::MirrorAxis(i as u8)),s.mirror_axis==i as u8);}y+=38.;
+            self.draw_mirror_axes(u,x,y,w);y+=38.;
             u.number_field([x,y,w,44.],"Положение плоскости, м",s.mirror_plane as f64,Action::Author(A::MirrorField(0)),SliderRange::new(-10.,10.,0.01));y+=52.;
             u.checkbox([x,y,w,26.],"Объединить на плоскости",Action::Author(A::MirrorMerge),s.mirror_merge);y+=34.;
             if s.mirror_merge {u.number_field([x,y,w,44.],"Расстояние, м",s.mirror_distance as f64,Action::Author(A::MirrorField(1)),SliderRange::new(0.,1.,0.001));y+=52.;}
@@ -607,8 +628,7 @@ impl App {
             let half=(w-6.)*0.5;
             u.quiet_button([x,y,half,30.],"Подразделить",Action::Author(A::DensityMode(false)),!s.simplify);
             u.quiet_button([x+half+6.,y,half,30.],"Упростить",Action::Author(A::DensityMode(true)),s.simplify);y+=38.;
-            if s.simplify {u.number_field([x,y,w,44.],"Оставить, %",s.simplify_ratio as f64,Action::Author(A::SimplifyRatio),SliderRange::new(1.,100.,1.));}
-            else {u.number_field([x,y,w,44.],"Делений на ребро",s.subdivide_segments as f64,Action::Author(A::SubdivideCount),SliderRange::new(2.,32.,1.));}y+=52.;
+            self.draw_density_value(u,x,y,w);y+=52.;
         }
         u.fitted_label([x,y,w,20.],"Shift — изменить выделение",10.,p.muted);
     }

@@ -66,15 +66,19 @@ fn icons_reveal_only_the_chosen_properties_without_changing_the_mesh() {
         }
         click(&mut a, Action::ModelingTool(M::Array));
         u = Ui::new(1.); a.draw_authoring_panel(&mut u, 0., width - properties::RAIL_WIDTH);
-        assert!(!u.hits.iter().any(|h| h.action == Action::Author(A::ToolField(2))));
+        assert!(u.hits.iter().any(|h| h.action == Action::Author(A::ToolField(2))));
+        assert!(u.hits.iter().any(|h| h.action == Action::Author(A::ToolField(3))));
         u = Ui::new(1.); a.draw_tool_panel(&mut u);
         assert!(u.hits.iter().any(|h| h.action == Action::Author(A::ToolField(2))));
+        assert!(!u.hits.iter().any(|h| h.action == Action::Author(A::ToolField(3))));
         assert!(!u.hits.iter().any(|h| h.action == Action::Author(A::BridgeSegments)));
         click(&mut a, Action::ModelingTool(M::Bridge));
         u = Ui::new(1.); a.draw_authoring_panel(&mut u, 0., width - properties::RAIL_WIDTH);
-        assert!(!u.hits.iter().any(|h| h.action == Action::Author(A::BridgeSegments)));
+        assert!(u.hits.iter().any(|h| h.action == Action::Author(A::BridgeSegments)));
+        assert!(u.hits.iter().any(|h| h.action == Action::Author(A::BridgeTwist)));
         u = Ui::new(1.); a.draw_tool_panel(&mut u);
         assert!(u.hits.iter().any(|h| h.action == Action::Author(A::BridgeSegments)));
+        assert!(!u.hits.iter().any(|h| h.action == Action::Author(A::BridgeTwist)));
         assert!(!u.hits.iter().any(|h| h.action == Action::Author(A::ToolField(2))));
         assert_eq!(a.editor.project, original); assert_eq!(a.editor.undo_len(), 0);
     }
@@ -174,10 +178,13 @@ fn one_bevel_button_uses_each_selection_context_and_cancels_on_mode_switch() {
         let mut u = Ui::new(1.);
         a.draw_authoring_panel(&mut u, 0., 300.);
         assert_eq!(u.hits.iter().filter(|h| h.action == Action::ModelingTool(M::Bevel)).count(), 1);
-        assert!(!u.hits.iter().any(|h| matches!(h.action, Action::Author(A::LiveField(_)))));
+        assert_eq!(u.hits.iter().filter(|h| matches!(h.action, Action::Author(A::LiveField(_)))).count(), fields);
         u = Ui::new(1.);
         a.draw_tool_panel(&mut u);
-        assert_eq!(u.hits.iter().filter(|h| matches!(h.action, Action::Author(A::LiveField(_)))).count(), fields);
+        let quick: Vec<_> = u.hits.iter().filter_map(|h| match h.action {
+            Action::Author(A::LiveField(i)) => Some(i), _ => None,
+        }).collect();
+        assert_eq!(quick, match mode { S::Vertex => vec![0], S::Edge => vec![0,1], S::Face => vec![0,2] });
         let target = if mode == S::Face { S::Vertex } else { S::Face };
         click(&mut a, Action::Author(A::SelectMode(target)));
         assert!(a.modeling_live.is_none()); assert_eq!(a.editor.project, original);

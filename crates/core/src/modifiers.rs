@@ -2,7 +2,7 @@
 use crate::{CoreError, Editor, Mesh, NodeId, Project};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     sync::{
         atomic::{AtomicBool, Ordering},
         Mutex, OnceLock,
@@ -455,10 +455,52 @@ impl Project {
         globals: &BTreeMap<NodeId, crate::Mat4>,
     ) -> Result<PreparedModifiers, CoreError> {
         let node = self.node(id).ok_or(CoreError::MissingNode(id))?;
-        let mesh = node
-            .mesh
-            .and_then(|m| self.mesh(m))
-            .ok_or_else(|| error("Модификатору нужен меш"))?;
+        Self::prepare_stack(
+            node,
+            node.mesh.and_then(|m| self.mesh(m)),
+            globals,
+            |target| self.node(target).and_then(|n| n.curve.as_ref()),
+        )
+    }
+
+    /// Prepare matching stacks with one scene index, preserving document order.
+    pub fn prepare_enabled_modifiers<'a>(
+        &'a self,
+        globals: &'a BTreeMap<NodeId, crate::Mat4>,
+        include: impl Fn(&crate::Node) -> bool + 'a,
+    ) -> impl Iterator<Item = (NodeId, Result<PreparedModifiers, CoreError>)> + 'a {
+        let mut owners = self
+            .nodes
+            .iter()
+            .filter(move |n| n.modifiers.iter().any(|m| m.enabled) && include(n))
+            .peekable();
+        let mut meshes = HashMap::new();
+        let mut curves = HashMap::new();
+        if owners.peek().is_some() {
+            meshes.extend(self.meshes.iter().map(|m| (m.id, m)));
+            curves.extend(
+                self.nodes
+                    .iter()
+                    .filter_map(|n| Some((n.id, n.curve.as_ref()?))),
+            );
+        }
+        owners.map(move |node| {
+            let mesh = node.mesh.and_then(|id| meshes.get(&id).copied());
+            (
+                node.id,
+                Self::prepare_stack(node, mesh, globals, |id| curves.get(&id).copied()),
+            )
+        })
+    }
+
+    fn prepare_stack<'a>(
+        node: &crate::Node,
+        mesh: Option<&Mesh>,
+        globals: &BTreeMap<NodeId, crate::Mat4>,
+        curve_for: impl Fn(NodeId) -> Option<&'a crate::CurveData>,
+    ) -> Result<PreparedModifiers, CoreError> {
+        let id = node.id;
+        let mesh = mesh.ok_or_else(|| error("Модификатору нужен меш"))?;
         let mut frames = BTreeMap::new();
         for m in node.modifiers.iter().filter(|m| m.enabled) {
             if let ModifierSettings::CurveArray {
@@ -470,10 +512,7 @@ impl Project {
                 follow,
             } = m.settings
             {
-                let curve = self
-                    .node(target)
-                    .and_then(|n| n.curve.as_ref())
-                    .ok_or_else(|| error("Кривая массива отсутствует"))?;
+                let curve = curve_for(target).ok_or_else(|| error("Кривая массива отсутствует"))?;
                 let owner = *globals.get(&id).ok_or(CoreError::MissingNode(id))?;
                 let target = *globals.get(&target).ok_or(CoreError::MissingNode(target))?;
                 let path = crate::curve_binding::Path::new(curve, owner.inverse() * target)?;
@@ -579,15 +618,11 @@ impl Project {
         globals: &BTreeMap<NodeId, crate::Mat4>,
         cancel: &AtomicBool,
     ) -> Result<BTreeMap<NodeId, Mesh>, CoreError> {
-        self.nodes
-            .iter()
-            .filter(|n| n.modifiers.iter().any(|m| m.enabled))
-            .map(|n| {
+        cancelled(cancel)?;
+        self.prepare_enabled_modifiers(globals, |_| true)
+            .map(|(id, input)| {
                 cancelled(cancel)?;
-                Ok((
-                    n.id,
-                    self.prepare_modifiers(n.id, globals)?.evaluate(cancel)?,
-                ))
+                Ok((id, input?.evaluate(cancel)?))
             })
             .collect()
     }

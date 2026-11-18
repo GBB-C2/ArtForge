@@ -80,6 +80,17 @@ impl App {
         if self.joints_only {
             return nodes.into_iter().map(SceneEntry::Node).collect();
         }
+        // Plain hierarchies already have the correct order. Only expanded
+        // components or folder ordering need the grouping pass below.
+        if p.collections.is_empty() && p.outliner.order.is_empty()
+            && self.scene_tools.material_expanded.is_empty()
+            && nodes.iter().all(|row| !row.has_children || self.collapsed.contains(&row.id))
+        {
+            let lights = p.lights.iter().enumerate()
+                .filter(|(_, light)| self.scene_tools.hidden_types & 4 == 0 && matches_light(light, &query))
+                .map(|(index, _)| SceneEntry::Light(index));
+            return lights.chain(nodes.into_iter().map(SceneEntry::Node)).collect();
+        }
         let by_id: BTreeMap<_, _> = p.nodes.iter().map(|n| (n.id, n)).collect();
         let meshes: BTreeMap<_, _> = p.meshes.iter().map(|m| (m.id, m)).collect();
         let membership = p.collection_membership();

@@ -4,8 +4,10 @@
 #[path = "picking_acceleration.rs"]
 mod acceleration;
 use glam::{DVec3, Mat4, Vec3, Vec4};
-use poseforge_core::{AlphaMode, EvaluatedScene, Material, Node, Project, Texture};
-use std::collections::{BTreeMap, BTreeSet};
+use poseforge_core::{AlphaMode, EvaluatedScene, Material, Project, Texture};
+use std::collections::BTreeMap;
+#[cfg(test)]
+use poseforge_core::Node;
 
 /// Return the nearest selectable mesh node beneath the pointer.
 ///
@@ -35,13 +37,37 @@ pub fn pick_surface(
     viewport: [f32; 4],
     pointer: [f32; 2],
 ) -> Option<SurfaceHit> {
-    pick_surface_impl(project,eval,view_projection,viewport,pointer,false)
+    pick_surface_impl(project,eval,view_projection,viewport,pointer,false,None)
 }
 /// Locked surfaces still block a material drop; they must not count as empty space.
 pub fn pick_material_surface(project: &Project, eval: &EvaluatedScene, view_projection: Mat4, viewport: [f32;4], pointer: [f32;2]) -> Option<SurfaceHit> {
-    pick_surface_impl(project,eval,view_projection,viewport,pointer,true)
+    pick_surface_impl(project,eval,view_projection,viewport,pointer,true,None)
 }
-fn pick_surface_impl(project: &Project, eval: &EvaluatedScene, view_projection: Mat4, viewport: [f32;4], pointer: [f32;2], include_locked: bool) -> Option<SurfaceHit> {
+/// Apply the viewport's face-culling preference without cloning and rewriting the scene's materials.
+pub fn pick_viewport_mesh(
+    project: &Project,
+    eval: &EvaluatedScene,
+    view_projection: Mat4,
+    viewport: [f32; 4],
+    pointer: [f32; 2],
+    show_backfaces: bool,
+) -> Option<u64> {
+    pick_surface_impl(
+        project,
+        eval,
+        view_projection,
+        viewport,
+        pointer,
+        false,
+        Some(show_backfaces),
+    )
+    .map(|hit| hit.node)
+}
+
+fn pick_surface_impl(
+    project: &Project, eval: &EvaluatedScene, view_projection: Mat4, viewport: [f32; 4],
+    pointer: [f32; 2], include_locked: bool, backfaces: Option<bool>,
+) -> Option<SurfaceHit> {
     if viewport
         .iter()
         .chain(pointer.iter())
@@ -74,7 +100,6 @@ fn pick_surface_impl(project: &Project, eval: &EvaluatedScene, view_projection: 
     // Using the middle of the depth range also supports an infinite far plane.
     let origin = unproject(0.)?;
     let direction = (unproject(0.5)? - origin).try_normalize()?;
-    let nodes: BTreeMap<_, _> = project.nodes.iter().map(|n| (n.id, n)).collect();
     let meshes: BTreeMap<_, _> = project.meshes.iter().map(|m| (m.id, m)).collect();
     let materials: BTreeMap<_, _> = project.materials.iter().map(|m| (m.id, m)).collect();
     let textures: BTreeMap<_, _> = project.textures.iter().map(|t| (t.id, t)).collect();
@@ -83,7 +108,7 @@ fn pick_surface_impl(project: &Project, eval: &EvaluatedScene, view_projection: 
     let mut best_id = None;
     for node in &project.nodes {
         if node.shadow_only { continue; }
-        if (!include_locked && !selectable(node, &nodes)) || !selectable_ids.contains(&node.id) {
+        if !selectable_ids.contains(&node.id) {
             continue;
         }
         let Some(mesh) = eval.modifier_meshes.get(&node.id).or_else(||eval.text_meshes.get(&node.id)).or_else(||node.mesh.and_then(|id| meshes.get(&id).copied())) else {
@@ -121,7 +146,27 @@ fn pick_surface_impl(project: &Project, eval: &EvaluatedScene, view_projection: 
             .morph_weights
             .get(&node.id)
             .unwrap_or(&node.morph_weights);
-        let geometry = acceleration::cached(mesh, model, &skin_matrices, weights, || {
+        // Undeformed instances can share a local-space triangle tree. Reject an
+        // object by its bounds before allocating or touching triangle geometry.
+        let transform = model.as_dmat4();
+        let local_ray = if skin_matrices.is_none()
+            && mesh.morph_targets.iter().zip(weights).all(|(_, &weight)| weight == 0.)
+            && transform.determinant() != 0.
+        {
+            let inverse = transform.inverse();
+            let ray = (inverse.transform_point3(origin), inverse.transform_vector3(direction));
+            (ray.0.is_finite() && ray.1.is_finite()).then_some(ray)
+        } else {
+            None
+        };
+        let geometry = if let Some((start, ray)) = local_ray {
+            let Some((min, max)) = acceleration::local_bounds(mesh) else { continue; };
+            if !intersects_bounds(start, ray, min, max, best_distance) { continue; }
+            acceleration::cached(mesh, Mat4::IDENTITY, &None, &[], || {
+                Some(mesh.vertices.iter().map(|v| Vec3::from_array(v.position).as_dvec3()).collect())
+            })
+        } else {
+            acceleration::cached(mesh, model, &skin_matrices, weights, || {
             mesh.vertices
                 .iter()
                 .enumerate()
@@ -157,7 +202,8 @@ fn pick_surface_impl(project: &Project, eval: &EvaluatedScene, view_projection: 
                     }
                 })
                 .collect()
-        });
+            })
+        };
         let Some(geometry) = geometry else { continue };
         let positions = &geometry.positions;
         if positions.is_empty() {
@@ -166,13 +212,16 @@ fn pick_surface_impl(project: &Project, eval: &EvaluatedScene, view_projection: 
         // The GPU selects Cw only for a reflected object matrix. Use the actual
         // deformed triangle, not vertex normals or per-joint determinant guesses.
         let winding = if model.determinant() < 0. { -1. } else { 1. };
-        for triangle_index in geometry.candidates(origin, direction) {
+        let (start, ray) = local_ray.unwrap_or((origin, direction));
+        for triangle_index in geometry.candidates(start, ray) {
             let triangle = &mesh.indices[triangle_index * 3..triangle_index * 3 + 3];
             let face = geometry.faces[triangle_index];
-            let material = mesh
-                .face_material(face)
-                .and_then(|id| materials.get(&id).copied()).filter(|m| m.visible);
-            let double_sided = material.is_some_and(|m| m.double_sided);
+            let material_id = mesh.face_material(face);
+            let material = material_id.and_then(|id| materials.get(&id).copied()).filter(|m| m.visible);
+            let double_sided = backfaces.map_or_else(
+                || material.is_some_and(|m| m.double_sided),
+                |show| show && (material_id.is_none() || material.is_some()),
+            );
             let [a, b, c] = [
                 triangle[0] as usize,
                 triangle[1] as usize,
@@ -185,6 +234,11 @@ fn pick_surface_impl(project: &Project, eval: &EvaluatedScene, view_projection: 
                 .map(|((a, b), c)| (a, b, c))
             else {
                 continue;
+            };
+            let [pa, pb, pc] = if local_ray.is_some() {
+                [pa, pb, pc].map(|p| transform.transform_point3(p))
+            } else {
+                [pa, pb, pc]
             };
             if !double_sided && (pb - pa).cross(pc - pa).dot(-direction) * winding <= 0. {
                 continue;
@@ -232,23 +286,6 @@ fn pick_surface_impl(project: &Project, eval: &EvaluatedScene, view_projection: 
     best_id
 }
 
-fn selectable(node: &Node, nodes: &BTreeMap<u64, &Node>) -> bool {
-    let mut current = node;
-    let mut seen = BTreeSet::new();
-    loop {
-        if !current.visible || current.locked || !seen.insert(current.id) {
-            return false;
-        }
-        match current.parent {
-            Some(parent) => match nodes.get(&parent) {
-                Some(parent) => current = parent,
-                None => return false,
-            },
-            None => return true,
-        }
-    }
-}
-
 fn intersects_bounds(
     origin: DVec3,
     direction: DVec3,
@@ -259,7 +296,7 @@ fn intersects_bounds(
     let mut enter: f64 = 0.;
     let mut exit = max_distance;
     for axis in 0..3 {
-        if direction[axis].abs() < 1e-15 {
+        if direction[axis] == 0. {
             if origin[axis] < minimum[axis] || origin[axis] > maximum[axis] {
                 return false;
             }
@@ -402,6 +439,33 @@ mod tests {
         near.transform.translation = Vec3::Z;
         p.nodes = vec![far, near];
         p
+    }
+
+    #[test]
+    fn populated_viewport_picks_edited_geometry_and_respects_backface_visibility() {
+        let mut project = Project::default();
+        for i in 0..1500 {
+            let mut mesh = triangle(2000 + i);
+            let offset = if i == 0 { 0. } else { i as f32 + 5. };
+            for vertex in mesh.vertices.iter_mut() {
+                vertex.position[0] += offset;
+            }
+            let mut node = Node::new(i + 1, "Surface");
+            node.mesh = Some(mesh.id);
+            project.nodes.push(node);
+            project.meshes.push(mesh);
+        }
+        let eval = project.evaluated(None, 0.).unwrap();
+        let hit = |p: &Project, show| {
+            pick_viewport_mesh(p, &eval, camera(), [100., 50., 400., 400.], [300., 250.], show)
+        };
+        assert_eq!(hit(&project, false), Some(1));
+        for v in project.meshes[0].vertices.iter_mut() { v.position[0] += 4.; }
+        let last = project.meshes.last_mut().unwrap();
+        for v in last.vertices.iter_mut() { v.position[0] -= 1504.; }
+        last.indices.swap(0, 1);
+        assert_eq!(hit(&project, false), None);
+        assert_eq!(hit(&project, true), Some(1500));
     }
 
     #[test]

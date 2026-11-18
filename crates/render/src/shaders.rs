@@ -4,7 +4,20 @@ use std::sync::OnceLock;
 // wgpu 24 documents that shader parsing can exceed a native thread's default stack.
 pub(crate) const STACK_BYTES:usize=16*1024*1024;
 pub(crate) struct Sources {pub scene:String,pub post:String,pub ui:&'static str,pub particles:&'static str}
-static SOURCES:OnceLock<Result<Sources,String>>=OnceLock::new();
+static FULL_SOURCES: OnceLock<Result<Sources, String>> = OnceLock::new();
+static RASTER_SOURCES: OnceLock<Result<Sources, String>> = OnceLock::new();
+
+pub(crate) fn raster_override() -> Option<bool> {
+    match std::env::var("ARTFORGE_RASTER_PREVIEW").ok().as_deref() {
+        Some("1") => Some(true),
+        Some("0") => Some(false),
+        _ => None,
+    }
+}
+
+pub(crate) fn use_raster(device: wgpu::DeviceType, requested: Option<bool>) -> bool {
+    requested.unwrap_or(device == wgpu::DeviceType::Cpu)
+}
 
 fn validate(name:&str,source:&str)->Result<(),String> {
     let module=wgpu::naga::front::wgsl::parse_str(source)
@@ -23,12 +36,12 @@ fn assemble(raster_preview:bool)->Sources {
         ui:include_str!("ui.wgsl"),particles:include_str!("particles.wgsl"),
     }
 }
-pub(crate) fn sources()->Result<&'static Sources,String> {
-    SOURCES.get_or_init(|| {
+pub(crate) fn sources(raster_preview: bool) -> Result<&'static Sources, String> {
+    let cache = if raster_preview { &RASTER_SOURCES } else { &FULL_SOURCES };
+    cache.get_or_init(|| {
         // The CLI and tests may run on a small main/test stack too. Validate once
         // on a dedicated worker, then pass exactly these sources to wgpu.
-        let worker=std::thread::Builder::new().name("shader-validation".into()).stack_size(STACK_BYTES).spawn(|| {
-            let raster_preview=std::env::var_os("ARTFORGE_RASTER_PREVIEW").is_some_and(|v|v=="1");
+        let worker=std::thread::Builder::new().name("shader-validation".into()).stack_size(STACK_BYTES).spawn(move || {
             if raster_preview {eprintln!("GPU: растровый предпросмотр — без трассировки лучей, объёмного преломления и освещения от мешей; режим применяется и к экспорту");}
             let s=assemble(raster_preview);
             for (name,source) in [("scene.wgsl + NPR/PBR",s.scene.as_str()),
@@ -44,6 +57,16 @@ pub(crate) fn sources()->Result<&'static Sources,String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn software_adapters_default_to_raster_and_explicit_modes_take_precedence() {
+        use wgpu::DeviceType::*;
+        for device in [Other, IntegratedGpu, DiscreteGpu, VirtualGpu, Cpu] {
+            assert_eq!(use_raster(device, None), device == Cpu);
+            assert!(!use_raster(device, Some(false)));
+            assert!(use_raster(device, Some(true)));
+        }
+    }
+
     #[test]
     fn the_previous_fx_identifier_is_reported_before_driver_initialization() {
         let worker=std::thread::Builder::new().stack_size(STACK_BYTES).spawn(|| {

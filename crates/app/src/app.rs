@@ -1655,9 +1655,10 @@ impl App {
         }
     }
     fn project_point(&self, p: Vec3) -> Option<[f32; 2]> {
-        let v = self.view();
-        let r = self.viewport();
-        let clip = v.view_projection() * p.extend(1.);
+        Self::project_with_matrix(self.view().view_projection(), self.viewport(), p)
+    }
+    fn project_with_matrix(matrix: Mat4, r: [f32; 4], p: Vec3) -> Option<[f32; 2]> {
+        let clip = matrix * p.extend(1.);
         if clip.w <= 0. {
             return None;
         }
@@ -4015,24 +4016,7 @@ impl App {
         }
     }
     fn node_selectable(&self, id: u64) -> bool {
-        if !self.editor.project.node_selectable(id) || !self.in_isolation(id) {
-            return false;
-        }
-        let mut cursor = Some(id);
-        let mut seen = BTreeSet::new();
-        while let Some(id) = cursor {
-            if !seen.insert(id) {
-                return false;
-            }
-            let Some(node) = self.editor.project.node(id) else {
-                return false;
-            };
-            if !node.visible || node.locked {
-                return false;
-            }
-            cursor = node.parent;
-        }
-        true
+        self.editor.project.node_selectable(id) && self.in_isolation(id)
     }
     fn select_in_viewport(&mut self, id: u64) {
         if !self.node_selectable(id) {
@@ -5684,6 +5668,9 @@ impl App {
                     window.set_title("ArtForge Studio · 3D Artwork");
                 }
                 eprintln!("GPU готов: {} · {:.1} с",renderer.adapter_name,elapsed.as_secs_f64());
+                if renderer.uses_raster_preview() {
+                    self.status = format!("{} · Растровый режим", renderer.adapter_name);
+                }
                 self.renderer=Some(renderer);
                 // Loading time must not advance the animation or physics clock.
                 self.last_tick=Instant::now();

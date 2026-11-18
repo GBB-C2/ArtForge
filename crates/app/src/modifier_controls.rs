@@ -5,7 +5,7 @@ use poseforge_core::{EvaluatedScene, MeshModifier, ModifierKey, ModifierSettings
 
 type Completed = Vec<(u64, ModifierKey, Result<poseforge_core::Mesh, String>)>;
 struct Worker {
-    keys: Vec<(u64, ModifierKey)>,
+    keys: std::collections::HashMap<u64, ModifierKey>,
     cancel: Arc<AtomicBool>,
     receiver: Receiver<Completed>,
 }
@@ -83,60 +83,39 @@ impl App {
         &self,
     ) -> Result<EvaluatedScene, poseforge_core::CoreError> {
         let mut eval = self.editor.evaluated_base()?;
-        for node in self
-            .editor
-            .project
-            .nodes
-            .iter()
-            .filter(|n| n.modifiers.iter().any(|m| m.enabled))
-        {
-            if self.authoring.editing == Some(node.id) && !self.authoring.preview_modifiers {
-                continue;
-            }
-            let Ok(input) = self.editor.project.prepare_modifiers(node.id, &eval.global) else {
-                continue;
-            };
+        let stacks = self.editor.project.prepare_enabled_modifiers(&eval.global, |node| {
+            self.authoring.editing != Some(node.id) || self.authoring.preview_modifiers
+        });
+        for (id, input) in stacks {
+            let Ok(input) = input else { continue };
             let ready = self
                 .procedural
                 .ready
-                .get(&node.id)
+                .get(&id)
                 .filter(|(key, _)| *key == input.key)
                 .map(|(_, m)| m.clone())
                 .or_else(|| input.cached());
             if let Some(Ok(mesh)) = ready {
-                eval.modifier_meshes.insert(node.id, mesh);
+                eval.modifier_meshes.insert(id, mesh);
             }
         }
         Ok(eval)
     }
     pub(super) fn tick_modifiers(&mut self) {
+        if !self.editor.project.nodes.iter().any(|node| node.modifiers.iter().any(|m| m.enabled)) {
+            self.procedural.worker.take();
+            self.procedural.ready.clear();
+            return;
+        }
         let Ok(eval) = self.editor.evaluated_base() else {
             return;
         };
-        let inputs: Vec<_> = self
-            .editor
-            .project
-            .nodes
-            .iter()
-            .filter(|n| {
-                n.modifiers.iter().any(|m| m.enabled)
-                    && (self.authoring.editing != Some(n.id) || self.authoring.preview_modifiers)
-            })
-            .filter_map(|n| {
-                self.editor
-                    .project
-                    .prepare_modifiers(n.id, &eval.global)
-                    .ok()
-                    .map(|input| (n.id, input))
-            })
-            .collect();
-        self.procedural
-            .ready
-            .retain(|id, (key, _)| inputs.iter().any(|(n, input)| n == id && &input.key == key));
-        let keys: Vec<_> = inputs
-            .iter()
-            .map(|(n, input)| (*n, input.key.clone()))
-            .collect();
+        let inputs: Vec<_> = self.editor.project.prepare_enabled_modifiers(&eval.global, |node| {
+            self.authoring.editing != Some(node.id) || self.authoring.preview_modifiers
+        }).filter_map(|(id, input)| Some((id, input.ok()?))).collect();
+        let keys: std::collections::HashMap<_, _> = inputs.iter()
+            .map(|(id, input)| (*id, input.key.clone())).collect();
+        self.procedural.ready.retain(|id, (key, _)| keys.get(id) == Some(key));
         if let Some(worker) = &self.procedural.worker {
             if worker.keys != keys {
                 worker.cancel.store(true, Ordering::Relaxed);
@@ -144,7 +123,7 @@ impl App {
             match worker.receiver.try_recv() {
                 Ok(results) => {
                     for (id, key, result) in results {
-                        if keys.iter().any(|(n, k)| *n == id && *k == key) {
+                        if keys.get(&id) == Some(&key) {
                             if let Err(error) = &result {
                                 self.status = error.clone();
                             }

@@ -315,10 +315,27 @@ fn convex(p: &Polygon, eps: f64) -> bool {
             .all(|c| edge.cross(c.p - a).dot(p.normal) >= -tolerance)
     })
 }
-fn polygons(mesh: &Mesh, model: Mat4, cancel: &AtomicBool) -> Result<Vec<Polygon>, CoreError> {
+fn validate_operand(mesh: &Mesh, cancel: &AtomicBool) -> Result<(), CoreError> {
     if cancel.load(Ordering::Relaxed) {
         return Err(error("Булева операция отменена"));
     }
+    if mesh.indices.len() > 60000 {
+        return Err(error(
+            "Булева операция: до 20000 треугольников на объект или группу резаков",
+        ));
+    }
+    if !mesh.indices.len().is_multiple_of(3)
+        || mesh
+            .indices
+            .iter()
+            .any(|&i| i as usize >= mesh.vertices.len())
+    {
+        return Err(error(&format!(
+            "{}: повреждены индексы треугольников",
+            mesh.name
+        )));
+    }
+    mesh.validate_topology()?;
     let report = crate::inspect_topology(mesh);
     if report.boundary_edges
         + report.nonmanifold_edges
@@ -335,11 +352,10 @@ fn polygons(mesh: &Mesh, model: Mat4, cancel: &AtomicBool) -> Result<Vec<Polygon
             report.degenerate_faces
         )));
     }
-    if mesh.indices.len() > 60000 {
-        return Err(error(
-            "Булева операция: до 20000 треугольников на объект или группу резаков",
-        ));
-    }
+    Ok(())
+}
+
+fn polygons(mesh: &Mesh, model: Mat4, cancel: &AtomicBool) -> Result<Vec<Polygon>, CoreError> {
     let normal = model.inverse().transpose();
     let reverse = model.determinant() < 0.;
     let double = model.as_dmat4();
@@ -503,87 +519,283 @@ pub fn boolean_mesh_with_options(
     options: BooleanOptions,
     cancel: &AtomicBool,
 ) -> Result<Mesh, CoreError> {
-    if !b_to_a.is_finite() || b_to_a.determinant().abs() < 1e-10 {
-        return Err(error("Восстановите ненулевой масштаб объекта"));
+    let (mesh, _) = boolean_mesh_many(
+        a,
+        &[(b, b_to_a)],
+        BooleanOperation::Combine(mode),
+        options,
+        cancel,
+    )?;
+    Ok(mesh)
+}
+
+/// Split produces difference and intersection from the same prepared operands.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BooleanOperation {
+    Combine(BooleanMode),
+    Split,
+}
+
+#[derive(Clone, Copy)]
+struct Bounds {
+    min: DVec3,
+    max: DVec3,
+}
+impl Bounds {
+    fn of(points: impl Iterator<Item = DVec3>) -> Self {
+        points.fold(
+            Self {
+                min: DVec3::splat(f64::INFINITY),
+                max: DVec3::splat(f64::NEG_INFINITY),
+            },
+            |b, p| Self {
+                min: b.min.min(p),
+                max: b.max.max(p),
+            },
+        )
     }
-    let pa = polygons(a, Mat4::IDENTITY, cancel)?;
-    let pb = polygons(b, b_to_a, cancel)?;
-    let bounds = |polys: &[Polygon]| {
-        polys
-            .iter()
-            .flat_map(|p| p.corners.iter().map(|c| c.p))
-            .fold(
-                (DVec3::splat(f64::INFINITY), DVec3::splat(f64::NEG_INFINITY)),
-                |(lo, hi), p| (lo.min(p), hi.max(p)),
-            )
+    fn extent(self) -> f64 {
+        if self.min.cmple(self.max).all() {
+            (self.max - self.min).length()
+        } else {
+            0.
+        }
+    }
+    fn transformed(self, model: Mat4) -> Self {
+        if !self.min.cmple(self.max).all() {
+            return self;
+        }
+        let matrix = model.as_dmat4();
+        Self::of((0..8).map(|i| {
+            matrix.transform_point3(DVec3::new(
+                if i & 1 == 0 { self.min.x } else { self.max.x },
+                if i & 2 == 0 { self.min.y } else { self.max.y },
+                if i & 4 == 0 { self.min.z } else { self.max.z },
+            ))
+        }))
+    }
+    fn separate(self, other: Self, eps: f64) -> bool {
+        let pad = DVec3::splat(eps);
+        self.max.cmplt(other.min - pad).any() || other.max.cmplt(self.min - pad).any()
+    }
+    fn union(self, other: Self) -> Self {
+        Self {
+            min: self.min.min(other.min),
+            max: self.max.max(other.max),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct Solid {
+    polygons: Vec<Polygon>,
+    bounds: Bounds,
+}
+impl Solid {
+    fn new(polygons: Vec<Polygon>) -> Self {
+        let bounds = Bounds::of(polygons.iter().flat_map(|p| p.corners.iter().map(|c| c.p)));
+        Self { polygons, bounds }
+    }
+    fn empty() -> Self {
+        Self::new(Vec::new())
+    }
+}
+
+fn combine(
+    mut left: Solid,
+    right: Solid,
+    mode: BooleanMode,
+    work: &mut Work,
+) -> Result<Solid, CoreError> {
+    work.check(0)?;
+    if left.polygons.is_empty()
+        || right.polygons.is_empty()
+        || left.bounds.separate(right.bounds, work.eps)
+    {
+        return Ok(match mode {
+            BooleanMode::Union => {
+                left.polygons.extend(right.polygons);
+                left.bounds = left.bounds.union(right.bounds);
+                left
+            }
+            BooleanMode::Difference => left,
+            BooleanMode::Intersection => Solid::empty(),
+        });
+    }
+    let mut a = Bsp::default();
+    a.build(left.polygons, work, 0)?;
+    let mut b = Bsp::default();
+    b.build(right.polygons, work, 0)?;
+    match mode {
+        BooleanMode::Union => {
+            a.clip_to(&b, work)?;
+            b.clip_to(&a, work)?;
+            b.invert();
+            b.clip_to(&a, work)?;
+            b.invert();
+            a.build(b.collect(), work, 0)?;
+        }
+        BooleanMode::Difference => {
+            a.invert();
+            a.clip_to(&b, work)?;
+            b.clip_to(&a, work)?;
+            b.invert();
+            b.clip_to(&a, work)?;
+            b.invert();
+            a.build(b.collect(), work, 0)?;
+            a.invert();
+        }
+        BooleanMode::Intersection => {
+            a.invert();
+            b.clip_to(&a, work)?;
+            b.invert();
+            a.clip_to(&b, work)?;
+            b.clip_to(&a, work)?;
+            a.build(b.collect(), work, 0)?;
+            a.invert();
+        }
+    }
+    Ok(Solid::new(a.collect()))
+}
+
+// Divide spatially so that disjoint groups can be joined without BSP clipping.
+fn union_cutters(solids: &mut [Solid], work: &mut Work) -> Result<Solid, CoreError> {
+    work.check(solids.len())?;
+    match solids.len() {
+        0 => return Ok(Solid::empty()),
+        1 => return Ok(std::mem::replace(&mut solids[0], Solid::empty())),
+        _ => {}
+    }
+    let center = |s: &Solid| (s.bounds.min + s.bounds.max) * 0.5;
+    let bounds = Bounds::of(solids.iter().map(center));
+    let size = bounds.max - bounds.min;
+    let axis = if size.x >= size.y && size.x >= size.z {
+        0
+    } else if size.y >= size.z {
+        1
+    } else {
+        2
     };
-    let (amin, amax) = bounds(&pa);
-    let (bmin, bmax) = bounds(&pb);
-    let extent = if pa.is_empty() {
-        0.
-    } else {
-        (amax - amin).length()
+    let middle = solids.len() / 2;
+    // Stable order retains deterministic operand precedence at coincident centres.
+    solids.sort_by(|a, b| center(a)[axis].total_cmp(&center(b)[axis]));
+    let (left, right) = solids.split_at_mut(middle);
+    combine(
+        union_cutters(left, work)?,
+        union_cutters(right, work)?,
+        BooleanMode::Union,
+        work,
+    )
+}
+
+/// Evaluate closed mesh operands in source-local space without repeatedly serializing
+/// intermediate unions into editable meshes. Only the finished results are stitched.
+pub fn boolean_mesh_many(
+    source: &Mesh,
+    cutters: &[(&Mesh, Mat4)],
+    operation: BooleanOperation,
+    options: BooleanOptions,
+    cancel: &AtomicBool,
+) -> Result<(Mesh, Option<Mesh>), CoreError> {
+    use std::collections::HashMap;
+    let mut checked_bounds = HashMap::new();
+    let mut checked = |mesh: &Mesh| -> Result<Bounds, CoreError> {
+        let key = (
+            mesh.vertices.revision(),
+            mesh.indices.revision(),
+            mesh.topology.as_ref().map(|t| t.faces.revision()),
+        );
+        if let Some(&bounds) = checked_bounds.get(&key) {
+            return Ok(bounds);
+        }
+        validate_operand(mesh, cancel)?;
+        let bounds = Bounds::of(
+            mesh.vertices
+                .iter()
+                .map(|v| Vec3::from_array(v.position).as_dvec3()),
+        );
+        checked_bounds.insert(key, bounds);
+        Ok(bounds)
+    };
+    let source_bounds = checked(source)?;
+    let mut extent = source_bounds.extent();
+    let mut solids = Vec::new();
+    let mut triangles = 0usize;
+    for &(mesh, transform) in cutters {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(error("Булева операция отменена"));
+        }
+        if !transform.is_finite() || transform.determinant().abs() < 1e-10 {
+            return Err(error("Восстановите ненулевой масштаб объекта"));
+        }
+        let bounds = checked(mesh)?.transformed(transform);
+        if mesh.indices.is_empty() {
+            continue;
+        }
+        let scale = bounds.extent().max(source_bounds.extent()).max(0.001);
+        if operation != BooleanOperation::Combine(BooleanMode::Union)
+            && source_bounds.separate(bounds, scale * 1e-7)
+        {
+            continue;
+        }
+        triangles = triangles.saturating_add(mesh.indices.len() / 3);
+        if triangles > 20_000 {
+            return Err(error(
+                "Резаки, участвующие в пересечении, превышают 20 000 треугольников",
+            ));
+        }
+        extent = extent.max(bounds.extent());
+        solids.push(Solid::new(polygons(mesh, transform, cancel)?));
     }
-    .max(if pb.is_empty() {
-        0.
-    } else {
-        (bmax - bmin).length()
-    });
     let mut work = Work {
         eps: extent.max(0.001) * 1e-7,
         steps: 0,
         cancel,
     };
-    work.check(0)?;
-    let disjoint = amax.cmplt(bmin - DVec3::splat(work.eps)).any()
-        || bmax.cmplt(amin - DVec3::splat(work.eps)).any();
-    if disjoint && mode == BooleanMode::Difference {
-        return Ok(a.clone());
+    let cutters = union_cutters(&mut solids, &mut work)?;
+    if cutters.polygons.is_empty() && operation != BooleanOperation::Combine(BooleanMode::Union) {
+        return match operation {
+            BooleanOperation::Combine(BooleanMode::Intersection) => {
+                Ok((emit_mesh(source, Vec::new(), options, &mut work)?, None))
+            }
+            BooleanOperation::Split => Ok((
+                source.clone(),
+                Some(emit_mesh(source, Vec::new(), options, &mut work)?),
+            )),
+            _ => Ok((source.clone(), None)),
+        };
     }
-    let polygons = if pa.is_empty() || pb.is_empty() || disjoint {
-        match mode {
-            BooleanMode::Union => pa.into_iter().chain(pb).collect(),
-            BooleanMode::Difference => pa,
-            BooleanMode::Intersection => vec![],
+    let base = Solid::new(polygons(source, Mat4::IDENTITY, cancel)?);
+    let (mode, inside) = match operation {
+        BooleanOperation::Combine(mode) => (mode, None),
+        BooleanOperation::Split => {
+            let inside = combine(
+                base.clone(),
+                cutters.clone(),
+                BooleanMode::Intersection,
+                &mut work,
+            )?;
+            (
+                BooleanMode::Difference,
+                Some(emit_mesh(source, inside.polygons, options, &mut work)?),
+            )
         }
-    } else {
-        let mut left = Bsp::default();
-        left.build(pa, &mut work, 0)?;
-        let mut right = Bsp::default();
-        right.build(pb, &mut work, 0)?;
-        match mode {
-            BooleanMode::Union => {
-                left.clip_to(&right, &mut work)?;
-                right.clip_to(&left, &mut work)?;
-                right.invert();
-                right.clip_to(&left, &mut work)?;
-                right.invert();
-                left.build(right.collect(), &mut work, 0)?;
-            }
-            BooleanMode::Difference => {
-                left.invert();
-                left.clip_to(&right, &mut work)?;
-                right.clip_to(&left, &mut work)?;
-                right.invert();
-                right.clip_to(&left, &mut work)?;
-                right.invert();
-                left.build(right.collect(), &mut work, 0)?;
-                left.invert();
-            }
-            BooleanMode::Intersection => {
-                left.invert();
-                right.clip_to(&left, &mut work)?;
-                right.invert();
-                left.clip_to(&right, &mut work)?;
-                right.clip_to(&left, &mut work)?;
-                left.build(right.collect(), &mut work, 0)?;
-                left.invert();
-            }
-        }
-        left.collect()
     };
+    let result = combine(base, cutters, mode, &mut work)?;
+    Ok((
+        emit_mesh(source, result.polygons, options, &mut work)?,
+        inside,
+    ))
+}
+
+fn emit_mesh(
+    a: &Mesh,
+    polygons: Vec<Polygon>,
+    options: BooleanOptions,
+    work: &mut Work,
+) -> Result<Mesh, CoreError> {
     let polygons = if options.dissolve_coplanar {
-        clean_polygons(polygons, &mut work)?
+        clean_polygons(polygons, work)?
     } else {
         polygons
     };

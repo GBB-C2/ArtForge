@@ -28,16 +28,12 @@ impl MaterialParts {
     pub fn ray_object_id(&self, node: u64) -> Option<f32> { self.ray_object_ids.get(&node).copied() }
     pub fn ray_scene(&self) -> Option<Arc<Project>> { self.ray_project.clone() }
     pub fn selection_parts(&self, selected: &[u64]) -> std::collections::BTreeSet<u64> {
-        selected
-            .iter()
-            .copied()
-            .chain(
-                self.owners
-                    .iter()
-                    .filter(|(owner, _)| selected.contains(owner))
-                    .map(|(_, part)| *part),
-            )
-            .collect()
+        let mut ids: std::collections::BTreeSet<_> = selected.iter().copied().collect();
+        if !self.owners.is_empty() && !ids.is_empty() {
+            let selected: std::collections::HashSet<_> = selected.iter().copied().collect();
+            ids.extend(self.owners.iter().filter(|(owner, _)| selected.contains(owner)).map(|(_, part)| *part));
+        }
+        ids
     }
     pub fn scene(
         &mut self,
@@ -110,8 +106,9 @@ impl MaterialParts {
         Arc::make_mut(self.ray_project.as_mut().unwrap()).materials.clone_from(&source.materials);
     }
     fn rebuild(&mut self, source: &Project) -> Result<(), String> {
-        self.meshes
-            .retain(|id, _| source.mesh(*id).is_some_and(has_overrides));
+        let source_meshes: HashMap<_, _> = source.meshes.iter().map(|m| (m.id, m)).collect();
+        let materials: HashMap<_, _> = source.materials.iter().map(|m| (m.id, m)).collect();
+        self.meshes.retain(|id, _| source_meshes.get(id).copied().is_some_and(has_overrides));
         self.owners.clear(); self.ray_object_ids.clear(); self.layer_masks.clear(); self.overlays.clear();
         let mut project = source.clone();
         let mut next_mesh = source.meshes.iter().map(|m| m.id).max().unwrap_or(0);
@@ -131,7 +128,7 @@ impl MaterialParts {
             parts.insert(mesh.id, entry.1.clone());
         }
         let mut meshes = HashMap::new();
-        for mesh in &source.meshes {
+        for (index, mesh) in source.meshes.iter().enumerate() {
             let Some(batches) = parts.get(&mesh.id) else {
                 continue;
             };
@@ -139,7 +136,7 @@ impl MaterialParts {
             for (i, batch) in batches.iter().enumerate() {
                 let mut copy = batch.mesh.clone();
                 if i == 0 {
-                    *project.meshes.iter_mut().find(|m| m.id == mesh.id).unwrap() = copy;
+                    project.meshes[index] = copy;
                     ids.push((mesh.id,batch.painted));
                 } else {
                     next_mesh = next_mesh
@@ -152,12 +149,12 @@ impl MaterialParts {
             }
             meshes.insert(mesh.id, ids);
         }
-        for node in &source.nodes {
+        for (node_index, node) in source.nodes.iter().enumerate() {
             let Some(ids) = node.mesh.and_then(|id| meshes.get(&id)) else {
                 continue;
             };
             if ids.first().is_some_and(|(_,painted)| *painted) {
-                project.node_mut(node.id).unwrap().material_layers.clear();
+                project.nodes[node_index].material_layers.clear();
             }
             for &(mesh,painted) in ids.iter().skip(1) {
                 next_node = next_node
@@ -180,9 +177,9 @@ impl MaterialParts {
         // passes are appended bottom-to-top; stable transparent sorting preserves
         // that order without displacing the surface or changing authoring topology.
         let mut next_material = source.materials.iter().map(|m| m.id).max().unwrap_or(0);
-        for node in &source.nodes {
+        for (node_index, node) in source.nodes.iter().enumerate() {
             if node.material_layers.iter().all(|layer| !layer.visible) { continue; }
-            let Some(original) = node.mesh.and_then(|id| source.mesh(id)) else { continue; };
+            let Some(original) = node.mesh.and_then(|id| source_meshes.get(&id).copied()) else { continue; };
             // Explicit polygon assignments cover the object-wide layer stack.
             // The same split is used for raster passes and secondary rays.
             let mut base_indices = Vec::new(); let mut base_faces = Vec::new(); let mut offset = 0;
@@ -194,7 +191,7 @@ impl MaterialParts {
             }
             if base_indices.is_empty() { continue; }
             for layer in &node.material_layers {
-                let Some(material) = source.material(layer.material).filter(|m| layer.visible && m.visible) else { continue; };
+                let Some(material) = materials.get(&layer.material).copied().filter(|m| layer.visible && m.visible) else { continue; };
                 next_mesh = next_mesh.checked_add(1).ok_or("Закончились ID мешей")?;
                 next_node = next_node.checked_add(1).ok_or("Закончились ID узлов")?;
                 next_material = next_material.checked_add(1).ok_or("Закончились ID материалов")?;
@@ -218,9 +215,7 @@ impl MaterialParts {
                 copy.camera = None; copy.fluid = None; copy.physics = None; copy.destruction = None;
                 copy.material_layers.clear();
                 self.owners.push((node.id, copy.id));
-                if let Some(index) = self.ray_project.as_ref().unwrap().nodes.iter().position(|n| n.id == node.id) {
-                    self.ray_object_ids.insert(copy.id, index as f32 + 1.);
-                }
+                self.ray_object_ids.insert(copy.id, node_index as f32 + 1.);
                 project.materials.push(material); project.meshes.push(mesh); project.nodes.push(copy);
             }
         }

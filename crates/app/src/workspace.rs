@@ -356,6 +356,18 @@ pub fn scene_rows_filtered(
 ) -> Vec<SceneRow> {
     let query = query.trim().to_lowercase();
     let filtered = !query.is_empty() || joints_only || hidden != 0;
+    let matches_node = |n: &poseforge_core::Node| {
+        let kind = if n.camera.is_some() { 8 } else if n.is_joint { 2 } else { 1 };
+        hidden & kind == 0 && (!joints_only || n.is_joint) && (
+            query.is_empty() || n.name.to_lowercase().contains(&query)
+            || n.camera.is_some() && "камера camera".contains(&query)
+        )
+    };
+    if project.outliner.order.is_empty() && project.nodes.iter().all(|n| n.parent.is_none()) {
+        return project.nodes.iter().filter(|n| matches_node(n)).map(|n| SceneRow {
+            id: n.id, depth: 0, has_children: false, matches: true,
+        }).collect();
+    }
     let by_id: BTreeMap<_, _> = project.nodes.iter().map(|n| (n.id, n)).collect();
     let mut children: BTreeMap<Option<u64>, Vec<u64>> = BTreeMap::new();
     let mut matches = BTreeSet::new();
@@ -363,16 +375,7 @@ pub fn scene_rows_filtered(
     for n in &project.nodes {
         let parent = n.parent.filter(|p| by_id.contains_key(p));
         children.entry(parent).or_default().push(n.id);
-        let name_matches = n.name.to_lowercase().contains(&query);
-        let camera_matches = n.camera.is_some() && "камера camera".contains(&query);
-        let kind = if n.camera.is_some() {
-            8
-        } else if n.is_joint {
-            2
-        } else {
-            1
-        };
-        if hidden & kind == 0 && (!joints_only || n.is_joint) && (name_matches || camera_matches) {
+        if filtered && matches_node(n) {
             matches.insert(n.id);
             let mut cursor = Some(n.id);
             while let Some(id) = cursor {
@@ -417,7 +420,7 @@ pub fn scene_rows_filtered(
             id,
             depth,
             has_children: descendants.is_some_and(|c| !c.is_empty()),
-            matches: matches.contains(&id),
+            matches: !filtered || matches.contains(&id),
         });
         if filtered || !collapsed.contains(&id) {
             if let Some(c) = descendants {

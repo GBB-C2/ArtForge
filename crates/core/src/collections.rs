@@ -59,6 +59,7 @@ impl Project {
         }
     }
     pub fn node_collection(&self, id: NodeId) -> Option<u64> {
+        if self.collections.is_empty() { return None; }
         let mut cursor = Some(id);
         let mut seen = BTreeSet::new();
         while let Some(id) = cursor {
@@ -126,7 +127,7 @@ impl Project {
             })
             .collect()
     }
-    pub(crate) fn validate_collections(&self) -> Result<(), CoreError> {
+    pub(crate) fn validate_collections(&self, node_exists: impl Fn(NodeId) -> bool) -> Result<(), CoreError> {
         if self.collections.len() > 256 {
             return Err(CoreError::Invalid("не более 256 коллекций".into()));
         }
@@ -157,7 +158,7 @@ impl Project {
                 return Err(CoreError::Invalid("имя или ID коллекции".into()));
             }
             for id in &c.members {
-                if self.node(*id).is_none() || !assigned.insert(*id) {
+                if !node_exists(*id) || !assigned.insert(*id) {
                     return Err(CoreError::Invalid(
                         "объект коллекции отсутствует или находится в двух коллекциях".into(),
                     ));
@@ -177,6 +178,11 @@ impl Project {
     }
     fn accessible_nodes(&self, export: bool, lock: bool) -> BTreeSet<NodeId> {
         use std::collections::BTreeMap;
+        if self.collections.is_empty() && self.nodes.iter().all(|n| n.parent.is_none()) {
+            return self.nodes.iter()
+                .filter(|n| (if export { n.render_visible } else { n.visible }) && (!lock || !n.locked))
+                .map(|n| n.id).collect();
+        }
         let nodes: BTreeMap<_, _> = self.nodes.iter().map(|n| (n.id, n)).collect();
         let blocked: BTreeSet<_> = self
             .collections
@@ -227,6 +233,7 @@ impl Project {
     }
     pub fn collection_membership(&self) -> std::collections::BTreeMap<NodeId, u64> {
         use std::collections::BTreeMap;
+        if self.collections.is_empty() { return BTreeMap::new(); }
         let nodes: BTreeMap<_, _> = self.nodes.iter().map(|n| (n.id, n.parent)).collect();
         let assigned: BTreeMap<_, _> = self
             .collections
